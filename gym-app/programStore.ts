@@ -123,6 +123,7 @@ type ProgramContextType = {
   deleteProgram: (id: string) => void;
   setActive: (id: string) => void;
   updateProgram: (id: string, name: string, splitDays: SplitDay[]) => void;
+  addSharedProgram: (program: SharedProgram) => void;
   saveSharedProgram: (id: string) => void;
   removeSharedProgram: (id: string) => void;
 };
@@ -158,6 +159,13 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
     setPrograms(prev => prev.map(p => p.id === id ? { ...p, name, splitDays } : p));
   }, []);
 
+  const addSharedProgram = useCallback((program: SharedProgram) => {
+    setSharedPrograms(prev => {
+      if (prev.some(p => p.id === program.id)) return prev;
+      return [...prev, program];
+    });
+  }, []);
+
   const saveSharedProgram = useCallback((id: string) => {
     setSharedPrograms(prev => {
       const shared = prev.find(p => p.id === id);
@@ -179,7 +187,7 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
 
   return React.createElement(
     ProgramContext.Provider,
-    { value: { programs, activeId, sharedPrograms, addProgram, deleteProgram, setActive, updateProgram, saveSharedProgram, removeSharedProgram } },
+    { value: { programs, activeId, sharedPrograms, addProgram, deleteProgram, setActive, updateProgram, addSharedProgram, saveSharedProgram, removeSharedProgram } },
     children
   );
 }

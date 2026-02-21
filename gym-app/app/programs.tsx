@@ -205,7 +205,7 @@ export default function ProgramsScreen() {
               const isExpanded = expandedId === program.id;
               return (
                 <View key={program.id}>
-                  <BounceButton style={[styles.programCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]} onPress={() => toggleExpand(program.id)}>
+                  <BounceButton style={[styles.programCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, borderLeftColor: program.color, borderLeftWidth: 4 }]} onPress={() => toggleExpand(program.id)}>
                     <View style={styles.programCardHeader}>
                       <View>
                         <Text style={[styles.programName, { color: colors.primaryText }]}>{program.name}</Text>

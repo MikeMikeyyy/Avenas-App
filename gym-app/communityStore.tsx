@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
+import { SplitDay } from './programStore';
 
 // Types
 export type MemberRole = 'owner' | 'member';
@@ -20,7 +21,7 @@ export type SharedWorkout = {
   sharedWith: 'everyone' | string[]; // 'everyone' or array of member IDs
   status: 'pending' | 'accepted' | 'declined';
   color: string;
-  splitDays: number;
+  splitDays: SplitDay[];
   direction?: 'toMembers' | 'toCoach'; // default toMembers
 };
 
@@ -104,7 +105,12 @@ const defaultCommunities: Community[] = [
         sharedWith: 'everyone',
         status: 'pending',
         color: '#47DDFF',
-        splitDays: 4,
+        splitDays: [
+          { type: 'training', sessions: [{ label: 'Squat', exercises: [{ name: 'Squats', sets: 5 }, { name: 'Romanian Deadlift', sets: 3 }, { name: 'Leg Press', sets: 3 }] }] },
+          { type: 'training', sessions: [{ label: 'Bench', exercises: [{ name: 'Bench Press', sets: 5 }, { name: 'Incline Press', sets: 3 }, { name: 'Tricep Pushdown', sets: 3 }] }] },
+          { type: 'rest' },
+          { type: 'training', sessions: [{ label: 'Deadlift', exercises: [{ name: 'Deadlift', sets: 5 }, { name: 'Overhead Press', sets: 4 }, { name: 'Pull Ups', sets: 3 }] }] },
+        ],
       },
       {
         id: 'sw-2',
@@ -115,7 +121,13 @@ const defaultCommunities: Community[] = [
         sharedWith: ['user-1'],
         status: 'accepted',
         color: '#A78BFA',
-        splitDays: 5,
+        splitDays: [
+          { type: 'training', sessions: [{ label: 'Chest/Triceps', exercises: [{ name: 'Bench Press', sets: 4 }, { name: 'Incline Flyes', sets: 3 }, { name: 'Skull Crushers', sets: 3 }] }] },
+          { type: 'training', sessions: [{ label: 'Back/Biceps', exercises: [{ name: 'Pull Ups', sets: 4 }, { name: 'Barbell Row', sets: 4 }, { name: 'Bicep Curls', sets: 3 }] }] },
+          { type: 'training', sessions: [{ label: 'Legs', exercises: [{ name: 'Squats', sets: 4 }, { name: 'Leg Press', sets: 3 }, { name: 'Leg Curls', sets: 3 }] }] },
+          { type: 'training', sessions: [{ label: 'Shoulders', exercises: [{ name: 'Overhead Press', sets: 4 }, { name: 'Lateral Raises', sets: 4 }, { name: 'Face Pulls', sets: 3 }] }] },
+          { type: 'rest' },
+        ],
       },
     ],
     chatMessages: [
@@ -175,7 +187,11 @@ const defaultOwnedCommunities: Community[] = [
         sharedWith: 'everyone',
         status: 'accepted',
         color: '#34D399',
-        splitDays: 3,
+        splitDays: [
+          { type: 'training', sessions: [{ label: 'Full Body', exercises: [{ name: 'Squats', sets: 3 }, { name: 'Bench Press', sets: 3 }, { name: 'Barbell Row', sets: 3 }] }] },
+          { type: 'rest' },
+          { type: 'training', sessions: [{ label: 'Full Body', exercises: [{ name: 'Deadlift', sets: 3 }, { name: 'Overhead Press', sets: 3 }, { name: 'Pull Ups', sets: 3 }] }] },
+        ],
       },
     ],
     chatMessages: [

@@ -10,9 +10,8 @@ import {
   Animated,
   TextInput,
   Modal,
-  KeyboardAvoidingView,
-  FlatList,
   Keyboard,
+  FlatList,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -111,7 +110,7 @@ export default function CommunityScreen() {
     sendPrivateMessage,
     getPrivateChat,
   } = useCommunityStore();
-  const { programs } = useProgramStore();
+  const { programs, addSharedProgram } = useProgramStore();
   const { isDark, colors } = useTheme();
 
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -160,13 +159,18 @@ export default function CommunityScreen() {
   const [privateChatMember, setPrivateChatMember] = useState<Member | null>(null);
   const [privateMessage, setPrivateMessage] = useState('');
 
-  // Track keyboard visibility to adjust chat input margin
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  // Keyboard height for chat input positioning
+  const [chatKeyboardHeight, setChatKeyboardHeight] = useState(0);
   useEffect(() => {
-    const showSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKeyboardVisible(false));
-    return () => { showSub.remove(); hideSub.remove(); };
+    const show = Keyboard.addListener('keyboardWillShow', e => {
+      setChatKeyboardHeight(e.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener('keyboardWillHide', () => {
+      setChatKeyboardHeight(0);
+    });
+    return () => { show.remove(); hide.remove(); };
   }, []);
+
 
   // Unread message tracking: stores count of messages already seen
   const [readGroupChatCounts, setReadGroupChatCounts] = useState<Record<string, number>>({});
@@ -243,6 +247,7 @@ export default function CommunityScreen() {
     if (chatMessage.trim() && selectedCommunity) {
       sendMessage(selectedCommunity.id, chatMessage.trim());
       setChatMessage('');
+      Keyboard.dismiss();
       // Refresh the selected community
       const updated = isOwnerView
         ? ownedCommunities.find(c => c.id === selectedCommunity.id)
@@ -261,7 +266,7 @@ export default function CommunityScreen() {
           sharedBy: CURRENT_USER.name,
           sharedWith: shareWith === 'everyone' ? 'everyone' : selectedMembers,
           color: program.color,
-          splitDays: program.splitDays.length,
+          splitDays: program.splitDays,
         });
         setSelectedProgramId(null);
         setShareWith('everyone');
@@ -284,7 +289,7 @@ export default function CommunityScreen() {
           programName: program.name,
           sharedBy: CURRENT_USER.name,
           color: program.color,
-          splitDays: program.splitDays.length,
+          splitDays: program.splitDays,
         });
         setSelectedProgramId(null);
         setViewMode('detail');
@@ -553,7 +558,7 @@ export default function CommunityScreen() {
                   <View style={styles.workoutInfo}>
                     <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
                     <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
-                      from {workout.sharedBy} · {workout.splitDays} day split
+                      from {workout.sharedBy} · {workout.splitDays.length} day split
                     </Text>
                   </View>
                   <View style={styles.workoutActions}>
@@ -561,6 +566,13 @@ export default function CommunityScreen() {
                       style={styles.acceptBtn}
                       onPress={() => {
                         acceptWorkout(selectedCommunity.id, workout.id);
+                        addSharedProgram({
+                          id: workout.id,
+                          name: workout.programName,
+                          color: workout.color,
+                          splitDays: workout.splitDays,
+                          sharedBy: workout.sharedBy,
+                        });
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                         const updated = joinedCommunities.find(c => c.id === selectedCommunity.id);
                         if (updated) setSelectedCommunity(updated);
@@ -636,7 +648,7 @@ export default function CommunityScreen() {
                   <View style={styles.workoutInfo}>
                     <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
                     <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
-                      {workout.splitDays} day split · Shared {formatDate(workout.sharedAt)}
+                      {workout.splitDays.length} day split · Shared {formatDate(workout.sharedAt)}
                     </Text>
                     <Text style={[styles.workoutSharedWith, { color: colors.secondaryText }]}>
                       {workout.sharedWith === 'everyone'
@@ -658,7 +670,7 @@ export default function CommunityScreen() {
                   <View style={styles.workoutInfo}>
                     <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
                     <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
-                      from {workout.sharedBy} · {workout.splitDays} day split
+                      from {workout.sharedBy} · {workout.splitDays.length} day split
                     </Text>
                   </View>
                   {workout.status === 'pending' && (
@@ -705,7 +717,7 @@ export default function CommunityScreen() {
                   <View style={styles.workoutInfo}>
                     <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
                     <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
-                      {workout.splitDays} day split · Shared {formatDate(workout.sharedAt)}
+                      {workout.splitDays.length} day split · Shared {formatDate(workout.sharedAt)}
                     </Text>
                   </View>
                   <View style={styles.acceptedBadge}>
@@ -725,7 +737,7 @@ export default function CommunityScreen() {
                   <View style={styles.workoutInfo}>
                     <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
                     <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
-                      {workout.splitDays} day split · {workout.status === 'pending' ? 'Pending' : workout.status === 'accepted' ? 'Seen' : 'Declined'}
+                      {workout.splitDays.length} day split · {workout.status === 'pending' ? 'Pending' : workout.status === 'accepted' ? 'Seen' : 'Declined'}
                     </Text>
                   </View>
                   {workout.status === 'pending' && (
@@ -845,11 +857,7 @@ export default function CommunityScreen() {
     const messages = currentCommunity?.chatMessages || [];
 
     return (
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
+      <View style={{ flex: 1 }}>
         <View style={styles.groupChatHeader}>
           <TouchableOpacity onPress={handleBack} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
             <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
@@ -891,24 +899,18 @@ export default function CommunityScreen() {
           }}
         />
 
-        <View style={[styles.chatInputContainer, { backgroundColor: colors.cardSolid, borderTopColor: colors.border, marginBottom: keyboardVisible ? 10 : (Platform.OS === 'ios' ? 110 : 85) }]}>
+        <View style={[styles.chatInputContainer, { backgroundColor: colors.cardSolid, borderTopColor: colors.border, marginBottom: chatKeyboardHeight > 0 ? chatKeyboardHeight : (Platform.OS === 'ios' ? 100 : 85) }]}>
           <TextInput
             style={[styles.chatInput, { backgroundColor: colors.inputBg, color: colors.primaryText }]}
             placeholder="Type a message..."
             placeholderTextColor={colors.tertiaryText}
             value={chatMessage}
             onChangeText={setChatMessage}
-            multiline
+            returnKeyType="send"
+            onSubmitEditing={handleSendMessage}
           />
-          <BounceButton
-            style={[styles.sendButton, { backgroundColor: selectedCommunity.color }]}
-            onPress={handleSendMessage}
-            disabled={!chatMessage.trim()}
-          >
-            <Ionicons name="send" size={20} color="#fff" />
-          </BounceButton>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     );
   };
 
@@ -1096,15 +1098,12 @@ export default function CommunityScreen() {
           privateMessage.trim()
         );
         setPrivateMessage('');
+        Keyboard.dismiss();
       }
     };
 
     return (
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
+      <View style={{ flex: 1 }}>
         <View style={styles.privateChatHeader}>
           <TouchableOpacity onPress={handleBack} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
             <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
@@ -1157,24 +1156,18 @@ export default function CommunityScreen() {
           }}
         />
 
-        <View style={[styles.privateChatInputContainer, { backgroundColor: colors.cardSolid, borderTopColor: colors.border, marginBottom: keyboardVisible ? 10 : (Platform.OS === 'ios' ? 110 : 85) }]}>
+        <View style={[styles.privateChatInputContainer, { backgroundColor: colors.cardSolid, borderTopColor: colors.border, marginBottom: chatKeyboardHeight > 0 ? chatKeyboardHeight : (Platform.OS === 'ios' ? 100 : 85) }]}>
           <TextInput
             style={[styles.chatInput, { backgroundColor: colors.inputBg, color: colors.primaryText }]}
             placeholder="Type a message..."
             placeholderTextColor={colors.tertiaryText}
             value={privateMessage}
             onChangeText={setPrivateMessage}
-            multiline
+            returnKeyType="send"
+            onSubmitEditing={handleSendPrivate}
           />
-          <BounceButton
-            style={[styles.sendButton, { backgroundColor: selectedCommunity.color }]}
-            onPress={handleSendPrivate}
-            disabled={!privateMessage.trim()}
-          >
-            <Ionicons name="send" size={20} color="#fff" />
-          </BounceButton>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     );
   };
 
@@ -1522,7 +1515,7 @@ export default function CommunityScreen() {
                   <View style={[styles.programColorDot, { backgroundColor: workout.color, marginRight: 12 }]} />
                   <View style={styles.memberInfo}>
                     <Text style={[styles.memberName, { color: colors.primaryText }]}>{workout.programName}</Text>
-                    <Text style={[styles.memberJoined, { color: colors.secondaryText }]}>{workout.splitDays} day split · Shared {formatDate(workout.sharedAt)}</Text>
+                    <Text style={[styles.memberJoined, { color: colors.secondaryText }]}>{workout.splitDays.length} day split · Shared {formatDate(workout.sharedAt)}</Text>
                   </View>
                   <Ionicons name="trash-outline" size={20} color="#e74c3c" />
                 </BounceButton>
