@@ -12,6 +12,7 @@ import {
   Alert,
   TextInput,
   Keyboard,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -118,6 +119,30 @@ function JournalDetail({
   const [editVal1, setEditVal1] = useState(''); // reps or hold secs
   const [editVal2, setEditVal2] = useState(''); // weight
 
+  const [showDurationEdit, setShowDurationEdit] = useState(false);
+  const [durationH, setDurationH] = useState('');
+  const [durationM, setDurationM] = useState('');
+
+  const openDurationEdit = () => {
+    const h = Math.floor(entry.durationSecs / 3600);
+    const m = Math.floor((entry.durationSecs % 3600) / 60);
+    setDurationH(h > 0 ? String(h) : '');
+    setDurationM(m > 0 ? String(m) : '');
+    setShowDurationEdit(true);
+  };
+
+  const commitDuration = () => {
+    const h = parseInt(durationH) || 0;
+    const m = parseInt(durationM) || 0;
+    const secs = h * 3600 + m * 60;
+    if (secs <= 0) {
+      Alert.alert('Invalid Duration', 'Please enter at least 1 minute.');
+      return;
+    }
+    onUpdateEntry({ ...entry, durationSecs: secs });
+    setShowDurationEdit(false);
+  };
+
   const startEdit = (si: number, ei: number, setI: number, set: any, mode: 'reps' | 'hold') => {
     setEditTarget({ si, ei, setI, mode });
     setEditVal1(mode === 'hold' ? (set.hold > 0 ? String(set.hold) : '') : (set.reps > 0 ? String(set.reps) : ''));
@@ -155,10 +180,17 @@ function JournalDetail({
 
       {/* Stats row */}
       <View style={styles.statRow}>
-        <View style={[styles.statPill, { backgroundColor: `${entry.programColor}20`, borderColor: entry.programColor }]}>
+        <TouchableOpacity
+          style={[styles.statPill, { backgroundColor: `${entry.programColor}20`, borderColor: entry.programColor }]}
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); openDurationEdit(); }}
+          activeOpacity={0.7}
+        >
           <Ionicons name="time-outline" size={14} color={isDark ? entry.programColor : colors.primaryText} />
-          <Text style={[styles.statPillText, { color: isDark ? entry.programColor : colors.primaryText }]}>{formatDuration(entry.durationSecs)}</Text>
-        </View>
+          <Text style={[styles.statPillText, { color: isDark ? entry.programColor : colors.primaryText }]}>
+            {entry.durationSecs > 0 ? formatDuration(entry.durationSecs) : 'Add time'}
+          </Text>
+          <Ionicons name="pencil-outline" size={11} color={isDark ? entry.programColor : colors.primaryText} style={{ opacity: 0.6 }} />
+        </TouchableOpacity>
         {entry.totalVolume > 0 && (
           <View style={[styles.statPill, { backgroundColor: `${entry.programColor}20`, borderColor: entry.programColor }]}>
             <Ionicons name="barbell-outline" size={14} color={isDark ? entry.programColor : colors.primaryText} />
@@ -284,6 +316,50 @@ function JournalDetail({
           })}
         </View>
       ))}
+      {/* Duration edit modal */}
+      <Modal visible={showDurationEdit} transparent animationType="slide" onRequestClose={() => setShowDurationEdit(false)}>
+        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setShowDurationEdit(false)} />
+        <View style={[styles.durationSheet, { backgroundColor: colors.modalBg }]}>
+          <Text style={[styles.durationSheetTitle, { color: colors.primaryText }]}>Edit Duration</Text>
+          <View style={styles.durationInputRow}>
+            <View style={styles.durationInputGroup}>
+              <TextInput
+                style={[styles.durationInput, { color: colors.primaryText, backgroundColor: colors.inputBg, borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)' }]}
+                value={durationH}
+                onChangeText={setDurationH}
+                keyboardType="number-pad"
+                placeholder="0"
+                placeholderTextColor={colors.tertiaryText}
+                maxLength={2}
+                selectTextOnFocus
+              />
+              <Text style={[styles.durationInputLabel, { color: colors.secondaryText }]}>hrs</Text>
+            </View>
+            <Text style={[styles.durationColon, { color: colors.tertiaryText }]}>:</Text>
+            <View style={styles.durationInputGroup}>
+              <TextInput
+                style={[styles.durationInput, { color: colors.primaryText, backgroundColor: colors.inputBg, borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)' }]}
+                value={durationM}
+                onChangeText={v => { const n = parseInt(v); setDurationM(isNaN(n) ? '' : String(Math.min(n, 59))); }}
+                keyboardType="number-pad"
+                placeholder="00"
+                placeholderTextColor={colors.tertiaryText}
+                maxLength={2}
+                selectTextOnFocus
+              />
+              <Text style={[styles.durationInputLabel, { color: colors.secondaryText }]}>min</Text>
+            </View>
+          </View>
+          <View style={styles.durationSheetActions}>
+            <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]} onPress={() => setShowDurationEdit(false)}>
+              <Text style={[styles.durationActionText, { color: colors.secondaryText }]}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: entry.programColor }]} onPress={commitDuration}>
+              <Text style={[styles.durationActionText, { color: '#fff' }]}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -1170,6 +1246,64 @@ const styles = StyleSheet.create({
     fontFamily: 'Arimo_400Regular',
     marginTop: 24,
     opacity: 0.6,
+  },
+
+  // Duration edit modal
+  durationSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 28,
+  },
+  durationSheetTitle: {
+    fontSize: 17,
+    fontFamily: 'Arimo_700Bold',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  durationInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 24,
+  },
+  durationInputGroup: {
+    alignItems: 'center',
+    gap: 6,
+  },
+  durationInput: {
+    width: 80,
+    height: 54,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    fontSize: 26,
+    fontFamily: 'Arimo_700Bold',
+    textAlign: 'center',
+  },
+  durationInputLabel: {
+    fontSize: 12,
+    fontFamily: 'Arimo_400Regular',
+  },
+  durationColon: {
+    fontSize: 26,
+    fontFamily: 'Arimo_700Bold',
+    marginBottom: 18,
+  },
+  durationSheetActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  durationActionBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  durationActionText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
   },
 
   // Log workout modal

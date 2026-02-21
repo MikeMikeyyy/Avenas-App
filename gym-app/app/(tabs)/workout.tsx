@@ -13,6 +13,7 @@ import {
   LayoutAnimation,
   UIManager,
   Alert,
+  Modal,
 } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -200,7 +201,7 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
       {exercise.sets.map((s, si) => {
         const isWarmup = !!s.isWarmup;
         const workingIndex = exercise.sets.slice(0, si).filter(x => !x.isWarmup).length + 1;
-        const completed = isHold ? (s.hold ?? 0) > 0 : s.reps > 0;
+        const completed = isHold ? ((s.hold ?? 0) > 0 && (s.weight ?? 0) > 0) : (s.reps > 0 && (s.weight ?? 0) > 0);
         const isLast = si === exercise.sets.length - 1;
         return (
           <View key={s.set} style={styles.dataRow}>
@@ -433,6 +434,7 @@ export default function WorkoutScreen() {
   const { isDark, colors } = useTheme();
   const activeProgram = programs.find(p => p.id === activeId);
   const PAST_DAYS = 7;
+  const PICK_ITEM_H = 50;
   const todayIndex = PAST_DAYS;
 
   // calendarIndex: 0..PAST_DAYS-1 = past days, PAST_DAYS = today, PAST_DAYS+1.. = future days
@@ -500,11 +502,13 @@ export default function WorkoutScreen() {
     promptedDays.current.add(0);
     setCalendarIndex(PAST_DAYS);
     workoutState.startTimer(0);
+    setWorkoutStartTime(prev => prev ?? new Date());
   };
 
   const handleStartCurrentDay = () => {
     promptedDays.current.add(selectedDayIndex);
     workoutState.startTimer(selectedDayIndex);
+    setWorkoutStartTime(prev => prev ?? new Date());
   };
 
   const maybePromptMakeToday = (fallback: () => void) => {
@@ -570,6 +574,21 @@ export default function WorkoutScreen() {
   const [timerRunning, setTimerRunning] = useState(!!workoutState.getTimerStartedAt(selectedDayIndex));
   const [timerPaused, setTimerPaused] = useState(workoutState.getTimerPausedElapsed(selectedDayIndex) > 0);
 
+  // Wall-clock start/end times for editable duration
+  const [workoutStartTime, setWorkoutStartTime] = useState<Date | null>(null);
+  const [workoutEndTime, setWorkoutEndTime] = useState<Date | null>(null);
+  const [editingTime, setEditingTime] = useState<'start' | 'end' | null>(null);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [lastEntryId, setLastEntryId] = useState<string | null>(null);
+
+  // Scroll-wheel picker state
+  const [pickerHour, setPickerHour] = useState(12);
+  const [pickerMinute, setPickerMinute] = useState(0);
+  const [pickerAmPm, setPickerAmPm] = useState<'AM' | 'PM'>('AM');
+  const hourScrollRef = useRef<ScrollView>(null);
+  const minuteScrollRef = useRef<ScrollView>(null);
+  const ampmScrollRef = useRef<ScrollView>(null);
+
   useEffect(() => {
     return workoutState.subscribe(setWorkoutFinished);
   }, []);
@@ -586,6 +605,65 @@ export default function WorkoutScreen() {
     const unsub = workoutState.subscribeTimer(sync);
     return unsub;
   }, [selectedDayIndex]);
+
+  // Restore wall-clock start time from AsyncStorage on day change (survives app restarts)
+  useEffect(() => {
+    const inMemory = workoutState.getWallStartTime(selectedDayIndex);
+    if (inMemory) {
+      setWorkoutStartTime(new Date(inMemory));
+    } else {
+      workoutState.loadWallStartTime(selectedDayIndex).then(ts => {
+        if (ts) setWorkoutStartTime(new Date(ts));
+        else setWorkoutStartTime(null);
+      });
+    }
+    setWorkoutEndTime(null);
+  }, [selectedDayIndex]);
+
+  // Initialise scroll-wheel picker columns when the modal opens
+  useEffect(() => {
+    if (!showTimePicker) return;
+    const time = editingTime === 'start' ? (workoutStartTime ?? new Date()) : (workoutEndTime ?? new Date());
+    const h24 = time.getHours();
+    const ampm: 'AM' | 'PM' = h24 >= 12 ? 'PM' : 'AM';
+    const h12 = h24 % 12 || 12;
+    const min = time.getMinutes();
+    setPickerHour(h12);
+    setPickerMinute(min);
+    setPickerAmPm(ampm);
+    setTimeout(() => {
+      hourScrollRef.current?.scrollTo({ y: (h12 - 1) * PICK_ITEM_H, animated: false });
+      minuteScrollRef.current?.scrollTo({ y: min * PICK_ITEM_H, animated: false });
+      ampmScrollRef.current?.scrollTo({ y: (ampm === 'PM' ? 1 : 0) * PICK_ITEM_H, animated: false });
+    }, 120);
+  }, [showTimePicker, editingTime, workoutStartTime, workoutEndTime]);
+
+  // Apply the chosen time when "Done" is pressed
+  const applyTimePick = useCallback(() => {
+    const h24 = pickerAmPm === 'PM'
+      ? (pickerHour === 12 ? 12 : pickerHour + 12)
+      : (pickerHour === 12 ? 0 : pickerHour);
+    const base = editingTime === 'start' ? (workoutStartTime ?? new Date()) : (workoutEndTime ?? new Date());
+    const date = new Date(base);
+    date.setHours(h24, pickerMinute, 0, 0);
+    const currentStart = workoutStartTime ?? new Date();
+    const currentEnd = workoutEndTime ?? new Date();
+    const newStart = editingTime === 'start' ? date : currentStart;
+    const newEnd = editingTime === 'end' ? date : currentEnd;
+    if (newEnd.getTime() <= newStart.getTime()) {
+      Alert.alert('Invalid Time', 'Your end time cannot be before or the same as your start time.');
+      return;
+    }
+    if (editingTime === 'start') setWorkoutStartTime(date);
+    else setWorkoutEndTime(date);
+    const secs = Math.max(0, Math.floor((newEnd.getTime() - newStart.getTime()) / 1000));
+    setFinishedDurations(prev => ({ ...prev, [selectedDayIndex]: secs }));
+    if (lastEntryId) {
+      const entry = workoutState.getJournalEntry(lastEntryId);
+      if (entry) workoutState.updateJournalEntry({ ...entry, durationSecs: secs });
+    }
+    setShowTimePicker(false);
+  }, [pickerHour, pickerMinute, pickerAmPm, editingTime, workoutStartTime, workoutEndTime, selectedDayIndex, lastEntryId]);
 
   useEffect(() => {
     if (!timerRunning) return;
@@ -967,7 +1045,12 @@ export default function WorkoutScreen() {
               >
                 <Ionicons name="time-outline" size={18} color={accentColor} />
                 <Text style={[styles.timerText, { color: colors.primaryText }]}>{timerText}</Text>
-                <Ionicons name="pause" size={16} color={colors.secondaryText} style={{ marginLeft: 4 }} />
+                {workoutStartTime && (
+                  <Text style={{ fontSize: 11, fontFamily: 'Arimo_400Regular', color: colors.tertiaryText, marginLeft: 'auto' }}>
+                    Started {workoutStartTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                )}
+                <Ionicons name="pause" size={16} color={colors.secondaryText} style={{ marginLeft: workoutStartTime ? 6 : 4 }} />
               </TouchableOpacity>
             ) : timerPaused && !workoutFinished ? (
               <View style={{ flexDirection: 'row', gap: 8, alignSelf: 'flex-start', marginBottom: 12 }}>
@@ -980,11 +1063,12 @@ export default function WorkoutScreen() {
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     workoutState.startTimer(selectedDayIndex);
+                    setWorkoutStartTime(prev => prev ?? new Date());
                   }}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="play" size={12} color={colors.primaryText} />
-                  <Text style={[styles.timerStartText, { color: colors.primaryText, fontSize: 12 }]}>Continue</Text>
+                  <Ionicons name="play" size={14} color={colors.primaryText} />
+                  <Text style={[styles.timerStartText, { color: colors.primaryText }]}>Continue</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.timerRow, { marginBottom: 0, alignSelf: 'stretch', paddingHorizontal: 10, gap: 5, backgroundColor: colors.cardSolid, borderColor: colors.border }]}
@@ -999,9 +1083,23 @@ export default function WorkoutScreen() {
                           text: 'Reset workout',
                           style: 'destructive',
                           onPress: () => {
+                            // If a journal entry was already logged (e.g. all sessions done but
+                            // user re-opened the day), delete it along with the workout log & history
+                            const dayDate = calendarDays[selectedDayIndex]?.date ?? new Date();
+                            if (lastEntryId) {
+                              workoutState.deleteJournalEntry(lastEntryId);
+                            } else {
+                              const existing = workoutState.getJournalLog().find(e => new Date(e.date).toDateString() === dayDate.toDateString());
+                              if (existing) workoutState.deleteJournalEntry(existing.id);
+                            }
+                            workoutState.deleteWorkoutLog(dayDate);
+                            workoutState.deleteHistoryForDate(dayDate);
                             // Restore prev stats for any sessions already saved mid-workout
                             workout?.sessions.forEach(s => workoutState.restorePrev(s.label));
                             workoutState.resetTimer(selectedDayIndex);
+                            setWorkoutStartTime(null);
+                            setWorkoutEndTime(null);
+                            setLastEntryId(null);
                             Object.keys(exerciseCache)
                               .filter(k => k.startsWith(`${selectedDayIndex}-`))
                               .forEach(k => delete exerciseCache[k]);
@@ -1039,8 +1137,8 @@ export default function WorkoutScreen() {
                   }}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="refresh" size={12} color={colors.secondaryText} />
-                  <Text style={[styles.timerStartText, { color: colors.secondaryText, fontSize: 12 }]}>Reset workout</Text>
+                  <Ionicons name="refresh" size={14} color={colors.secondaryText} />
+                  <Text style={[styles.timerStartText, { color: colors.secondaryText }]}>Reset workout</Text>
                 </TouchableOpacity>
               </View>
             ) : !workoutFinished ? (
@@ -1059,7 +1157,7 @@ export default function WorkoutScreen() {
                   style={[styles.timerRow, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    maybePromptMakeToday(() => workoutState.startTimer(selectedDayIndex));
+                    maybePromptMakeToday(() => { workoutState.startTimer(selectedDayIndex); setWorkoutStartTime(prev => prev ?? new Date()); });
                   }}
                   activeOpacity={0.7}
                 >
@@ -1069,25 +1167,46 @@ export default function WorkoutScreen() {
               )
             ) : displayElapsed > 0 ? (
               <View style={{ flexDirection: 'row', gap: 8, alignSelf: 'flex-start', marginBottom: 12 }}>
-                <View style={[styles.timerRow, { marginBottom: 0, backgroundColor: colors.cardSolid, borderColor: colors.border }]}>
+                <TouchableOpacity
+                  style={[styles.timerRow, { marginBottom: 0, backgroundColor: colors.cardSolid, borderColor: colors.border }]}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    Alert.alert(
+                      'Edit Workout Time',
+                      `Started: ${(workoutStartTime ?? new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}  ·  Ended: ${(workoutEndTime ?? new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+                      [
+                        { text: 'Edit Start Time', onPress: () => { setEditingTime('start'); setShowTimePicker(true); } },
+                        { text: 'Edit End Time', onPress: () => { setEditingTime('end'); setShowTimePicker(true); } },
+                        { text: 'Cancel', style: 'cancel' },
+                      ]
+                    );
+                  }}
+                >
                   <Ionicons name="checkmark-circle" size={18} color={accentColor} />
                   <Text style={[styles.timerText, { color: colors.primaryText }]}>{timerText}</Text>
-                </View>
+                  <Ionicons name="pencil-outline" size={14} color={colors.tertiaryText} />
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.timerRow, { marginBottom: 0, backgroundColor: colors.cardSolid, borderColor: colors.border }]}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     const doFullReset = (clearLock: boolean) => {
                       const dayDate = calendarDays[selectedDayIndex]?.date ?? new Date();
-                      const entry = workoutState.getJournalLog().find(
-                        e => new Date(e.date).toDateString() === dayDate.toDateString()
-                      );
-                      if (entry) workoutState.deleteJournalEntry(entry.id);
+                      if (lastEntryId) {
+                        workoutState.deleteJournalEntry(lastEntryId);
+                      } else {
+                        const existing = workoutState.getJournalLog().find(e => new Date(e.date).toDateString() === dayDate.toDateString());
+                        if (existing) workoutState.deleteJournalEntry(existing.id);
+                      }
                       workoutState.deleteWorkoutLog(dayDate);
                       workoutState.deleteHistoryForDate(dayDate);
                       workout?.sessions.forEach(s => workoutState.restorePrev(s.label));
                       workoutState.setFinished(false);
                       workoutState.resetTimer(selectedDayIndex);
+                      setWorkoutStartTime(null);
+                      setWorkoutEndTime(null);
+                      setLastEntryId(null);
                       Object.keys(exerciseCache)
                         .filter(k => k.startsWith(`${selectedDayIndex}-`))
                         .forEach(k => delete exerciseCache[k]);
@@ -1164,8 +1283,8 @@ export default function WorkoutScreen() {
                   }}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="refresh" size={14} color={colors.secondaryText} />
-                  <Text style={[styles.timerStartText, { color: colors.secondaryText }]}>Reset workout</Text>
+                  <Ionicons name="refresh" size={18} color={colors.secondaryText} />
+                  <Text style={[styles.timerText, { color: colors.secondaryText }]}>Reset workout</Text>
                 </TouchableOpacity>
               </View>
             ) : null
@@ -1295,7 +1414,7 @@ export default function WorkoutScreen() {
                         const setComplete = isHoldMode
                           ? (updatedSet.hold ?? 0) > 0
                           : updatedSet.reps > 0;
-                        if (setComplete) maybePromptMakeToday(() => workoutState.startTimer(selectedDayIndex));
+                        if (setComplete) maybePromptMakeToday(() => { workoutState.startTimer(selectedDayIndex); setWorkoutStartTime(prev => prev ?? new Date()); });
                       }
                     }
                     return next;
@@ -1419,10 +1538,16 @@ export default function WorkoutScreen() {
                   }
                   return sum;
                 }, 0);
-                const durationSecs = workoutState.getElapsed(selectedDayIndex);
+                const endTime = new Date();
+                setWorkoutEndTime(endTime);
+                const startTime = workoutStartTime ?? new Date(Date.now() - workoutState.getElapsed(selectedDayIndex) * 1000);
+                if (!workoutStartTime) setWorkoutStartTime(startTime);
+                const durationSecs = Math.max(0, Math.floor((endTime.getTime() - startTime.getTime()) / 1000));
+                const entryId = String(Date.now());
+                setLastEntryId(entryId);
                 workoutState.logWorkout(totalVolume, durationSecs);
                 workoutState.logJournalEntry({
-                  id: String(Date.now()),
+                  id: entryId,
                   date: Date.now(),
                   programName: workout.program,
                   programColor: accentColor,
@@ -1525,10 +1650,15 @@ export default function WorkoutScreen() {
                           if (cached) allCached.push(...cached);
                         }
                         const totalVolume = allCached.reduce((sum, ex) => { for (const s of ex.sets) { if (ex.mode === 'hold') sum += ((s.hold ?? 0) * (s.weight ?? 0)) / 30; else sum += s.reps * (s.weight ?? 0); } return sum; }, 0);
-                        const durationSecs = workoutState.getElapsed(selectedDayIndex);
+                        const endTime2 = new Date();
+                        setWorkoutEndTime(endTime2);
+                        const startTime2 = workoutStartTime ?? new Date(Date.now() - workoutState.getElapsed(selectedDayIndex) * 1000);
+                        const durationSecs = Math.max(0, Math.floor((endTime2.getTime() - startTime2.getTime()) / 1000));
+                        const entryId2 = String(Date.now());
+                        setLastEntryId(entryId2);
                         workoutState.logWorkout(totalVolume, durationSecs);
                         workoutState.logJournalEntry({
-                          id: String(Date.now()),
+                          id: entryId2,
                           date: Date.now(),
                           programName: workout.program,
                           programColor: accentColor,
@@ -1960,6 +2090,37 @@ export default function WorkoutScreen() {
             </View>
             <Text style={[styles.completeTitle, { color: colors.primaryText }]}>Workout Complete!</Text>
             <Text style={[styles.completeSubtitle, { color: colors.secondaryText }]}>Great work finishing today's session</Text>
+
+            {/* Editable start / end times */}
+            <View style={[styles.completeTimeCard, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+              <TouchableOpacity
+                style={styles.completeTimeRow}
+                onPress={() => { setEditingTime('start'); setShowTimePicker(true); }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="play-circle-outline" size={16} color={colors.secondaryText} />
+                <Text style={[styles.completeTimeLabel, { color: colors.secondaryText }]}>Started</Text>
+                <Text style={[styles.completeTimeValue, { color: colors.primaryText }]}>
+                  {(workoutStartTime ?? new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+                <Ionicons name="pencil-outline" size={13} color={colors.tertiaryText} />
+              </TouchableOpacity>
+              <View style={[styles.completeTimeDivider, { backgroundColor: colors.border }]} />
+              <TouchableOpacity
+                style={styles.completeTimeRow}
+                onPress={() => { setEditingTime('end'); setShowTimePicker(true); }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="stop-circle-outline" size={16} color={colors.secondaryText} />
+                <Text style={[styles.completeTimeLabel, { color: colors.secondaryText }]}>Ended</Text>
+                <Text style={[styles.completeTimeValue, { color: colors.primaryText }]}>
+                  {(workoutEndTime ?? new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+                <Ionicons name="pencil-outline" size={13} color={colors.tertiaryText} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[styles.completeDuration, { color: colors.tertiaryText }]}>{timerText}</Text>
+
             <BounceButton style={[styles.completeDoneBtn, { backgroundColor: accentColor }]} onPress={() => {
               setShowComplete(false);
               completeScale.setValue(0);
@@ -1971,6 +2132,89 @@ export default function WorkoutScreen() {
           </Animated.View>
         </Animated.View>
       )}
+
+      {/* Time picker — custom scroll wheel bottom sheet */}
+      <Modal visible={showTimePicker} transparent animationType="slide" onRequestClose={() => setShowTimePicker(false)}>
+        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setShowTimePicker(false)} />
+        <View style={[styles.timePickerSheet, { backgroundColor: colors.modalBg }]}>
+          <View style={[styles.timePickerHeader, { borderBottomColor: colors.border }]}>
+            <TouchableOpacity onPress={() => setShowTimePicker(false)}>
+              <Text style={{ fontSize: 16, fontFamily: 'Arimo_400Regular', color: colors.secondaryText }}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={[styles.timePickerTitle, { color: colors.primaryText }]}>
+              {editingTime === 'start' ? 'Start Time' : 'End Time'}
+            </Text>
+            <TouchableOpacity onPress={applyTimePick}>
+              <Text style={[styles.timePickerDone, { color: accentColor }]}>Done</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Scroll-wheel columns */}
+          <View style={{ flexDirection: 'row', height: PICK_ITEM_H * 5, position: 'relative', marginVertical: 12 }}>
+            {/* Selection highlight bar */}
+            <View style={{ position: 'absolute', top: PICK_ITEM_H * 2, left: 16, right: 16, height: PICK_ITEM_H, backgroundColor: colors.inputBg, borderRadius: 12 }} />
+
+            {/* Hours 1–12 */}
+            <ScrollView
+              ref={hourScrollRef}
+              style={{ flex: 2 }}
+              snapToInterval={PICK_ITEM_H}
+              decelerationRate="fast"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingVertical: PICK_ITEM_H * 2 }}
+              onMomentumScrollEnd={e => setPickerHour(Math.max(1, Math.min(Math.round(e.nativeEvent.contentOffset.y / PICK_ITEM_H) + 1, 12)))}
+              onScrollEndDrag={e => setPickerHour(Math.max(1, Math.min(Math.round(e.nativeEvent.contentOffset.y / PICK_ITEM_H) + 1, 12)))}
+            >
+              {Array.from({ length: 12 }, (_, i) => (
+                <View key={i} style={{ height: PICK_ITEM_H, justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 26, fontFamily: 'Arimo_700Bold', color: (i + 1) === pickerHour ? colors.primaryText : colors.tertiaryText, opacity: (i + 1) === pickerHour ? 1 : 0.45 }}>{i + 1}</Text>
+                </View>
+              ))}
+            </ScrollView>
+
+            {/* Colon */}
+            <View style={{ width: 18, justifyContent: 'center', alignItems: 'center' }}>
+              <Text style={{ fontSize: 26, fontFamily: 'Arimo_700Bold', color: colors.primaryText }}>:</Text>
+            </View>
+
+            {/* Minutes 00–59 */}
+            <ScrollView
+              ref={minuteScrollRef}
+              style={{ flex: 2 }}
+              snapToInterval={PICK_ITEM_H}
+              decelerationRate="fast"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingVertical: PICK_ITEM_H * 2 }}
+              onMomentumScrollEnd={e => setPickerMinute(Math.max(0, Math.min(Math.round(e.nativeEvent.contentOffset.y / PICK_ITEM_H), 59)))}
+              onScrollEndDrag={e => setPickerMinute(Math.max(0, Math.min(Math.round(e.nativeEvent.contentOffset.y / PICK_ITEM_H), 59)))}
+            >
+              {Array.from({ length: 60 }, (_, i) => (
+                <View key={i} style={{ height: PICK_ITEM_H, justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 26, fontFamily: 'Arimo_700Bold', color: i === pickerMinute ? colors.primaryText : colors.tertiaryText, opacity: i === pickerMinute ? 1 : 0.45 }}>{String(i).padStart(2, '0')}</Text>
+                </View>
+              ))}
+            </ScrollView>
+
+            {/* AM / PM */}
+            <ScrollView
+              ref={ampmScrollRef}
+              style={{ flex: 1.5 }}
+              snapToInterval={PICK_ITEM_H}
+              decelerationRate="fast"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingVertical: PICK_ITEM_H * 2 }}
+              onMomentumScrollEnd={e => setPickerAmPm(Math.round(e.nativeEvent.contentOffset.y / PICK_ITEM_H) === 0 ? 'AM' : 'PM')}
+              onScrollEndDrag={e => setPickerAmPm(Math.round(e.nativeEvent.contentOffset.y / PICK_ITEM_H) === 0 ? 'AM' : 'PM')}
+            >
+              {(['AM', 'PM'] as const).map(v => (
+                <View key={v} style={{ height: PICK_ITEM_H, justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 26, fontFamily: 'Arimo_700Bold', color: v === pickerAmPm ? colors.primaryText : colors.tertiaryText, opacity: v === pickerAmPm ? 1 : 0.45 }}>{v}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Make Today's Workout Prompt */}
       {showMakeTodayPrompt && (
@@ -2668,6 +2912,61 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Arimo_700Bold',
     letterSpacing: 0.4,
+  },
+  completeTimeCard: {
+    width: '100%',
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 16,
+    marginBottom: 4,
+    overflow: 'hidden',
+  },
+  completeTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  completeTimeLabel: {
+    fontSize: 14,
+    fontFamily: 'Arimo_400Regular',
+    flex: 1,
+  },
+  completeTimeValue: {
+    fontSize: 14,
+    fontFamily: 'Arimo_700Bold',
+    marginRight: 4,
+  },
+  completeTimeDivider: {
+    height: 1,
+    marginHorizontal: 14,
+  },
+  completeDuration: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    marginBottom: 4,
+  },
+  timePickerSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 34,
+  },
+  timePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  timePickerTitle: {
+    fontSize: 16,
+    fontFamily: 'Arimo_700Bold',
+  },
+  timePickerDone: {
+    fontSize: 16,
+    fontFamily: 'Arimo_700Bold',
   },
 
   // Rest Timer

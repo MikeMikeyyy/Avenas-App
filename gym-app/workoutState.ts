@@ -11,6 +11,10 @@ const _listeners: Array<(v: boolean) => void> = [];
 // Per-day timer state keyed by dayIndex
 type _TimerEntry = { startedAt: number | null; pausedElapsed: number };
 const _timers: Record<number, _TimerEntry> = {};
+
+// Wall-clock start times — actual real-world timestamp when a workout first started
+// Persisted to AsyncStorage so timer survives app restarts
+const _wallStartTimes: Record<number, number | null> = {};
 function _getTimer(dayIndex: number): _TimerEntry {
   if (!_timers[dayIndex]) _timers[dayIndex] = { startedAt: null, pausedElapsed: 0 };
   return _timers[dayIndex];
@@ -83,6 +87,12 @@ export const workoutState = {
   startTimer(day: number) {
     const t = _getTimer(day);
     if (!t.startedAt) {
+      // Record actual wall-clock start time only on first start (not on resume after pause)
+      if (!_wallStartTimes[day]) {
+        const now = Date.now();
+        _wallStartTimes[day] = now;
+        AsyncStorage.setItem(`@wall_start_${day}`, String(now)).catch(() => {});
+      }
       t.startedAt = Date.now();
       _timerListeners.forEach(fn => fn());
     }
@@ -97,11 +107,30 @@ export const workoutState = {
   },
   resetTimer(day: number) {
     _timers[day] = { startedAt: null, pausedElapsed: 0 };
+    _wallStartTimes[day] = null;
+    AsyncStorage.removeItem(`@wall_start_${day}`).catch(() => {});
     _timerListeners.forEach(fn => fn());
   },
   stopTimer(day: number) {
     _timers[day] = { startedAt: null, pausedElapsed: 0 };
+    _wallStartTimes[day] = null;
+    AsyncStorage.removeItem(`@wall_start_${day}`).catch(() => {});
     _timerListeners.forEach(fn => fn());
+  },
+
+  // Wall-clock time accessors
+  getWallStartTime(day: number): number | null {
+    return _wallStartTimes[day] ?? null;
+  },
+  async loadWallStartTime(day: number): Promise<number | null> {
+    try {
+      const raw = await AsyncStorage.getItem(`@wall_start_${day}`);
+      if (raw) {
+        _wallStartTimes[day] = Number(raw);
+        return Number(raw);
+      }
+    } catch {}
+    return null;
   },
   subscribeTimer(fn: () => void) {
     _timerListeners.push(fn);
