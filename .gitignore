@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+gym-app/node_modules/
+
+# Expo
+gym-app/.expo/
+gym-app/dist/
+gym-app/web-build/
+
+# Environment
+.env
+.env.local
+.env*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/

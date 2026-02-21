@@ -1,0 +1,3003 @@
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Keyboard,
+  Platform,
+  StatusBar,
+  Animated,
+  TextInput,
+  LayoutAnimation,
+  UIManager,
+  Alert,
+} from 'react-native';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import Svg, { Path } from 'react-native-svg';
+import * as Haptics from 'expo-haptics';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
+import { workoutState } from '../../workoutState';
+import { useProgramStore, getDayLabel, getDayExerciseCount } from '../../programStore';
+import { useTheme } from '../../themeStore';
+
+type SetData = { set: number; reps: number; weight: number | null; hold?: number; prevReps?: number; prevWeight?: number; prevHold?: number; isWarmup?: boolean };
+type Exercise = { name: string; sets: SetData[]; mode?: 'reps' | 'hold' };
+type SessionWorkout = { label: string; exercises: Exercise[] };
+type DayWorkout = {
+  program: string;
+  dayLabel: string;
+  subtitle: string;
+  sessions: SessionWorkout[];
+} | null;
+type CalendarDay = { date: Date; key: string; offset: number; label: string };
+
+function BookOpenIcon({ size = 24, color = '#000' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+    </Svg>
+  );
+}
+
+// --- Constants ---
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const EXERCISE_LIST: { category: string; exercises: string[] }[] = [
+  { category: 'Chest', exercises: ['Bench Press', 'Incline Bench Press', 'Dumbbell Bench Press', 'Incline Dumbbell Press', 'Cable Fly', 'Chest Dip', 'Push Up', 'Machine Chest Press'] },
+  { category: 'Back', exercises: ['Deadlift', 'Barbell Row', 'Pull Up', 'Lat Pulldown', 'Seated Cable Row', 'T-Bar Row', 'Dumbbell Row', 'Face Pull'] },
+  { category: 'Shoulders', exercises: ['Overhead Press', 'Dumbbell Shoulder Press', 'Lateral Raise', 'Front Raise', 'Rear Delt Fly', 'Arnold Press', 'Upright Row', 'Shrugs'] },
+  { category: 'Legs', exercises: ['Squat', 'Leg Press', 'Romanian Deadlift', 'Leg Curl', 'Leg Extension', 'Calf Raise', 'Bulgarian Split Squat', 'Lunge', 'Hip Thrust', 'Hack Squat'] },
+  { category: 'Arms', exercises: ['Bicep Curl', 'Hammer Curl', 'Preacher Curl', 'Tricep Pushdown', 'Skull Crusher', 'Overhead Tricep Extension', 'Cable Curl', 'Dips'] },
+  { category: 'Core', exercises: ['Plank', 'Hanging Leg Raise', 'Cable Crunch', 'Ab Rollout', 'Russian Twist', 'Dead Bug', 'Side Plank'] },
+];
+
+// --- Components ---
+
+
+function BounceButton({ style, children, onPress, ...rest }: any) {
+  const scale = useRef(new Animated.Value(1)).current;
+  return (
+    <TouchableOpacity
+      activeOpacity={1}
+      onPressIn={() => Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 50, bounciness: 4 }).start()}
+      onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 10 }).start()}
+      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress?.(); }}
+      style={style}
+      {...rest}
+    >
+      <Animated.View style={{ transform: [{ scale }] }}>
+        {children}
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
+
+function CalendarStrip({ selectedIndex, onSelect, accentColor, days, todayIndex, lockedTodayColor, onJournalPress }: { selectedIndex: number; onSelect: (i: number) => void; accentColor: string; days: CalendarDay[]; todayIndex: number; lockedTodayColor?: string; onJournalPress: () => void }) {
+  const { isDark, colors } = useTheme();
+  const scrollRef = useRef<ScrollView>(null);
+  const hasScrolled = useRef(false);
+
+  useEffect(() => {
+    if (!hasScrolled.current && days.length > 0) {
+      hasScrolled.current = true;
+      const cellWidth = 64 + 8; // width + gap
+      // Account for journal card (same width) before the days array
+      const offset = Math.max(0, cellWidth + todayIndex * cellWidth - 120);
+      setTimeout(() => scrollRef.current?.scrollTo({ x: offset, animated: false }), 50);
+    }
+  }, [days.length]);
+
+  return (
+    <ScrollView
+      ref={scrollRef}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.calendarRow}
+    >
+      {/* Journal card — always at the far left */}
+      <TouchableOpacity
+        style={[styles.dayCell, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
+        onPress={onJournalPress}
+        activeOpacity={0.7}
+      >
+        <BookOpenIcon size={15} color={colors.tertiaryText} />
+        <Text style={[styles.dayName, { color: colors.tertiaryText, fontSize: 9, marginTop: 1 }]}>Journal</Text>
+      </TouchableOpacity>
+
+      {days.map((item, index) => {
+        const isToday = index === todayIndex;
+        const isSelected = index === selectedIndex;
+        const isPast = index < todayIndex;
+        const dayName = DAY_NAMES[item.date.getDay()];
+        const dateNum = item.date.getDate();
+        const isRest = item.label === 'Rest';
+        // Today locked to a different program — use its color for the indicator and dot
+        const cellColor = (isToday && lockedTodayColor) ? lockedTodayColor : accentColor;
+
+        return (
+          <TouchableOpacity
+            key={item.key}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onSelect(index);
+            }}
+            style={[
+              styles.dayCell,
+              { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder },
+              isPast && !isSelected && { opacity: 0.55 },
+              isSelected && { backgroundColor: `${cellColor}15`, borderColor: cellColor, borderWidth: 2.5, shadowColor: cellColor, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.35, shadowRadius: 8, elevation: 6 },
+              isSelected && isPast && { opacity: 1 },
+            ]}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.dayName, { color: colors.secondaryText }, isSelected && { color: isDark ? '#fff' : '#1C1C1E' }]}>
+              {dayName}
+            </Text>
+            <Text style={[styles.dayNumber, { color: colors.primaryText }, isSelected && { color: isDark ? '#fff' : '#1C1C1E' }]}>
+              {dateNum}
+            </Text>
+            <View style={[
+              styles.dayIndicator,
+              { backgroundColor: isRest ? (isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)') : `${cellColor}60` },
+              isSelected && !isRest && { backgroundColor: isDark ? '#fff' : '#1C1C1E' },
+              isSelected && isRest && { backgroundColor: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.2)' },
+            ]} />
+            {isToday && <View style={[styles.todayDot, { backgroundColor: cellColor }, isSelected && { backgroundColor: isDark ? '#fff' : '#1C1C1E' }]} />}
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onToggleWarmup, onMoveUp, onMoveDown, isFirst, isLast: isLastExercise, accentColor = '#47DDFF', note, onNoteChange, mode, onToggleMode, onShowExerciseList, onRemoveExercise, readOnly }: { exercise: Exercise; index: number; onAddSet: () => void; onRemoveSet: () => void; onUpdateSet: (setIndex: number, field: 'reps' | 'weight' | 'hold', value: string) => void; onToggleWarmup: (setIndex: number) => void; onMoveUp?: () => void; onMoveDown?: () => void; isFirst?: boolean; isLast?: boolean; accentColor?: string; note?: string; onNoteChange?: (text: string) => void; mode: 'reps' | 'hold'; onToggleMode: () => void; onShowExerciseList: () => void; onRemoveExercise: () => void; readOnly?: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const { isDark, colors } = useTheme();
+  const isHold = mode === 'hold';
+  return (
+    <View style={[styles.exerciseCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
+      <View style={styles.exerciseHeader}>
+        <View style={[styles.exerciseNumberBadge, { backgroundColor: `${accentColor}25`, borderColor: `${accentColor}4D` }]}>
+          <Text style={[styles.exerciseNumberText, { color: colors.primaryText }]}>{index + 1}</Text>
+        </View>
+        <Text style={[styles.exerciseName, { color: colors.primaryText }]}>{exercise.name}</Text>
+        {!readOnly && (
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setEditing(!editing);
+              if (editing) setConfirmRemove(false);
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name={editing ? "checkmark-circle" : "ellipsis-horizontal"} size={editing ? 28 : 24} color={editing ? accentColor : colors.secondaryText} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={styles.setRow}>
+        <Text style={[styles.setHeaderText, styles.setCol, { color: colors.secondaryText }]}>SET</Text>
+        <View style={styles.prevCol}><Text style={[styles.prevColHeader, { color: colors.tertiaryText }]}>PREV</Text></View>
+        <View style={styles.inputHeaderCol}><Text style={[styles.setHeaderText, { color: colors.secondaryText }]}>{isHold ? 'HOLD' : 'REPS'}</Text></View>
+        <View style={styles.prevCol}><Text style={[styles.prevColHeader, { color: colors.tertiaryText }]}>PREV</Text></View>
+        <View style={styles.inputHeaderCol}><Text style={[styles.setHeaderText, { color: colors.secondaryText }]}>WEIGHT</Text></View>
+        <View style={styles.checkCol} />
+      </View>
+
+      <View style={[styles.headerDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]} />
+
+      {exercise.sets.map((s, si) => {
+        const isWarmup = !!s.isWarmup;
+        const workingIndex = exercise.sets.slice(0, si).filter(x => !x.isWarmup).length + 1;
+        const completed = isHold ? (s.hold ?? 0) > 0 : s.reps > 0;
+        const isLast = si === exercise.sets.length - 1;
+        return (
+          <View key={s.set} style={styles.dataRow}>
+            {editing ? (
+              <TouchableOpacity
+                style={{ width: 36, alignItems: 'center', justifyContent: 'center' }}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onToggleWarmup(si); }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <View style={{ borderWidth: 1.5, borderColor: isWarmup ? accentColor : colors.border, borderRadius: 6, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={[styles.setText, { color: isWarmup ? accentColor : colors.primaryText }]}>{isWarmup ? 'W' : workingIndex}</Text>
+                </View>
+              </TouchableOpacity>
+            ) : (
+              <Text style={[styles.setText, styles.setCol, { color: isWarmup ? accentColor : colors.primaryText }]}>{isWarmup ? 'W' : workingIndex}</Text>
+            )}
+            <View style={styles.prevCol}>
+              <Text style={[styles.prevValue, { color: colors.tertiaryText }]}>
+                {isHold ? (s.prevHold != null ? `${s.prevHold}s` : '—') : (s.prevReps ?? '—')}
+              </Text>
+            </View>
+            <View style={styles.inputCell}>
+              <View style={[styles.inputBox, { backgroundColor: isDark ? colors.inputBg : '#FFFFFF', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)' }]}>
+                <TextInput
+                  key={isHold ? 'hold' : 'reps'}
+                  style={[styles.inputBoxText, { color: colors.primaryText }]}
+                  keyboardType="decimal-pad"
+                  returnKeyType="done"
+                  onSubmitEditing={Keyboard.dismiss}
+                  defaultValue={isHold ? ((s.hold ?? 0) > 0 ? String(s.hold) : '') : (s.reps > 0 ? String(s.reps) : '')}
+                  placeholder={isHold ? '0s' : '—'}
+                  placeholderTextColor={colors.tertiaryText}
+                  onChangeText={(v) => onUpdateSet(si, isHold ? 'hold' : 'reps', v)}
+                  caretHidden={false}
+                  selectTextOnFocus
+                  editable={!readOnly}
+                />
+              </View>
+            </View>
+            <View style={styles.prevCol}>
+              <Text style={[styles.prevValue, { color: colors.tertiaryText }]}>{s.prevWeight ?? '—'}</Text>
+            </View>
+            <View style={styles.inputCell}>
+              <View style={[styles.inputBox, { backgroundColor: isDark ? colors.inputBg : '#FFFFFF', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)' }]}>
+                <TextInput
+                  style={[styles.inputBoxText, { color: colors.primaryText }]}
+                  keyboardType="decimal-pad"
+                  returnKeyType="done"
+                  onSubmitEditing={Keyboard.dismiss}
+                  defaultValue={s.weight != null ? String(s.weight) : ''}
+                  placeholder="—"
+                  placeholderTextColor={colors.tertiaryText}
+                  onChangeText={(v) => onUpdateSet(si, 'weight', v)}
+                  caretHidden={false}
+                  selectTextOnFocus
+                  editable={!readOnly}
+                />
+              </View>
+            </View>
+            {editing && isLast && exercise.sets.length > 1 ? (
+              <TouchableOpacity
+                style={styles.checkCol}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onRemoveSet();
+                }}
+              >
+                <View style={styles.removeSetBtn}>
+                  <Ionicons name="remove" size={14} color="#FFFFFF" />
+                </View>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.checkCol}>
+                <View style={[styles.checkbox, { backgroundColor: colors.checkboxBg }, completed && styles.checkboxChecked]}>
+                  {completed && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+                </View>
+              </View>
+            )}
+          </View>
+        );
+      })}
+
+      {editing && (
+        <>
+          <TouchableOpacity
+            style={[styles.addSetBtn, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)' }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onAddSet();
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add" size={16} color={colors.primaryText} />
+            <Text style={[styles.addSetText, { color: colors.primaryText }]}>Add Set</Text>
+          </TouchableOpacity>
+
+          {(!isFirst || !isLastExercise) && (
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+              {!isFirst && (
+                <TouchableOpacity
+                  style={[styles.editOptionBtn, { backgroundColor: colors.inputBg, flex: 1, marginTop: 0 }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    onMoveUp?.();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="arrow-up" size={16} color={colors.primaryText} />
+                  <Text style={[styles.editOptionText, { color: colors.primaryText }]}>Move Up</Text>
+                </TouchableOpacity>
+              )}
+              {!isLastExercise && (
+                <TouchableOpacity
+                  style={[styles.editOptionBtn, { backgroundColor: colors.inputBg, flex: 1, marginTop: 0 }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    onMoveDown?.();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="arrow-down" size={16} color={colors.primaryText} />
+                  <Text style={[styles.editOptionText, { color: colors.primaryText }]}>Move Down</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[styles.editOptionBtn, { backgroundColor: colors.inputBg }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onShowExerciseList();
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="swap-horizontal" size={16} color={colors.primaryText} />
+            <Text style={[styles.editOptionText, { color: colors.primaryText }]}>Change Exercise</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.editOptionBtn, { backgroundColor: colors.inputBg }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onToggleMode();
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name={isHold ? 'timer-outline' : 'barbell-outline'} size={16} color={colors.primaryText} />
+            <Text style={[styles.editOptionText, { color: colors.primaryText }]}>{isHold ? 'Isometric Hold' : 'Standard Reps'}</Text>
+            <View style={{ flex: 1 }} />
+            <Ionicons name="repeat" size={16} color={colors.secondaryText} />
+          </TouchableOpacity>
+
+          {confirmRemove ? (
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+              <TouchableOpacity
+                style={[styles.editOptionBtn, { backgroundColor: colors.inputBg, flex: 1, marginTop: 0 }]}
+                onPress={() => setConfirmRemove(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.editOptionText, { color: colors.primaryText }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.editOptionBtn, { backgroundColor: '#FF3B30', flex: 1, marginTop: 0 }]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  onRemoveExercise();
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
+                <Text style={[styles.editOptionText, { color: '#FFFFFF' }]}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={[styles.editOptionBtn, { backgroundColor: 'rgba(255,59,48,0.1)' }]}
+              onPress={() => setConfirmRemove(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+              <Text style={[styles.editOptionText, { color: '#FF3B30' }]}>Remove Exercise</Text>
+            </TouchableOpacity>
+          )}
+        </>
+      )}
+
+      <TouchableOpacity
+        style={[styles.notesToggleBtn, { backgroundColor: colors.inputBg }, showNotes && styles.notesToggleBtnActive]}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          setShowNotes(!showNotes);
+        }}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="document-text-outline" size={16} color={showNotes ? colors.primaryText : colors.secondaryText} />
+        <Text style={[styles.notesToggleText, { color: colors.secondaryText }, showNotes && { color: colors.primaryText, fontFamily: 'Arimo_700Bold' }]}>
+          {note ? 'View Note' : 'Add Note'}
+        </Text>
+      </TouchableOpacity>
+
+      {showNotes && (
+        <TextInput
+          style={[styles.noteInput, { backgroundColor: colors.inputBg, color: colors.primaryText }]}
+          placeholder="Write a note for this exercise..."
+          placeholderTextColor={colors.tertiaryText}
+          value={note || ''}
+          onChangeText={onNoteChange}
+          returnKeyType="done"
+          onSubmitEditing={() => {
+            Keyboard.dismiss();
+            setShowNotes(false);
+          }}
+          editable={!readOnly}
+        />
+      )}
+
+    </View>
+  );
+}
+
+// --- Main Screen ---
+
+export default function WorkoutScreen() {
+  const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold });
+  const router = useRouter();
+  const { programs, activeId, updateProgram } = useProgramStore();
+  const { isDark, colors } = useTheme();
+  const activeProgram = programs.find(p => p.id === activeId);
+  const PAST_DAYS = 7;
+  const todayIndex = PAST_DAYS;
+
+  // calendarIndex: 0..PAST_DAYS-1 = past days, PAST_DAYS = today, PAST_DAYS+1.. = future days
+  const [calendarIndex, setCalendarIndex] = useState(PAST_DAYS);
+  const selectedDayIndex = Math.max(0, calendarIndex - PAST_DAYS);
+  const isViewingPast = calendarIndex < PAST_DAYS;
+  const [pastSessionIndex, setPastSessionIndex] = useState(0);
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [exerciseNotes, setExerciseNotes] = useState<Record<string, string>>({});
+  const [showComplete, setShowComplete] = useState(false);
+  const [workoutFinished, setWorkoutFinished] = useState(workoutState.finished);
+  const [changeExerciseIndex, setChangeExerciseIndex] = useState<number | null>(null);
+  const [addingExercise, setAddingExercise] = useState(false);
+  const [customExerciseName, setCustomExerciseName] = useState('');
+  const [selectedSessionByDay, setSelectedSessionByDay] = useState<Record<number, number>>({});
+  const selectedSessionIndex = selectedSessionByDay[selectedDayIndex] ?? 0;
+  const setSelectedSessionIndex = (idx: number) =>
+    setSelectedSessionByDay(prev => ({ ...prev, [selectedDayIndex]: idx }));
+  const [sessionFinished, setSessionFinished] = useState<Record<string, boolean>>({});
+  const [showIncompleteWarning, setShowIncompleteWarning] = useState(false);
+  // Day override: maps dayIndex -> 'rest' (discard) or splitDay index (swap)
+  const [dayOverrides, setDayOverrides] = useState<Record<number, 'rest' | number>>({});
+  const [showSwapOverlay, setShowSwapOverlay] = useState(false);
+  const [showMakeTodayPrompt, setShowMakeTodayPrompt] = useState(false);
+  const promptedDays = useRef<Set<number>>(new Set());
+  // Stores final workout duration per day after finishing
+  const [finishedDurations, setFinishedDurations] = useState<Record<number, number>>({});
+  // When today's workout was completed under a now-inactive program, lock day 0 to that program's data
+  type LockedToday = { programId: string; programColor: string; programName: string; dayLabel: string; splitDayIndex: number };
+  const [lockedToday, setLockedToday] = useState<LockedToday | null>(null);
+  // Accent color: locked program's color for day 0 when locked, otherwise active program's color
+  const isViewingLockedToday = !!(lockedToday && lockedToday.programId !== activeId && selectedDayIndex === 0 && !isViewingPast);
+  const accentColor = isViewingLockedToday ? lockedToday!.programColor : (activeProgram?.color ?? '#47DDFF');
+
+  // Cycle offset: which day of the program cycle is "today" (0 = first day, 1 = second, etc.)
+  const [cycleOffset, setCycleOffset] = useState(0);
+
+  const getEffectiveSplitIndex = (dayIdx: number): number => {
+    const override = dayOverrides[dayIdx];
+    if (typeof override === 'number') return override;
+    const n = activeProgram?.splitDays.length ?? 1;
+    return ((cycleOffset + dayIdx) % n + n) % n;
+  };
+
+  const handleSwapToToday = () => {
+    const todaySplit = getEffectiveSplitIndex(0);
+    const selectedSplit = getEffectiveSplitIndex(selectedDayIndex);
+    setDayOverrides(prev => {
+      const next = { ...prev };
+      const n = activeProgram?.splitDays.length ?? 1;
+      const naturalToday = ((cycleOffset + 0) % n + n) % n;
+      const naturalSelected = ((cycleOffset + selectedDayIndex) % n + n) % n;
+      if (selectedSplit === naturalToday) delete next[0]; else next[0] = selectedSplit;
+      if (todaySplit === naturalSelected) delete next[selectedDayIndex]; else next[selectedDayIndex] = todaySplit;
+      return next;
+    });
+    // Swap cache entries between today (0) and selectedDayIndex so entered data is preserved
+    const prefixSel = `${selectedDayIndex}-`;
+    const keysForSel = Object.keys(exerciseCache).filter(k => k.startsWith(prefixSel));
+    const keysForToday = Object.keys(exerciseCache).filter(k => k.startsWith('0-'));
+    const selBackup: Record<string, Exercise[]> = {};
+    keysForSel.forEach(k => { selBackup[k] = exerciseCache[k]; delete exerciseCache[k]; });
+    keysForToday.forEach(k => { exerciseCache[`${selectedDayIndex}-${k.slice(2)}`] = exerciseCache[k]; delete exerciseCache[k]; });
+    keysForSel.forEach(k => { exerciseCache[`0-${k.slice(prefixSel.length)}`] = selBackup[k]; });
+    promptedDays.current.add(0);
+    setCalendarIndex(PAST_DAYS);
+    workoutState.startTimer(0);
+  };
+
+  const handleStartCurrentDay = () => {
+    promptedDays.current.add(selectedDayIndex);
+    workoutState.startTimer(selectedDayIndex);
+  };
+
+  const maybePromptMakeToday = (fallback: () => void) => {
+    // If today is locked to a completed workout under a different program, don't offer
+    // to reassign a future day as today — today is already taken.
+    if (!isLocked && !isViewingPast && calendarIndex !== todayIndex && !promptedDays.current.has(selectedDayIndex)) {
+      setShowMakeTodayPrompt(true);
+    } else {
+      fallback();
+    }
+  };
+
+  const isLocked = !!(lockedToday && lockedToday.programId !== activeId);
+  // When today's workout is done (finished or locked to a completed workout), future days are read-only
+  const futureReadOnly = (workoutFinished || isLocked) && selectedDayIndex !== 0;
+  const calendarDays = useMemo<CalendarDay[]>(() => {
+    if (!activeProgram) return [];
+    const today = new Date();
+    const n = activeProgram.splitDays.length;
+    const days: CalendarDay[] = [];
+
+    // Past 7 days (oldest first → index 0 = 7 days ago, index 6 = yesterday)
+    for (let daysAgo = PAST_DAYS; daysAgo >= 1; daysAgo--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - daysAgo);
+      const splitIdx = (((cycleOffset - daysAgo) % n) + n) % n;
+      const splitDay = activeProgram.splitDays[splitIdx];
+      const label = splitDay ? getDayLabel(splitDay) : 'Rest';
+      days.push({ date: d, key: `past-${daysAgo}`, offset: -daysAgo, label });
+    }
+
+    // Today + future days (index PAST_DAYS = today)
+    activeProgram.splitDays.forEach((_, i) => {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      // Day 0 locked: show old program's workout label
+      if (i === 0 && isLocked) {
+        days.push({ date: d, key: 'day-0', offset: 0, label: lockedToday!.dayLabel });
+        return;
+      }
+      const override = dayOverrides[i];
+      let label: string;
+      if (override === 'rest') {
+        label = 'Rest';
+      } else if (typeof override === 'number') {
+        const swapped = activeProgram.splitDays[override];
+        label = swapped ? getDayLabel(swapped) : 'Rest';
+      } else {
+        // Natural day: apply cycle offset. When locked, new program starts at day 1.
+        const naturalIdx = isLocked ? i - 1 : i;
+        const splitIdx = ((cycleOffset + naturalIdx) % n + n) % n;
+        const splitDay = activeProgram.splitDays[splitIdx];
+        label = splitDay ? getDayLabel(splitDay) : 'Rest';
+      }
+      days.push({ date: d, key: `day-${i}`, offset: i, label });
+    });
+
+    return days;
+  }, [activeProgram?.id, dayOverrides, isLocked, lockedToday?.dayLabel, cycleOffset]);
+
+  // Timer state (per-day)
+  const [elapsed, setElapsed] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(!!workoutState.getTimerStartedAt(selectedDayIndex));
+  const [timerPaused, setTimerPaused] = useState(workoutState.getTimerPausedElapsed(selectedDayIndex) > 0);
+
+  useEffect(() => {
+    return workoutState.subscribe(setWorkoutFinished);
+  }, []);
+
+  // Re-sync timer state when switching days or when timer fires
+  useEffect(() => {
+    const sync = () => {
+      const running = !!workoutState.getTimerStartedAt(selectedDayIndex);
+      setTimerRunning(running);
+      setTimerPaused(!running && workoutState.getTimerPausedElapsed(selectedDayIndex) > 0);
+      setElapsed(workoutState.getElapsed(selectedDayIndex));
+    };
+    sync();
+    const unsub = workoutState.subscribeTimer(sync);
+    return unsub;
+  }, [selectedDayIndex]);
+
+  useEffect(() => {
+    if (!timerRunning) return;
+    const tick = () => setElapsed(workoutState.getElapsed(selectedDayIndex));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [timerRunning, selectedDayIndex]);
+
+  // Rest timer / stopwatch state
+  const [showRestTimer, setShowRestTimer] = useState(false);
+  const [restMode, setRestMode] = useState<'timer' | 'stopwatch'>('timer');
+  // Countdown timer
+  const [countdownDuration, setCountdownDuration] = useState(60);
+  const [countdownRemaining, setCountdownRemaining] = useState(60);
+  const [countdownActive, setCountdownActive] = useState(false);
+  const [editingDuration, setEditingDuration] = useState(false);
+  const [editMins, setEditMins] = useState('01');
+  const [editSecs, setEditSecs] = useState('00');
+  // Stopwatch
+  const [swElapsed, setSwElapsed] = useState(0);
+  const [swRunning, setSwRunning] = useState(false);
+  const swStartRef = useRef<number | null>(null);
+  const swOffsetRef = useRef(0);
+
+  useEffect(() => {
+    if (!countdownActive) return;
+    const id = setInterval(() => {
+      setCountdownRemaining(prev => {
+        if (prev <= 1) {
+          setCountdownActive(false);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          return countdownDuration;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [countdownActive, countdownDuration]);
+
+  useEffect(() => {
+    if (!swRunning) return;
+    swStartRef.current = Date.now();
+    const id = setInterval(() => {
+      if (swStartRef.current) {
+        setSwElapsed(swOffsetRef.current + Math.floor((Date.now() - swStartRef.current) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [swRunning]);
+
+  const scrollRef = useRef<ScrollView>(null);
+  const completeScale = useRef(new Animated.Value(0)).current;
+  const completeOpacity = useRef(new Animated.Value(0)).current;
+  const exerciseCache = useRef<Record<string, Exercise[]>>({}).current;
+
+  useFocusEffect(useCallback(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+    if (activeProgram) {
+      workoutState.getCycleOffset(activeId, activeProgram.splitDays.length).then(setCycleOffset);
+    }
+  }, [activeId, activeProgram?.splitDays.length]));
+
+  const workout = useMemo<DayWorkout>(() => {
+    if (!activeProgram) return null;
+    // Day 0 locked: build workout from the old (locked) program
+    if (selectedDayIndex === 0 && isLocked) {
+      const lockedProgram = programs.find(p => p.id === lockedToday!.programId);
+      const splitDay = lockedProgram?.splitDays[lockedToday!.splitDayIndex];
+      if (!splitDay || splitDay.type === 'rest') return null;
+      return {
+        program: lockedToday!.programName,
+        dayLabel: lockedToday!.dayLabel,
+        subtitle: `${getDayExerciseCount(splitDay)} exercises`,
+        sessions: splitDay.sessions.map(s => ({
+          label: s.label,
+          exercises: s.exercises.map(e => ({
+            name: e.name,
+            mode: e.mode,
+            sets: Array.from({ length: e.sets }, (_, i) => ({
+              set: i + 1, reps: 0, weight: null, hold: 0,
+              isWarmup: i < (e.warmupSets ?? 0),
+            })),
+          })),
+        })),
+      };
+    }
+    const override = dayOverrides[selectedDayIndex];
+    if (override === 'rest') return null;
+    // When locked, new program is offset by 1 (day 1 = tomorrow's slot)
+    const n = activeProgram.splitDays.length;
+    const naturalIdx = isLocked ? selectedDayIndex - 1 : selectedDayIndex;
+    const splitIndex = typeof override === 'number' ? override : ((cycleOffset + naturalIdx) % n + n) % n;
+    const splitDay = activeProgram.splitDays[splitIndex];
+    if (!splitDay || splitDay.type === 'rest') return null;
+    return {
+      program: activeProgram.name,
+      dayLabel: getDayLabel(splitDay),
+      subtitle: `${getDayExerciseCount(splitDay)} exercises`,
+      sessions: splitDay.sessions.map(s => ({
+        label: s.label,
+        exercises: s.exercises.map(e => ({
+          name: e.name,
+          mode: e.mode,
+          sets: Array.from({ length: e.sets }, (_, i) => ({
+            set: i + 1, reps: 0, weight: null, hold: 0,
+            isWarmup: i < (e.warmupSets ?? 0),
+          })),
+        })),
+      })),
+    };
+  }, [activeProgram?.id, selectedDayIndex, dayOverrides[selectedDayIndex], isLocked, lockedToday?.programId, cycleOffset]);
+
+  const prevActiveId = useRef(activeId);
+  useEffect(() => {
+    // If program changed, load new program's cycle offset and clear cache
+    if (prevActiveId.current !== activeId) {
+      prevActiveId.current = activeId;
+      if (activeProgram) {
+        workoutState.getCycleOffset(activeId, activeProgram.splitDays.length).then(setCycleOffset);
+      }
+      // If switching to a different program while today's workout is locked, preserve
+      // the day-0 cache (completed workout data with entered values). Wipe everything else.
+      Object.keys(exerciseCache).forEach(k => {
+        if (isLocked && k.startsWith('0-')) return;
+        delete exerciseCache[k];
+      });
+      // If switching back to the program that completed today, drop the lock
+      if (lockedToday && lockedToday.programId === activeId) {
+        setLockedToday(null);
+      }
+      if (calendarIndex !== PAST_DAYS) {
+        setCalendarIndex(PAST_DAYS);
+        setSelectedSessionByDay({});
+        return; // will re-run with calendarIndex = PAST_DAYS
+      }
+    }
+
+    const cacheKey = `${selectedDayIndex}-${selectedSessionIndex}`;
+    const currentSession = workout?.sessions[selectedSessionIndex];
+    if (exerciseCache[cacheKey]) {
+      setExercises(exerciseCache[cacheKey]);
+    } else {
+      const prevExercises = currentSession ? workoutState.getPrev(currentSession.label) : undefined;
+      const initial = currentSession?.exercises.map(e => {
+        const prevEx = prevExercises?.find(p => p.name === e.name);
+        return {
+          ...e,
+          sets: e.sets.map((s, si) => ({
+            ...s,
+            prevReps: prevEx?.sets[si]?.reps ?? undefined,
+            prevWeight: prevEx?.sets[si]?.weight ?? undefined,
+            prevHold: prevEx?.sets[si]?.hold ?? undefined,
+          })),
+        };
+      }) ?? [];
+      exerciseCache[cacheKey] = initial;
+      setExercises(initial);
+    }
+  }, [selectedDayIndex, selectedSessionIndex, workout, activeId]);
+
+  const updateExercises = (updater: Exercise[] | ((prev: Exercise[]) => Exercise[])) => {
+    setExercises(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      exerciseCache[`${selectedDayIndex}-${selectedSessionIndex}`] = next;
+      return next;
+    });
+  };
+
+  if (!fontsLoaded) return <View style={{ flex: 1, backgroundColor: isDark ? colors.gradientStart : '#c3ced6' }} />;
+
+  if (!activeProgram) {
+    return (
+      <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={styles.container} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}>
+        <StatusBar barStyle={colors.statusBar} backgroundColor={colors.gradientStart} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 }}>
+          <Ionicons name="barbell-outline" size={48} color={colors.secondaryText} />
+          <Text style={{ fontSize: 18, fontFamily: 'Arimo_700Bold', color: colors.primaryText, marginTop: 16, textAlign: 'center' }}>No Active Program</Text>
+          <Text style={{ fontSize: 14, fontFamily: 'Arimo_400Regular', color: colors.secondaryText, marginTop: 8, textAlign: 'center' }}>Select a program to get started</Text>
+          <BounceButton style={{ backgroundColor: '#47DDFF', borderRadius: 16, height: 48, paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center', marginTop: 20 }} onPress={() => router.push('/programs')}>
+            <Text style={{ fontSize: 16, fontFamily: 'Arimo_700Bold', color: '#1C1C1E' }}>Go to Programs</Text>
+          </BounceButton>
+        </View>
+      </LinearGradient>
+    );
+  }
+
+  const selectedDate = calendarDays[calendarIndex]?.date ?? new Date();
+  const isToday = calendarIndex === todayIndex;
+  const pastEntryForDate = isViewingPast
+    ? workoutState.getJournalLog().find(e => new Date(e.date).toDateString() === selectedDate.toDateString())
+    : undefined;
+
+  const dateLabel = isViewingPast
+    ? (selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + (pastEntryForDate ? `, ${pastEntryForDate.dayLabel}` : ''))
+    : isToday
+      ? workout ? `Today, ${workout.dayLabel}` : 'Today'
+      : workout
+        ? `${selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}, ${workout.dayLabel}`
+        : selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+
+  const displayElapsed = workoutFinished ? (finishedDurations[selectedDayIndex] ?? elapsed) : elapsed;
+  const hrs = Math.floor(displayElapsed / 3600);
+  const mins = Math.floor((displayElapsed % 3600) / 60);
+  const secs = displayElapsed % 60;
+  const timerText = hrs > 0
+    ? `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+    : `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+  return (
+    <LinearGradient
+      colors={[colors.gradientStart, colors.gradientEnd]}
+      style={styles.container}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
+    >
+      <StatusBar barStyle={colors.statusBar} backgroundColor={colors.gradientStart} />
+
+      {/* Journal Button - Top Right (left of rest timer) */}
+      <TouchableOpacity
+        style={[styles.journalHeaderBtn, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}
+        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/journal'); }}
+        activeOpacity={0.7}
+      >
+        <BookOpenIcon size={22} color={colors.primaryText} />
+      </TouchableOpacity>
+
+      {/* Rest Timer Button - Top Right */}
+      <TouchableOpacity
+        style={[styles.restTimerBtn, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}
+        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowRestTimer(true); }}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="timer-outline" size={28} color={colors.primaryText} />
+      </TouchableOpacity>
+
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.screenTitle}>Workout</Text>
+        <Text style={styles.dateLabel}>{dateLabel}</Text>
+
+        <View style={styles.calendarContainer}>
+          <CalendarStrip
+            selectedIndex={calendarIndex}
+            onSelect={(i) => { setCalendarIndex(i); if (i < PAST_DAYS) setPastSessionIndex(0); }}
+            accentColor={activeProgram?.color ?? '#47DDFF'}
+            days={calendarDays}
+            todayIndex={todayIndex}
+            lockedTodayColor={isLocked ? lockedToday!.programColor : undefined}
+            onJournalPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/journal'); }}
+          />
+        </View>
+
+        {/* Past Day View */}
+        {isViewingPast && (
+          pastEntryForDate ? (
+            <>
+              {/* View in Journal button — top */}
+              <BounceButton
+                style={[styles.pastDayBtn, { backgroundColor: `${pastEntryForDate.programColor}18`, borderColor: pastEntryForDate.programColor, marginBottom: 10 }]}
+                onPress={() => router.push(`/journal?entryId=${pastEntryForDate.id}`)}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
+                  <BookOpenIcon size={14} color={colors.primaryText} />
+                  <Text style={[styles.pastDayBtnText, { color: colors.primaryText }]}>View / Edit in Journal</Text>
+                </View>
+              </BounceButton>
+
+              {/* Duration / volume row */}
+              <View style={[styles.timerRow, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}>
+                <Ionicons name="checkmark-circle" size={18} color={pastEntryForDate.programColor} />
+                <Text style={[styles.timerStartText, { color: pastEntryForDate.programColor }]}>Workout Complete</Text>
+                {pastEntryForDate.durationSecs > 0 && (
+                  <Text style={[styles.timerText, { color: colors.primaryText }]}>
+                    {(() => { const s = pastEntryForDate.durationSecs; const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = s % 60; return h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` : `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`; })()}
+                  </Text>
+                )}
+                {pastEntryForDate.totalVolume > 0 && (
+                  <Text style={[styles.timerStartText, { color: colors.tertiaryText }]}>
+                    {Math.round(pastEntryForDate.totalVolume)} kg vol
+                  </Text>
+                )}
+              </View>
+
+              {/* Program badge */}
+              <View style={styles.programRow}>
+                <View style={[styles.programBadge, { backgroundColor: `${pastEntryForDate.programColor}25`, borderColor: `${pastEntryForDate.programColor}4D` }]}>
+                  <Text style={[styles.programBadgeText, { color: colors.primaryText }]}>{pastEntryForDate.programName}</Text>
+                </View>
+              </View>
+
+              {/* Session tabs */}
+              {pastEntryForDate.sessions.length > 1 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }} contentContainerStyle={{ gap: 8 }}>
+                  {pastEntryForDate.sessions.map((session, si) => {
+                    const isActive = si === pastSessionIndex;
+                    return (
+                      <TouchableOpacity
+                        key={si}
+                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setPastSessionIndex(si); }}
+                        style={[
+                          styles.sessionTab,
+                          { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder },
+                          isActive && { backgroundColor: `${pastEntryForDate.programColor}15`, borderColor: pastEntryForDate.programColor },
+                        ]}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.sessionTabText, { color: isActive ? colors.primaryText : colors.secondaryText }, isActive && { fontFamily: 'Arimo_700Bold' }]}>
+                          {session.label || `Session ${si + 1}`}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
+
+              {/* Exercises (read-only) */}
+              {(() => {
+                const session = pastEntryForDate.sessions[Math.min(pastSessionIndex, pastEntryForDate.sessions.length - 1)];
+                if (!session) return null;
+                return session.exercises.map((ex, i) => {
+                  const exData: Exercise = {
+                    name: ex.name,
+                    mode: ex.mode,
+                    sets: ex.sets.map((s, si) => ({ set: si + 1, reps: s.reps, weight: s.weight, hold: s.hold, isWarmup: s.isWarmup })),
+                  };
+                  return (
+                    <ExerciseCard
+                      key={`${ex.name}-${i}`}
+                      exercise={exData}
+                      index={i}
+                      mode={ex.mode}
+                      accentColor={pastEntryForDate.programColor}
+                      readOnly={true}
+                      isFirst={i === 0}
+                      isLast={i === session.exercises.length - 1}
+                      onAddSet={() => {}} onRemoveSet={() => {}} onUpdateSet={() => {}}
+                      onToggleWarmup={() => {}} onToggleMode={() => {}}
+                      onShowExerciseList={() => {}} onRemoveExercise={() => {}}
+                    />
+                  );
+                });
+              })()}
+
+            </>
+          ) : (
+            <View style={[styles.pastDayCard, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}>
+              <Ionicons name="calendar-outline" size={36} color={colors.tertiaryText} />
+              <Text style={[styles.pastDayEmptyText, { color: colors.secondaryText }]}>No workout logged</Text>
+              <BounceButton
+                style={[styles.pastDayBtn, { backgroundColor: `${accentColor}18`, borderColor: accentColor, marginTop: 14 }]}
+                onPress={() => router.push('/journal')}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
+                  <BookOpenIcon size={14} color={accentColor} />
+                  <Text style={[styles.pastDayBtnText, { color: accentColor }]}>Log in Journal</Text>
+                </View>
+              </BounceButton>
+            </View>
+          )
+        )}
+
+        {/* Timer */}
+        {!isViewingPast && workout && (() => {
+          const otherActiveDay = workoutState.getActiveDay();
+          const anotherDayActive = otherActiveDay !== null && otherActiveDay !== selectedDayIndex;
+          return (
+            timerRunning ? (
+              <TouchableOpacity
+                style={[styles.timerRow, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  workoutState.pauseTimer(selectedDayIndex);
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="time-outline" size={18} color={accentColor} />
+                <Text style={[styles.timerText, { color: colors.primaryText }]}>{timerText}</Text>
+                <Ionicons name="pause" size={16} color={colors.secondaryText} style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
+            ) : timerPaused && !workoutFinished ? (
+              <View style={{ flexDirection: 'row', gap: 8, alignSelf: 'flex-start', marginBottom: 12 }}>
+                <View style={[styles.timerRow, { marginBottom: 0, alignSelf: 'stretch' }, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}>
+                  <Ionicons name="pause-circle-outline" size={18} color={colors.secondaryText} />
+                  <Text style={[styles.timerText, { color: colors.primaryText }]}>{timerText}</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.timerRow, { marginBottom: 0, alignSelf: 'stretch', paddingHorizontal: 10, gap: 5, backgroundColor: `${accentColor}25`, borderColor: accentColor }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    workoutState.startTimer(selectedDayIndex);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="play" size={12} color={colors.primaryText} />
+                  <Text style={[styles.timerStartText, { color: colors.primaryText, fontSize: 12 }]}>Continue</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.timerRow, { marginBottom: 0, alignSelf: 'stretch', paddingHorizontal: 10, gap: 5, backgroundColor: colors.cardSolid, borderColor: colors.border }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    Alert.alert(
+                      'Reset Workout',
+                      'This will restore all exercises to their original state and clear all entered data.',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Reset workout',
+                          style: 'destructive',
+                          onPress: () => {
+                            // Restore prev stats for any sessions already saved mid-workout
+                            workout?.sessions.forEach(s => workoutState.restorePrev(s.label));
+                            workoutState.resetTimer(selectedDayIndex);
+                            Object.keys(exerciseCache)
+                              .filter(k => k.startsWith(`${selectedDayIndex}-`))
+                              .forEach(k => delete exerciseCache[k]);
+                            setFinishedDurations(prev => { const n = { ...prev }; delete n[selectedDayIndex]; return n; });
+                            setSessionFinished(prev => {
+                              const n = { ...prev };
+                              Object.keys(n).filter(k => k.startsWith(`${selectedDayIndex}-`)).forEach(k => delete n[k]);
+                              return n;
+                            });
+                            setExerciseNotes(prev => {
+                              const n = { ...prev };
+                              Object.keys(n).filter(k => k.startsWith(`${selectedDayIndex}-`)).forEach(k => delete n[k]);
+                              return n;
+                            });
+                            const currentSession = workout?.sessions[selectedSessionIndex];
+                            const prevExercises = currentSession ? workoutState.getPrev(currentSession.label) : undefined;
+                            const resetExercises = currentSession?.exercises.map(e => {
+                              const prevEx = prevExercises?.find(p => p.name === e.name);
+                              return {
+                                ...e,
+                                sets: e.sets.map((s, si) => ({
+                                  ...s,
+                                  prevReps: prevEx?.sets[si]?.reps ?? undefined,
+                                  prevWeight: prevEx?.sets[si]?.weight ?? undefined,
+                                  prevHold: prevEx?.sets[si]?.hold ?? undefined,
+                                })),
+                              };
+                            }) ?? [];
+                            exerciseCache[`${selectedDayIndex}-${selectedSessionIndex}`] = resetExercises;
+                            setExercises(resetExercises);
+                          },
+                        },
+                      ],
+                    );
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="refresh" size={12} color={colors.secondaryText} />
+                  <Text style={[styles.timerStartText, { color: colors.secondaryText, fontSize: 12 }]}>Reset workout</Text>
+                </TouchableOpacity>
+              </View>
+            ) : !workoutFinished ? (
+              anotherDayActive ? (
+                <View style={[styles.timerRow, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}>
+                  <Ionicons name="lock-closed" size={14} color={colors.tertiaryText} />
+                  <Text style={[styles.timerStartText, { color: colors.tertiaryText }]}>Another workout is in progress</Text>
+                </View>
+              ) : futureReadOnly ? (
+                <View style={[styles.timerRow, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}>
+                  <Ionicons name="lock-closed" size={14} color={colors.tertiaryText} />
+                  <Text style={[styles.timerStartText, { color: colors.tertiaryText }]}>Reset today's workout to train this day</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.timerRow, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    maybePromptMakeToday(() => workoutState.startTimer(selectedDayIndex));
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="play" size={16} color={accentColor} />
+                  <Text style={[styles.timerStartText, { color: colors.primaryText }]}>Start Workout</Text>
+                </TouchableOpacity>
+              )
+            ) : displayElapsed > 0 ? (
+              <View style={{ flexDirection: 'row', gap: 8, alignSelf: 'flex-start', marginBottom: 12 }}>
+                <View style={[styles.timerRow, { marginBottom: 0, backgroundColor: colors.cardSolid, borderColor: colors.border }]}>
+                  <Ionicons name="checkmark-circle" size={18} color={accentColor} />
+                  <Text style={[styles.timerText, { color: colors.primaryText }]}>{timerText}</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.timerRow, { marginBottom: 0, backgroundColor: colors.cardSolid, borderColor: colors.border }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    const doFullReset = (clearLock: boolean) => {
+                      const dayDate = calendarDays[selectedDayIndex]?.date ?? new Date();
+                      const entry = workoutState.getJournalLog().find(
+                        e => new Date(e.date).toDateString() === dayDate.toDateString()
+                      );
+                      if (entry) workoutState.deleteJournalEntry(entry.id);
+                      workoutState.deleteWorkoutLog(dayDate);
+                      workoutState.deleteHistoryForDate(dayDate);
+                      workout?.sessions.forEach(s => workoutState.restorePrev(s.label));
+                      workoutState.setFinished(false);
+                      workoutState.resetTimer(selectedDayIndex);
+                      Object.keys(exerciseCache)
+                        .filter(k => k.startsWith(`${selectedDayIndex}-`))
+                        .forEach(k => delete exerciseCache[k]);
+                      setFinishedDurations(prev => { const n = { ...prev }; delete n[selectedDayIndex]; return n; });
+                      setSessionFinished(prev => {
+                        const n = { ...prev };
+                        Object.keys(n).filter(k => k.startsWith(`${selectedDayIndex}-`)).forEach(k => delete n[k]);
+                        return n;
+                      });
+                      setExerciseNotes(prev => {
+                        const n = { ...prev };
+                        Object.keys(n).filter(k => k.startsWith(`${selectedDayIndex}-`)).forEach(k => delete n[k]);
+                        return n;
+                      });
+                      setShowComplete(false);
+                      completeScale.setValue(0);
+                      completeOpacity.setValue(0);
+                      if (clearLock) {
+                        // Clearing the lock: let the effect rebuild from the new (active) program's
+                        // workout after setLockedToday(null) triggers a re-render. Don't populate
+                        // cache here or the stale locked workout would load instead.
+                        setLockedToday(null);
+                      } else {
+                        // Rebuild exercises from the current (locked) workout with prev hints
+                        const currentSession = workout?.sessions[selectedSessionIndex];
+                        const prevExercises = currentSession ? workoutState.getPrev(currentSession.label) : undefined;
+                        const resetExercises = currentSession?.exercises.map(e => {
+                          const prevEx = prevExercises?.find(p => p.name === e.name);
+                          return {
+                            ...e,
+                            sets: e.sets.map((s, si) => ({
+                              ...s,
+                              prevReps: prevEx?.sets[si]?.reps ?? undefined,
+                              prevWeight: prevEx?.sets[si]?.weight ?? undefined,
+                              prevHold: prevEx?.sets[si]?.hold ?? undefined,
+                            })),
+                          };
+                        }) ?? [];
+                        exerciseCache[`${selectedDayIndex}-${selectedSessionIndex}`] = resetExercises;
+                        setExercises(resetExercises);
+                      }
+                    };
+
+                    if (isViewingLockedToday) {
+                      // Completed under old program — offer to keep it or switch to active program
+                      const newProgramName = activeProgram?.name ?? 'new program';
+                      const oldProgramName = lockedToday!.programName;
+                      Alert.alert(
+                        'Reset Workout',
+                        `This workout was completed under "${oldProgramName}". What would you like to do?`,
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: `Redo "${oldProgramName}" workout`,
+                            onPress: () => doFullReset(false), // keep the lock, redo old program
+                          },
+                          {
+                            text: `Switch to "${newProgramName}"`,
+                            style: 'destructive',
+                            onPress: () => doFullReset(true), // clear lock, new program takes over today
+                          },
+                        ],
+                      );
+                    } else {
+                      Alert.alert(
+                        'Reset Workout',
+                        'This will restore all exercises to their original state and clear all entered data.',
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Reset workout', style: 'destructive', onPress: () => doFullReset(false) },
+                        ],
+                      );
+                    }
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="refresh" size={14} color={colors.secondaryText} />
+                  <Text style={[styles.timerStartText, { color: colors.secondaryText }]}>Reset workout</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null
+          );
+        })()}
+
+        {!isViewingPast && workout ? (
+          <>
+            <View style={styles.programRow}>
+              <View style={[styles.programBadge, { backgroundColor: `${accentColor}25`, borderColor: `${accentColor}4D` }]}>
+                <Text style={[styles.programBadgeText, { color: colors.primaryText }]}>{workout.program}</Text>
+              </View>
+              <View style={[styles.exerciseCountBadge, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, marginLeft: 10 }]}>
+                <Ionicons name="barbell-outline" size={14} color={colors.secondaryText} />
+                <Text style={[styles.exerciseCountText, { color: colors.secondaryText }]}>{exercises.length}</Text>
+              </View>
+            </View>
+
+            {/* Session Tabs */}
+            {workout.sessions.length > 1 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }} contentContainerStyle={{ gap: 8 }}>
+                {workout.sessions.map((session, si) => {
+                  const sKey = `${selectedDayIndex}-${si}`;
+                  const isActive = si === selectedSessionIndex;
+                  const isDone = !!sessionFinished[sKey];
+                  return (
+                    <TouchableOpacity
+                      key={si}
+                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelectedSessionIndex(si); }}
+                      style={[
+                        styles.sessionTab,
+                        { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder },
+                        isActive && { backgroundColor: `${accentColor}15`, borderColor: accentColor },
+                      ]}
+                      activeOpacity={0.7}
+                    >
+                      {isDone && <Ionicons name="checkmark-circle" size={16} color={accentColor} style={{ marginRight: 4 }} />}
+                      <Text style={[styles.sessionTabText, { color: isActive ? colors.primaryText : colors.secondaryText }, isActive && { fontFamily: 'Arimo_700Bold' }]}>
+                        {session.label || `Session ${si + 1}`}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            {exercises.map((exercise, i) => (
+              <ExerciseCard
+                key={`${exercise.name}-${i}`}
+                exercise={exercise}
+                index={i}
+                mode={exercise.mode ?? 'reps'}
+                onToggleMode={() => {
+                  const newMode = (exercise.mode ?? 'reps') === 'reps' ? 'hold' : 'reps';
+                  updateExercises(prev => prev.map((ex, ei) => ei !== i ? ex : { ...ex, mode: newMode }));
+                  if (activeProgram) {
+                    const splitDays = [...activeProgram.splitDays];
+                    const day = splitDays[selectedDayIndex];
+                    if (day?.type === 'training') {
+                      const sessions = [...day.sessions];
+                      const exs = [...sessions[selectedSessionIndex].exercises];
+                      exs[i] = { ...exs[i], mode: newMode };
+                      sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
+                      splitDays[selectedDayIndex] = { ...day, sessions };
+                      updateProgram(activeProgram.id, activeProgram.name, splitDays);
+                    }
+                  }
+                }}
+                onShowExerciseList={() => { setCustomExerciseName(''); setChangeExerciseIndex(i); }}
+                onRemoveExercise={() => {
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  updateExercises(prev => prev.filter((_, ei) => ei !== i));
+                  if (activeProgram) {
+                    const splitDays = [...activeProgram.splitDays];
+                    const day = splitDays[selectedDayIndex];
+                    if (day?.type === 'training') {
+                      const sessions = [...day.sessions];
+                      const exs = sessions[selectedSessionIndex].exercises.filter((_, ei) => ei !== i);
+                      sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
+                      splitDays[selectedDayIndex] = { ...day, sessions };
+                      updateProgram(activeProgram.id, activeProgram.name, splitDays);
+                    }
+                  }
+                }}
+                onToggleWarmup={(setIndex) => {
+                  updateExercises(prev => prev.map((ex, ei) => {
+                    if (ei !== i) return ex;
+                    return { ...ex, sets: ex.sets.map((s, si) => si === setIndex ? { ...s, isWarmup: !s.isWarmup } : s) };
+                  }));
+                }}
+                onAddSet={() => {
+                  updateExercises(prev => prev.map((ex, ei) => {
+                    if (ei !== i) return ex;
+                    const lastSet = ex.sets[ex.sets.length - 1];
+                    return { ...ex, sets: [...ex.sets, { set: ex.sets.length + 1, reps: 0, weight: null, hold: 0, prevReps: lastSet?.prevReps, prevWeight: lastSet?.prevWeight, prevHold: lastSet?.prevHold }] };
+                  }));
+                }}
+                onRemoveSet={() => {
+                  updateExercises(prev => prev.map((ex, ei) => {
+                    if (ei !== i || ex.sets.length <= 1) return ex;
+                    return { ...ex, sets: ex.sets.slice(0, -1) };
+                  }));
+                }}
+                onUpdateSet={(setIndex, field, value) => {
+                  if (field === 'weight') {
+                    const weightNum = value === '' ? null : parseFloat(value);
+                    if (weightNum !== null && isNaN(weightNum)) return;
+                    updateExercises(prev => prev.map((ex, ei) => {
+                      if (ei !== i) return ex;
+                      return { ...ex, sets: ex.sets.map((s, si) => si === setIndex ? { ...s, weight: weightNum } : s) };
+                    }));
+                    return;
+                  }
+                  const num = value === '' ? 0 : parseFloat(value);
+                  if (isNaN(num)) return;
+                  updateExercises(prev => {
+                    const next = prev.map((ex, ei) => {
+                      if (ei !== i) return ex;
+                      return { ...ex, sets: ex.sets.map((s, si) => si === setIndex ? { ...s, [field]: num } : s) };
+                    });
+                    // Auto-start workout timer when first set is completed (only if no other day active)
+                    if (!workoutState.getTimerStartedAt(selectedDayIndex) && workoutState.getTimerPausedElapsed(selectedDayIndex) === 0) {
+                      const otherDay = workoutState.getActiveDay();
+                      if (otherDay === null || otherDay === selectedDayIndex) {
+                        const updatedSet = next[i].sets[setIndex];
+                        const isHoldMode = next[i].mode === 'hold';
+                        const setComplete = isHoldMode
+                          ? (updatedSet.hold ?? 0) > 0
+                          : updatedSet.reps > 0;
+                        if (setComplete) maybePromptMakeToday(() => workoutState.startTimer(selectedDayIndex));
+                      }
+                    }
+                    return next;
+                  });
+                }}
+                isFirst={i === 0}
+                isLast={i === exercises.length - 1}
+                accentColor={accentColor}
+                readOnly={futureReadOnly}
+                note={exerciseNotes[`${selectedDayIndex}-${selectedSessionIndex}-${i}`] || ''}
+                onNoteChange={(text) => setExerciseNotes(prev => ({ ...prev, [`${selectedDayIndex}-${selectedSessionIndex}-${i}`]: text }))}
+                onMoveUp={() => {
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  updateExercises(prev => {
+                    const next = [...prev];
+                    [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                    return next;
+                  });
+                }}
+                onMoveDown={() => {
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  updateExercises(prev => {
+                    const next = [...prev];
+                    [next[i], next[i + 1]] = [next[i + 1], next[i]];
+                    return next;
+                  });
+                }}
+              />
+            ))}
+
+            {!futureReadOnly && (
+              <TouchableOpacity
+                style={[styles.addExerciseBtn, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)' }]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setCustomExerciseName('');
+                  setAddingExercise(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="add" size={18} color={colors.primaryText} />
+                <Text style={[styles.addExerciseBtnText, { color: colors.primaryText }]}>Add Exercise</Text>
+              </TouchableOpacity>
+            )}
+
+            {!futureReadOnly && <BounceButton style={[styles.finishButton, { backgroundColor: accentColor }, !timerRunning && !timerPaused && !workoutFinished && finishedDurations[selectedDayIndex] === undefined && { opacity: 0.4 }]} onPress={() => {
+              if (!workout) return;
+              const currentSession = workout.sessions[selectedSessionIndex];
+
+              // Block finishing if workout hasn't started yet
+              if (!timerRunning && !timerPaused && !workoutFinished && finishedDurations[selectedDayIndex] === undefined) return;
+
+              if (workoutFinished) {
+                // Just saving changes after already finished
+                if (currentSession) {
+                  const exerciseData = exercises.map(e => ({ name: e.name, mode: e.mode, sets: e.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })) }));
+                  workoutState.savePrev(currentSession.label, exerciseData);
+                }
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                return;
+              }
+
+              // Check for incomplete sets
+              const hasIncomplete = exercises.some(ex =>
+                ex.sets.some(s => {
+                  const isHold = (ex.mode ?? 'reps') === 'hold';
+                  return isHold ? ((s.hold ?? 0) === 0) : (s.reps === 0);
+                })
+              );
+              if (hasIncomplete && !showIncompleteWarning) {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                setShowIncompleteWarning(true);
+                return;
+              }
+              setShowIncompleteWarning(false);
+
+              // Save prev data for current session
+              if (currentSession) {
+                const exerciseData = exercises.map(e => ({ name: e.name, mode: e.mode, sets: e.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })) }));
+                workoutState.savePrev(currentSession.label, exerciseData);
+              }
+
+              // Mark this session as finished
+              const sessionKey = `${selectedDayIndex}-${selectedSessionIndex}`;
+              const newSessionFinished = { ...sessionFinished, [sessionKey]: true };
+              setSessionFinished(newSessionFinished);
+
+              // Check if ALL sessions are done
+              const allDone = workout.sessions.every((_, si) =>
+                si === selectedSessionIndex || newSessionFinished[`${selectedDayIndex}-${si}`]
+              );
+
+              if (allDone) {
+                // Gather all exercise data across sessions for history
+                const allExerciseData: { name: string; mode?: 'reps' | 'hold'; sets: { reps: number; weight: number; hold: number }[] }[] = [];
+                for (let si = 0; si < workout.sessions.length; si++) {
+                  const cached = exerciseCache[`${selectedDayIndex}-${si}`];
+                  if (cached) {
+                    allExerciseData.push(...cached.map(e => ({ name: e.name, mode: e.mode, sets: e.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })) })));
+                  }
+                }
+                workoutState.saveHistory(allExerciseData);
+
+                // Clear cache for other days so they pick up new prev data
+                Object.keys(exerciseCache).forEach(key => {
+                  if (!key.startsWith(`${selectedDayIndex}-`)) {
+                    delete exerciseCache[key];
+                  }
+                });
+
+                // Log workout volume & duration
+                const allCachedExercises: Exercise[] = [];
+                for (let si = 0; si < workout.sessions.length; si++) {
+                  const cached = exerciseCache[`${selectedDayIndex}-${si}`];
+                  if (cached) allCachedExercises.push(...cached);
+                }
+                const totalVolume = allCachedExercises.reduce((sum, ex) => {
+                  for (const s of ex.sets) {
+                    if (ex.mode === 'hold') sum += ((s.hold ?? 0) * (s.weight ?? 0)) / 30;
+                    else sum += s.reps * (s.weight ?? 0);
+                  }
+                  return sum;
+                }, 0);
+                const durationSecs = workoutState.getElapsed(selectedDayIndex);
+                workoutState.logWorkout(totalVolume, durationSecs);
+                workoutState.logJournalEntry({
+                  id: String(Date.now()),
+                  date: Date.now(),
+                  programName: workout.program,
+                  programColor: accentColor,
+                  dayLabel: workout.dayLabel,
+                  durationSecs,
+                  totalVolume,
+                  sessions: workout.sessions.map((s, si) => {
+                    const cached = exerciseCache[`${selectedDayIndex}-${si}`];
+                    return {
+                      label: s.label,
+                      exercises: (cached ?? s.exercises).map(e => ({
+                        name: e.name,
+                        mode: e.mode ?? 'reps',
+                        sets: e.sets.map(set => ({
+                          reps: set.reps,
+                          weight: set.weight,
+                          hold: set.hold ?? 0,
+                          isWarmup: set.isWarmup ?? false,
+                        })),
+                      })),
+                    };
+                  }),
+                });
+                setFinishedDurations(prev => ({ ...prev, [selectedDayIndex]: durationSecs }));
+                workoutState.stopTimer(selectedDayIndex);
+                workoutState.setFinished(true);
+                // Lock today so switching programs doesn't overwrite this completed workout
+                if (selectedDayIndex === 0) {
+                  // When viewing a locked workout (completed under a different program), preserve
+                  // the original program id so isLocked stays true after re-completing it.
+                  setLockedToday({ programId: isViewingLockedToday ? lockedToday!.programId : activeId, programColor: accentColor, programName: workout.program, dayLabel: workout.dayLabel, splitDayIndex: 0 });
+                }
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                setShowComplete(true);
+                Animated.parallel([
+                  Animated.spring(completeScale, { toValue: 1, useNativeDriver: true, speed: 12, bounciness: 8 }),
+                  Animated.timing(completeOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+                ]).start();
+              } else {
+                // Switch to next unfinished session
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                const nextUnfinished = workout.sessions.findIndex((_, si) =>
+                  si !== selectedSessionIndex && !newSessionFinished[`${selectedDayIndex}-${si}`]
+                );
+                if (nextUnfinished >= 0) setSelectedSessionIndex(nextUnfinished);
+              }
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={styles.finishButtonText}>
+                  {workoutFinished ? 'Save Changes' : (workout.sessions.length > 1 && !workout.sessions.every((_, si) => si === selectedSessionIndex || sessionFinished[`${selectedDayIndex}-${si}`]) ? 'Finish Session' : 'Finish Workout')}
+                </Text>
+                <Ionicons name="arrow-forward" size={20} color="#1C1C1E" />
+              </View>
+            </BounceButton>}
+
+            {!futureReadOnly && showIncompleteWarning && (
+              <View style={[styles.incompleteWarning, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
+                <Ionicons name="warning-outline" size={20} color="#FF9500" />
+                <Text style={[styles.incompleteWarningText, { color: colors.primaryText }]}>You have incomplete sets. Finish anyway?</Text>
+                <View style={styles.incompleteWarningButtons}>
+                  <TouchableOpacity
+                    style={[styles.incompleteWarningBtn, { backgroundColor: colors.cardSolid, borderWidth: 1.5, borderColor: colors.cardBorder }]}
+                    onPress={() => setShowIncompleteWarning(false)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.incompleteWarningBtnText, { color: colors.primaryText }]}>Go Back</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.incompleteWarningBtn, { backgroundColor: accentColor }]}
+                    onPress={() => {
+                      // Re-trigger the finish with warning already shown (it will pass the check)
+                      if (!workout) return;
+                      const currentSession = workout.sessions[selectedSessionIndex];
+                      setShowIncompleteWarning(false);
+
+                      if (currentSession) {
+                        const exerciseData = exercises.map(e => ({ name: e.name, mode: e.mode, sets: e.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })) }));
+                        workoutState.savePrev(currentSession.label, exerciseData);
+                      }
+
+                      const sessionKey = `${selectedDayIndex}-${selectedSessionIndex}`;
+                      const newSessionFinished = { ...sessionFinished, [sessionKey]: true };
+                      setSessionFinished(newSessionFinished);
+
+                      const allDone = workout.sessions.every((_, si) =>
+                        si === selectedSessionIndex || newSessionFinished[`${selectedDayIndex}-${si}`]
+                      );
+
+                      if (allDone) {
+                        const allExerciseData: { name: string; mode?: 'reps' | 'hold'; sets: { reps: number; weight: number; hold: number }[] }[] = [];
+                        for (let si = 0; si < workout.sessions.length; si++) {
+                          const cached = exerciseCache[`${selectedDayIndex}-${si}`];
+                          if (cached) allExerciseData.push(...cached.map(e => ({ name: e.name, mode: e.mode, sets: e.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })) })));
+                        }
+                        workoutState.saveHistory(allExerciseData);
+                        Object.keys(exerciseCache).forEach(key => { if (!key.startsWith(`${selectedDayIndex}-`)) delete exerciseCache[key]; });
+                        const allCached: Exercise[] = [];
+                        for (let si = 0; si < workout.sessions.length; si++) {
+                          const cached = exerciseCache[`${selectedDayIndex}-${si}`];
+                          if (cached) allCached.push(...cached);
+                        }
+                        const totalVolume = allCached.reduce((sum, ex) => { for (const s of ex.sets) { if (ex.mode === 'hold') sum += ((s.hold ?? 0) * (s.weight ?? 0)) / 30; else sum += s.reps * (s.weight ?? 0); } return sum; }, 0);
+                        const durationSecs = workoutState.getElapsed(selectedDayIndex);
+                        workoutState.logWorkout(totalVolume, durationSecs);
+                        workoutState.logJournalEntry({
+                          id: String(Date.now()),
+                          date: Date.now(),
+                          programName: workout.program,
+                          programColor: accentColor,
+                          dayLabel: workout.dayLabel,
+                          durationSecs,
+                          totalVolume,
+                          sessions: workout.sessions.map((s, si) => {
+                            const cached = exerciseCache[`${selectedDayIndex}-${si}`];
+                            return {
+                              label: s.label,
+                              exercises: (cached ?? s.exercises).map(e => ({
+                                name: e.name,
+                                mode: e.mode ?? 'reps',
+                                sets: e.sets.map(set => ({
+                                  reps: set.reps,
+                                  weight: set.weight,
+                                  hold: set.hold ?? 0,
+                                  isWarmup: set.isWarmup ?? false,
+                                })),
+                              })),
+                            };
+                          }),
+                        });
+                        setFinishedDurations(prev => ({ ...prev, [selectedDayIndex]: durationSecs }));
+                        workoutState.stopTimer(selectedDayIndex);
+                        workoutState.setFinished(true);
+                        if (selectedDayIndex === 0) {
+                          setLockedToday({ programId: isViewingLockedToday ? lockedToday!.programId : activeId, programColor: accentColor, programName: workout.program, dayLabel: workout.dayLabel, splitDayIndex: 0 });
+                        }
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        setShowComplete(true);
+                        Animated.parallel([
+                          Animated.spring(completeScale, { toValue: 1, useNativeDriver: true, speed: 12, bounciness: 8 }),
+                          Animated.timing(completeOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+                        ]).start();
+                      } else {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        const nextUnfinished = workout.sessions.findIndex((_, si) =>
+                          si !== selectedSessionIndex && !newSessionFinished[`${selectedDayIndex}-${si}`]
+                        );
+                        if (nextUnfinished >= 0) setSelectedSessionIndex(nextUnfinished);
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.incompleteWarningBtnText, { color: '#1C1C1E' }]}>Finish Anyway</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {!workoutFinished && (
+              <TouchableOpacity
+                style={[styles.changeWorkoutBtn, { borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowSwapOverlay(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="swap-horizontal" size={16} color={colors.secondaryText} />
+                <Text style={[styles.changeWorkoutBtnText, { color: colors.secondaryText }]}>Change Workout</Text>
+              </TouchableOpacity>
+            )}
+          </>
+        ) : !isViewingPast ? (
+          <View style={[styles.restDayCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
+            <Ionicons name="bed-outline" size={40} color={colors.secondaryText} />
+            <Text style={[styles.restDayTitle, { color: colors.primaryText }]}>Rest Day</Text>
+            <Text style={[styles.restDaySubtitle, { color: colors.secondaryText }]}>Recovery is part of the process</Text>
+            <TouchableOpacity
+              style={[styles.changeWorkoutBtn, { borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)', marginTop: 16, alignSelf: 'center' }]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowSwapOverlay(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="swap-horizontal" size={16} color={colors.secondaryText} />
+              <Text style={[styles.changeWorkoutBtnText, { color: colors.secondaryText }]}>Change Workout</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+      </ScrollView>
+
+      {/* Change / Add Exercise Overlay */}
+      {(changeExerciseIndex !== null || addingExercise) && (() => {
+        const closeOverlay = () => { setChangeExerciseIndex(null); setAddingExercise(false); setCustomExerciseName(''); };
+        const selectExercise = (name: string) => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          if (addingExercise) {
+            const newExercise: Exercise = {
+              name,
+              sets: [1, 2, 3].map(n => ({ set: n, reps: 0, weight: null, hold: 0 })),
+            };
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            updateExercises(prev => [...prev, newExercise]);
+            if (activeProgram) {
+              const splitDays = [...activeProgram.splitDays];
+              const day = splitDays[selectedDayIndex];
+              if (day?.type === 'training') {
+                const sessions = [...day.sessions];
+                const exs = [...sessions[selectedSessionIndex].exercises, { name, sets: 3 }];
+                sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
+                splitDays[selectedDayIndex] = { ...day, sessions };
+                updateProgram(activeProgram.id, activeProgram.name, splitDays);
+              }
+            }
+          } else if (changeExerciseIndex !== null) {
+            const idx = changeExerciseIndex;
+            updateExercises(prev => prev.map((ex, ei) => ei !== idx ? ex : { ...ex, name }));
+            if (activeProgram) {
+              const splitDays = [...activeProgram.splitDays];
+              const day = splitDays[selectedDayIndex];
+              if (day?.type === 'training') {
+                const sessions = [...day.sessions];
+                const exs = [...sessions[selectedSessionIndex].exercises];
+                exs[idx] = { ...exs[idx], name };
+                sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
+                splitDays[selectedDayIndex] = { ...day, sessions };
+                updateProgram(activeProgram.id, activeProgram.name, splitDays);
+              }
+            }
+          }
+          closeOverlay();
+        };
+        const query = customExerciseName.trim().toLowerCase();
+        const filteredList = query.length > 0
+          ? EXERCISE_LIST.map(g => ({ ...g, exercises: g.exercises.filter(e => e.toLowerCase().includes(query)) })).filter(g => g.exercises.length > 0)
+          : EXERCISE_LIST;
+        const exactMatch = EXERCISE_LIST.some(g => g.exercises.some(e => e.toLowerCase() === query));
+
+        return (
+          <View style={styles.completeOverlay}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeOverlay} />
+            <View style={[styles.exerciseListCard, { backgroundColor: colors.modalBg }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <Text style={{ fontSize: 18, fontFamily: 'Arimo_700Bold', color: colors.primaryText }}>{addingExercise ? 'Add Exercise' : 'Change Exercise'}</Text>
+                <TouchableOpacity onPress={closeOverlay} hitSlop={12}>
+                  <Ionicons name="close" size={24} color={colors.secondaryText} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={[styles.customExerciseRow, { backgroundColor: colors.inputBg }]}>
+                <TextInput
+                  style={[styles.customExerciseInput, { color: colors.primaryText }]}
+                  placeholder="Search or add custom exercise..."
+                  placeholderTextColor={colors.tertiaryText}
+                  value={customExerciseName}
+                  onChangeText={setCustomExerciseName}
+                  returnKeyType="done"
+                  onSubmitEditing={() => {
+                    const trimmed = customExerciseName.trim();
+                    if (trimmed.length > 0) {
+                      Keyboard.dismiss();
+                      selectExercise(trimmed);
+                    }
+                  }}
+                />
+                {customExerciseName.trim().length > 0 && !exactMatch && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      selectExercise(customExerciseName.trim());
+                    }}
+                    style={[styles.customExerciseConfirm, { backgroundColor: accentColor }]}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="add" size={18} color="#1C1C1E" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                {filteredList.map((group) => (
+                  <View key={group.category} style={{ marginBottom: 12 }}>
+                    <Text style={[styles.exerciseListCategory, { color: colors.secondaryText }]}>{group.category}</Text>
+                    {group.exercises.map((name) => {
+                      const currentName = changeExerciseIndex !== null ? exercises[changeExerciseIndex]?.name : null;
+                      return (
+                        <TouchableOpacity
+                          key={name}
+                          style={[styles.exerciseListItem, { backgroundColor: name === currentName ? `${accentColor}15` : 'transparent' }]}
+                          onPress={() => selectExercise(name)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.exerciseListItemText, { color: colors.primaryText }, name === currentName && { color: accentColor }]}>{name}</Text>
+                          {name === currentName && <Ionicons name="checkmark" size={18} color={accentColor} />}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ))}
+                {filteredList.length === 0 && query.length > 0 && (
+                  <Text style={{ textAlign: 'center', color: colors.tertiaryText, fontFamily: 'Arimo_400Regular', fontSize: 14, marginTop: 20 }}>No matches — press Enter or tap + to add "{customExerciseName.trim()}"</Text>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        );
+      })()}
+
+      {/* Rest Timer / Stopwatch Overlay */}
+      {showRestTimer && (
+        <View style={styles.completeOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setShowRestTimer(false)} />
+          <View style={[styles.restTimerCard, { backgroundColor: colors.modalBg }]}>
+            {/* Close */}
+            <View style={styles.restTimerCloseRow}>
+              <TouchableOpacity onPress={() => setShowRestTimer(false)} hitSlop={12}>
+                <Ionicons name="close" size={24} color={colors.secondaryText} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Mode Tabs */}
+            <View style={[styles.restTimerTabs, { backgroundColor: colors.inputBg }]}>
+              {(['timer', 'stopwatch'] as const).map((mode) => (
+                <TouchableOpacity
+                  key={mode}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setRestMode(mode); }}
+                  style={[styles.restTimerTab, restMode === mode && { backgroundColor: accentColor }]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.restTimerTabText, { color: colors.secondaryText }, restMode === mode && { color: '#1C1C1E' }]}>
+                    {mode === 'timer' ? 'Timer' : 'Stopwatch'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Shared body for both modes */}
+            <View style={styles.restTimerBody}>
+              {/* Time display — identical container, time always dead-centre */}
+              <View style={styles.restTimerDisplay}>
+                {/* -15s / +15s — absolutely positioned so they never shift the time */}
+                {restMode === 'timer' && !(editingDuration && !countdownActive) && (
+                  <>
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (!countdownActive) {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          const newVal = Math.max(5, countdownDuration - 15);
+                          setCountdownDuration(newVal);
+                          setCountdownRemaining(newVal);
+                          setEditMins(String(Math.floor(newVal / 60)).padStart(2, '0'));
+                          setEditSecs(String(newVal % 60).padStart(2, '0'));
+                        }
+                      }}
+                      style={[styles.restTimerAdjust, styles.restTimerAdjustLeft, { backgroundColor: colors.inputBg }]}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.restTimerAdjustText, { color: colors.primaryText }]}>-15s</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (!countdownActive) {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          const newVal = countdownDuration + 15;
+                          setCountdownDuration(newVal);
+                          setCountdownRemaining(newVal);
+                          setEditMins(String(Math.floor(newVal / 60)).padStart(2, '0'));
+                          setEditSecs(String(newVal % 60).padStart(2, '0'));
+                        }
+                      }}
+                      style={[styles.restTimerAdjust, styles.restTimerAdjustRight, { backgroundColor: colors.inputBg }]}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.restTimerAdjustText, { color: colors.primaryText }]}>+15s</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                {/* Time text — centred identically for both modes */}
+                {restMode === 'timer' && editingDuration && !countdownActive ? (
+                  <View style={styles.restTimerEditRow}>
+                    <TextInput
+                      style={[styles.restTimerEditInput, { color: colors.primaryText, backgroundColor: colors.inputBg }]}
+                      value={editMins}
+                      onChangeText={(t) => setEditMins(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                      keyboardType="number-pad"
+                      maxLength={2}
+                      selectTextOnFocus
+                    />
+                    <Text style={[styles.restTimerTime, { color: colors.primaryText, fontSize: 36 }]}>:</Text>
+                    <TextInput
+                      style={[styles.restTimerEditInput, { color: colors.primaryText, backgroundColor: colors.inputBg }]}
+                      value={editSecs}
+                      onChangeText={(t) => setEditSecs(t.replace(/[^0-9]/g, '').slice(0, 2))}
+                      keyboardType="number-pad"
+                      maxLength={2}
+                      selectTextOnFocus
+                    />
+                    <TouchableOpacity
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        const m = Math.min(99, Math.max(0, parseInt(editMins) || 0));
+                        const s = Math.min(59, Math.max(0, parseInt(editSecs) || 0));
+                        const total = Math.max(5, m * 60 + s);
+                        setCountdownDuration(total);
+                        setCountdownRemaining(total);
+                        setEditMins(String(Math.floor(total / 60)).padStart(2, '0'));
+                        setEditSecs(String(total % 60).padStart(2, '0'));
+                        setEditingDuration(false);
+                        Keyboard.dismiss();
+                      }}
+                      style={[styles.restTimerEditConfirm, { backgroundColor: accentColor }]}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="checkmark" size={18} color="#1C1C1E" />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (restMode === 'timer' && !countdownActive) {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setEditMins(String(Math.floor(countdownRemaining / 60)).padStart(2, '0'));
+                        setEditSecs(String(countdownRemaining % 60).padStart(2, '0'));
+                        setEditingDuration(true);
+                      }
+                    }}
+                    activeOpacity={restMode === 'timer' ? 0.7 : 1}
+                  >
+                    <Text style={[styles.restTimerTime, { color: colors.primaryText, textAlign: 'center' }]}>
+                      {restMode === 'timer'
+                        ? `${String(Math.floor(countdownRemaining / 60)).padStart(2, '0')}:${String(countdownRemaining % 60).padStart(2, '0')}`
+                        : swElapsed >= 3600
+                          ? `${Math.floor(swElapsed / 3600)}:${String(Math.floor((swElapsed % 3600) / 60)).padStart(2, '0')}:${String(swElapsed % 60).padStart(2, '0')}`
+                          : `${String(Math.floor(swElapsed / 60)).padStart(2, '0')}:${String(swElapsed % 60).padStart(2, '0')}`}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Tap to edit hint — absolutely positioned so it doesn't shift the time */}
+                {restMode === 'timer' && !countdownActive && !editingDuration && (
+                  <View style={[styles.restTimerEditHint, { position: 'absolute', bottom: 2 }]}>
+                    <Ionicons name="create-outline" size={12} color={colors.secondaryText} />
+                    <Text style={[styles.restTimerEditHintText, { color: colors.secondaryText }]}>tap to edit</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Action buttons */}
+              {restMode === 'timer' ? (
+                <>
+                  <TouchableOpacity
+                    style={[styles.restTimerAction, { backgroundColor: countdownActive ? colors.inputBg : accentColor }]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      setCountdownActive(!countdownActive);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name={countdownActive ? 'pause' : 'play'} size={20} color={countdownActive ? colors.primaryText : '#1C1C1E'} />
+                    <Text style={[styles.restTimerActionText, { color: countdownActive ? colors.primaryText : '#1C1C1E' }]}>
+                      {countdownActive ? 'Pause' : 'Start'}
+                    </Text>
+                  </TouchableOpacity>
+                  {!countdownActive && countdownRemaining !== countdownDuration && (
+                    <TouchableOpacity
+                      style={styles.restTimerSecondary}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setCountdownRemaining(countdownDuration);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.restTimerSecondaryText, { color: colors.secondaryText }]}>Reset</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              ) : (
+                <>
+                  {swRunning ? (
+                    <TouchableOpacity
+                      style={[styles.restTimerAction, { backgroundColor: colors.inputBg }]}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        swOffsetRef.current = swElapsed;
+                        setSwRunning(false);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="stop" size={20} color={colors.primaryText} />
+                      <Text style={[styles.restTimerActionText, { color: colors.primaryText }]}>Stop</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.restTimerButtonRow}>
+                      {swElapsed > 0 && (
+                        <TouchableOpacity
+                          style={[styles.restTimerAction, { backgroundColor: colors.inputBg, flex: 1 }]}
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setSwElapsed(0);
+                            swOffsetRef.current = 0;
+                            swStartRef.current = null;
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="refresh" size={20} color={colors.primaryText} />
+                          <Text style={[styles.restTimerActionText, { color: colors.primaryText }]}>Reset</Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity
+                        style={[styles.restTimerAction, { backgroundColor: accentColor, flex: 1 }]}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                          setSwRunning(true);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="play" size={20} color="#1C1C1E" />
+                        <Text style={[styles.restTimerActionText, { color: '#1C1C1E' }]}>{swElapsed > 0 ? 'Continue' : 'Start'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </>
+              )}
+            </View>
+        </View>
+        </View>
+      )}
+
+      {showComplete && (
+        <Animated.View style={[styles.completeOverlay, { opacity: completeOpacity, backgroundColor: colors.overlayBg }]}>
+          <Animated.View style={[styles.completeCard, { transform: [{ scale: completeScale }], backgroundColor: colors.modalBg }]}>
+            <View style={styles.completeIconCircle}>
+              <Ionicons name="checkmark" size={48} color="#fff" />
+            </View>
+            <Text style={[styles.completeTitle, { color: colors.primaryText }]}>Workout Complete!</Text>
+            <Text style={[styles.completeSubtitle, { color: colors.secondaryText }]}>Great work finishing today's session</Text>
+            <BounceButton style={[styles.completeDoneBtn, { backgroundColor: accentColor }]} onPress={() => {
+              setShowComplete(false);
+              completeScale.setValue(0);
+              completeOpacity.setValue(0);
+              router.navigate('/(tabs)/home');
+            }}>
+              <Text style={styles.completeDoneBtnText}>Done</Text>
+            </BounceButton>
+          </Animated.View>
+        </Animated.View>
+      )}
+
+      {/* Make Today's Workout Prompt */}
+      {showMakeTodayPrompt && (
+        <View style={styles.overlayContainer}>
+          <TouchableOpacity style={styles.overlayBackdrop} activeOpacity={1} onPress={() => setShowMakeTodayPrompt(false)} />
+          <View style={[styles.swapOverlayCard, { backgroundColor: colors.modalBg, marginBottom: 120 }]}>
+            <Text style={[styles.swapOverlayTitle, { color: colors.primaryText }]}>Make this today's workout?</Text>
+            <Text style={[styles.swapOverlaySubtitle, { color: colors.secondaryText }]}>
+              Swap "{workout?.dayLabel}" with "{calendarDays[todayIndex]?.label}" so your schedule stays on track.
+            </Text>
+
+            <TouchableOpacity
+              style={[styles.makeTodayPrimaryBtn, { backgroundColor: accentColor }]}
+              onPress={() => { setShowMakeTodayPrompt(false); handleSwapToToday(); }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="swap-vertical-outline" size={18} color="#fff" />
+              <Text style={styles.makeTodayPrimaryText}>Yes, make it today's workout</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.makeTodaySecondaryBtn, { borderColor: colors.border }]}
+              onPress={() => { setShowMakeTodayPrompt(false); handleStartCurrentDay(); }}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.makeTodaySecondaryText, { color: colors.primaryText }]}>No, just log it here</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.swapCancelBtn, { backgroundColor: colors.inputBg }]}
+              onPress={() => setShowMakeTodayPrompt(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.swapCancelText, { color: colors.primaryText }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Swap / Discard Workout Overlay */}
+      {showSwapOverlay && (() => {
+        // Use the program that owns the currently viewed day
+        const swapProgram = (selectedDayIndex === 0 && isLocked)
+          ? programs.find(p => p.id === lockedToday!.programId)
+          : activeProgram;
+        const trainingOptions: { index: number; label: string }[] = [];
+        const seenLabels = new Set<string>();
+        if (swapProgram) {
+          for (let i = 0; i < swapProgram.splitDays.length; i++) {
+            const sd = swapProgram.splitDays[i];
+            if (sd.type === 'training') {
+              const dayLabel = getDayLabel(sd);
+              if (!seenLabels.has(dayLabel)) {
+                seenLabels.add(dayLabel);
+                const currentLabel = workout?.dayLabel;
+                if (dayLabel !== currentLabel) {
+                  trainingOptions.push({ index: i, label: dayLabel });
+                }
+              }
+            }
+          }
+        }
+        return (
+          <View style={styles.overlayContainer}>
+            <TouchableOpacity style={styles.overlayBackdrop} activeOpacity={1} onPress={() => setShowSwapOverlay(false)} />
+            <View style={[styles.swapOverlayCard, { backgroundColor: colors.modalBg }]}>
+              <Text style={[styles.swapOverlayTitle, { color: colors.primaryText }]}>Change Workout</Text>
+              <Text style={[styles.swapOverlaySubtitle, { color: colors.secondaryText }]}>Swap today's session or skip it entirely</Text>
+
+              <ScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator={false} bounces={false}>
+                {/* Swap options */}
+                {trainingOptions.map((opt) => (
+                  <TouchableOpacity
+                    key={opt.index}
+                    style={[styles.swapOption, { backgroundColor: colors.inputBg }]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                      delete exerciseCache[selectedDayIndex];
+                      setDayOverrides(prev => ({ ...prev, [selectedDayIndex]: opt.index }));
+                      setShowSwapOverlay(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.swapOptionDot, { backgroundColor: swapProgram?.color ?? accentColor }]} />
+                    <Text style={[styles.swapOptionText, { color: colors.primaryText }]}>Switch to {opt.label}</Text>
+                    <Ionicons name="chevron-forward" size={16} color={colors.tertiaryText} />
+                  </TouchableOpacity>
+                ))}
+
+                {/* Discard / rest day option — only when there's a workout to discard */}
+                {workout && (
+                  <TouchableOpacity
+                    style={[styles.swapOption, { backgroundColor: colors.inputBg }]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                      workoutState.stopTimer(selectedDayIndex);
+                      delete exerciseCache[selectedDayIndex];
+                      setDayOverrides(prev => ({ ...prev, [selectedDayIndex]: 'rest' }));
+                      setShowSwapOverlay(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.swapOptionDot, { backgroundColor: '#FF6B6B' }]} />
+                    <Text style={[styles.swapOptionText, { color: '#FF6B6B' }]}>Skip — Make it a Rest Day</Text>
+                    <Ionicons name="bed-outline" size={16} color="#FF6B6B" />
+                  </TouchableOpacity>
+                )}
+
+                {/* Undo override — only show if currently overridden */}
+                {dayOverrides[selectedDayIndex] !== undefined && (
+                  <TouchableOpacity
+                    style={[styles.swapOption, { backgroundColor: colors.inputBg }]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                      delete exerciseCache[selectedDayIndex];
+                      setDayOverrides(prev => {
+                        const next = { ...prev };
+                        delete next[selectedDayIndex];
+                        return next;
+                      });
+                      setShowSwapOverlay(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.swapOptionDot, { backgroundColor: colors.tertiaryText }]} />
+                    <Text style={[styles.swapOptionText, { color: colors.primaryText }]}>Restore Original Workout</Text>
+                    <Ionicons name="refresh" size={16} color={colors.tertiaryText} />
+                  </TouchableOpacity>
+                )}
+              </ScrollView>
+
+              {/* Cancel */}
+              <TouchableOpacity
+                style={[styles.swapCancelBtn, { backgroundColor: colors.inputBg }]}
+                onPress={() => setShowSwapOverlay(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.swapCancelText, { color: colors.primaryText }]}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        );
+      })()}
+
+    </LinearGradient>
+  );
+}
+
+// --- Styles ---
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingHorizontal: 20,
+    paddingBottom: 350,
+  },
+  screenTitle: {
+    fontSize: 28,
+    fontFamily: 'Arimo_700Bold',
+    color: '#FFFFFF',
+    lineHeight: 36,
+    textShadowColor: '#00000080',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  dateLabel: {
+    fontSize: 15,
+    fontFamily: 'Arimo_400Regular',
+    color: '#FFFFFF',
+    lineHeight: 22,
+    marginTop: 4,
+    marginBottom: 16,
+    textShadowColor: '#00000040',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
+  },
+
+  // Timer
+  timerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    backgroundColor: '#ffffff59',
+    borderColor: '#ffffffcc',
+    marginBottom: 12,
+  },
+  timerText: {
+    fontSize: 18,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+    fontVariant: ['tabular-nums'] as any,
+  },
+  timerStartText: {
+    fontSize: 14,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+  },
+
+  // Calendar
+  calendarContainer: {
+    marginBottom: 20,
+  },
+  calendarRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 4,
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+  dayCell: {
+    width: 64,
+    height: 78,
+    borderRadius: 18,
+    backgroundColor: '#ffffff40',
+    borderWidth: 1.5,
+    borderColor: '#ffffffcc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  dayName: {
+    fontSize: 11,
+    fontFamily: 'Arimo_700Bold',
+    color: '#5a6c7d',
+    textTransform: 'uppercase',
+  },
+  dayNumber: {
+    fontSize: 18,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+  },
+  dayIndicator: {
+    width: 20,
+    height: 4,
+    borderRadius: 2,
+  },
+  todayDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#47DDFF',
+    marginTop: 1,
+  },
+
+  // Past Day Card
+  pastDayCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 24,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  pastDayLabel: {
+    fontSize: 22,
+    fontFamily: 'Arimo_700Bold',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  pastDayMeta: {
+    fontSize: 14,
+    fontFamily: 'Arimo_400Regular',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  pastDayEmptyText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_400Regular',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  pastDayBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    paddingVertical: 11,
+    paddingHorizontal: 18,
+    marginTop: 8,
+  },
+  pastDayBtnText: {
+    fontSize: 14,
+    fontFamily: 'Arimo_700Bold',
+  },
+
+  // Session Tabs
+  sessionTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+  },
+  sessionTabText: {
+    fontSize: 14,
+    fontFamily: 'Arimo_400Regular',
+  },
+
+  // Program
+  programRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  programBadge: {
+    backgroundColor: 'rgba(71, 221, 255, 0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(71, 221, 255, 0.3)',
+  },
+  programBadgeText: {
+    fontSize: 13,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+    letterSpacing: 1,
+  },
+  dayTitle: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontFamily: 'Arimo_700Bold',
+    color: '#FFFFFF',
+    textShadowColor: '#00000080',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  daySubtitle: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    color: '#FFFFFF',
+    opacity: 0.8,
+    marginTop: 1,
+    textShadowColor: '#00000040',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
+  },
+  exerciseCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ffffff59',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1.5,
+    borderColor: '#ffffffcc',
+  },
+  exerciseCountText: {
+    fontSize: 14,
+    fontFamily: 'Arimo_700Bold',
+    color: '#5a6c7d',
+  },
+
+  // Exercise Card
+  exerciseCard: {
+    backgroundColor: '#ffffff59',
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#ffffffcc',
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  exerciseHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  exerciseNumberBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: 'rgba(71, 221, 255, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(71, 221, 255, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  exerciseNumberText: {
+    fontSize: 13,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+  },
+  exerciseName: {
+    fontSize: 16,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+    flex: 1,
+  },
+  setRow: {
+    flexDirection: 'row',
+    paddingVertical: 5,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+  },
+  dataRow: {
+    flexDirection: 'row',
+    paddingVertical: 3,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+  },
+  setHeaderText: {
+    fontSize: 10,
+    fontFamily: 'Arimo_700Bold',
+    color: '#5a6c7d',
+    letterSpacing: 1,
+  },
+  setText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_400Regular',
+    color: '#2c3e50',
+  },
+  setWeight: {
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+  },
+  setCol: {
+    width: 36,
+    textAlign: 'center',
+  },
+  inputCol: {
+    flex: 1,
+    textAlign: 'center',
+  },
+  inputHeaderCol: {
+    flex: 1,
+    alignItems: 'center',
+    marginHorizontal: 4,
+  },
+  inputCell: {
+    flex: 1,
+    marginHorizontal: 4,
+    alignItems: 'center',
+  },
+  inputBox: {
+    width: '100%',
+    height: 40,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+  },
+  prevCol: {
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  prevColHeader: {
+    fontSize: 9,
+    fontFamily: 'Arimo_700Bold',
+    color: '#8a9bab',
+    letterSpacing: 0.5,
+  },
+  prevValue: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    color: '#8a9bab',
+  },
+  inputBoxText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+    textAlign: 'center',
+    flex: 1,
+    width: '100%',
+    paddingVertical: 0,
+  },
+  checkCol: {
+    width: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#00EBAC',
+    borderColor: '#00EBAC',
+  },
+  removeSetBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    backgroundColor: '#FF4D4F',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addSetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    marginTop: 4,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: 'rgba(0,0,0,0.15)',
+    borderStyle: 'dashed',
+  },
+  addSetText: {
+    fontSize: 13,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+  },
+  notesToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    marginTop: 6,
+    borderRadius: 10,
+    backgroundColor: '#f5f6f8',
+  },
+  notesToggleBtnActive: {
+    backgroundColor: 'rgba(71, 221, 255, 0.1)',
+  },
+  notesToggleText: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    color: '#5a6c7d',
+  },
+  noteInput: {
+    marginTop: 8,
+    backgroundColor: '#f5f6f8',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontFamily: 'Arimo_400Regular',
+    color: '#2c3e50',
+    minHeight: 60,
+    textAlignVertical: 'top',
+  },
+  headerDivider: {
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    marginHorizontal: 4,
+    marginBottom: 2,
+  },
+
+  // Rest Day
+  restDayCard: {
+    backgroundColor: '#ffffff59',
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: '#ffffffcc',
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 20,
+    gap: 10,
+  },
+  restDayTitle: {
+    fontSize: 22,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+  },
+  restDaySubtitle: {
+    fontSize: 14,
+    fontFamily: 'Arimo_400Regular',
+    color: '#5a6c7d',
+  },
+  addExerciseBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    marginTop: 4,
+    marginBottom: 8,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+  },
+  addExerciseBtnText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
+  },
+  finishButton: {
+    backgroundColor: '#47DDFF',
+    borderRadius: 16,
+    height: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  finishButtonText: {
+    color: '#1C1C1E',
+    fontSize: 16,
+    fontFamily: 'Arimo_700Bold',
+    letterSpacing: 0.4,
+  },
+  incompleteWarning: {
+    borderRadius: 16,
+    borderWidth: 1.5,
+    padding: 14,
+    marginTop: 10,
+    alignItems: 'center',
+    gap: 8,
+  },
+  incompleteWarningText: {
+    fontSize: 14,
+    fontFamily: 'Arimo_400Regular',
+    textAlign: 'center',
+  },
+  incompleteWarningButtons: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+    width: '100%',
+  },
+  incompleteWarningBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  incompleteWarningBtnText: {
+    fontSize: 14,
+    fontFamily: 'Arimo_700Bold',
+  },
+  completeOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
+  },
+  completeCard: {
+    backgroundColor: '#fff',
+    borderRadius: 28,
+    padding: 36,
+    alignItems: 'center',
+    width: '82%',
+    gap: 12,
+  },
+  completeIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#00EBAC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  completeTitle: {
+    fontSize: 24,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+  },
+  completeSubtitle: {
+    fontSize: 15,
+    fontFamily: 'Arimo_400Regular',
+    color: '#5a6c7d',
+    textAlign: 'center',
+  },
+  completeDoneBtn: {
+    backgroundColor: '#47DDFF',
+    borderRadius: 16,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    marginTop: 8,
+  },
+  completeDoneBtnText: {
+    color: '#1C1C1E',
+    fontSize: 16,
+    fontFamily: 'Arimo_700Bold',
+    letterSpacing: 0.4,
+  },
+
+  // Rest Timer
+  journalHeaderBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 58 : 38,
+    right: 74,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  restTimerBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 58 : 38,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#ffffff59',
+    borderWidth: 1.5,
+    borderColor: '#ffffffcc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  restTimerCard: {
+    borderRadius: 28,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 24,
+    width: '85%',
+    alignItems: 'center',
+    gap: 16,
+  },
+  restTimerBody: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 16,
+  },
+  restTimerCloseRow: {
+    width: '100%',
+    alignItems: 'flex-end',
+    marginBottom: -12,
+    marginRight: -8,
+  },
+  restTimerTabs: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    padding: 3,
+    width: '100%',
+  },
+  restTimerTab: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  restTimerTabText: {
+    fontSize: 14,
+    fontFamily: 'Arimo_700Bold',
+  },
+  restTimerDisplay: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 8,
+    height: 80,
+    width: '100%',
+  },
+  restTimerTime: {
+    fontSize: 48,
+    fontFamily: 'Arimo_700Bold',
+    fontVariant: ['tabular-nums'] as any,
+  },
+  restTimerAdjust: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    position: 'absolute' as const,
+    top: '50%',
+    marginTop: -16,
+  },
+  restTimerAdjustLeft: {
+    left: 16,
+  },
+  restTimerAdjustRight: {
+    right: 16,
+  },
+  restTimerAdjustText: {
+    fontSize: 13,
+    fontFamily: 'Arimo_700Bold',
+  },
+  restTimerAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 16,
+    height: 48,
+    width: '100%',
+  },
+  restTimerActionText: {
+    fontSize: 16,
+    fontFamily: 'Arimo_700Bold',
+    letterSpacing: 0.4,
+  },
+  restTimerSecondary: {
+    paddingVertical: 8,
+  },
+  restTimerSecondaryText: {
+    fontSize: 14,
+    fontFamily: 'Arimo_400Regular',
+  },
+  restTimerButtonRow: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+  },
+  restTimerEditRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  restTimerEditInput: {
+    fontSize: 36,
+    fontFamily: 'Arimo_700Bold',
+    fontVariant: ['tabular-nums'] as any,
+    textAlign: 'center',
+    width: 64,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  restTimerEditConfirm: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  restTimerEditHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  restTimerEditHintText: {
+    fontSize: 11,
+    fontFamily: 'Arimo_400Regular',
+  },
+
+  // Edit mode options
+  editOptionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 6,
+    borderRadius: 10,
+  },
+  editOptionText: {
+    fontSize: 13,
+    fontFamily: 'Arimo_700Bold',
+  },
+
+  // Change Exercise overlay
+  exerciseListOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  exerciseListCard: {
+    borderRadius: 20,
+    padding: 20,
+    width: '85%',
+    maxHeight: '70%',
+  },
+  customExerciseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+    height: 44,
+  },
+  customExerciseInput: {
+    flex: 1,
+    fontSize: 15,
+    fontFamily: 'Arimo_400Regular',
+    paddingVertical: 0,
+  },
+  customExerciseConfirm: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  exerciseListCategory: {
+    fontSize: 12,
+    fontFamily: 'Arimo_700Bold',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  exerciseListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+  },
+  exerciseListItemText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_400Regular',
+  },
+
+  // Change Workout button
+  changeWorkoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    marginTop: 10,
+  },
+  changeWorkoutBtnText: {
+    fontSize: 14,
+    fontFamily: 'Arimo_400Regular',
+  },
+
+  // Swap / Discard overlay
+  overlayContainer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  overlayBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  swapOverlayCard: {
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 20,
+    width: '100%',
+  },
+  swapOverlayTitle: {
+    fontSize: 18,
+    fontFamily: 'Arimo_700Bold',
+    marginBottom: 4,
+  },
+  swapOverlaySubtitle: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    marginBottom: 20,
+  },
+  swapOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    marginBottom: 8,
+    gap: 10,
+  },
+  swapOptionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  swapOptionText: {
+    flex: 1,
+    fontSize: 15,
+    fontFamily: 'Arimo_400Regular',
+  },
+  swapCancelBtn: {
+    alignSelf: 'center',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 28,
+    marginTop: 4,
+    borderRadius: 20,
+  },
+  swapCancelText: {
+    fontSize: 13,
+    fontFamily: 'Arimo_700Bold',
+  },
+  makeTodayPrimaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+    marginBottom: 10,
+  },
+  makeTodayPrimaryText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
+    color: '#fff',
+  },
+  makeTodaySecondaryBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    marginBottom: 6,
+  },
+  makeTodaySecondaryText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_400Regular',
+  },
+});

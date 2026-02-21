@@ -1,0 +1,812 @@
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Platform,
+  StatusBar,
+  Image,
+  Animated,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import Svg, { Path } from 'react-native-svg';
+import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { workoutState } from '../../workoutState';
+import { useProgramStore, getDayLabel, getDayExerciseCount, isMultiSession } from '../../programStore';
+import { useTheme } from '../../themeStore';
+import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
+import { Nunito_700Bold } from '@expo-google-fonts/nunito';
+
+const STREAK_KEY = 'appStreak';
+
+type StreakData = {
+  streak: number;
+  lastOpenDate: string;
+  lastWorkoutDate: string | null; // last date user opened on a workout day
+  anchorDate: string;             // reference date the cycle was established from
+  splitPattern: boolean[];        // cycle starting at anchorDate; true=workout, false=rest
+  programId: string;
+};
+
+function getTodayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function daysBetween(a: string, b: string): number {
+  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+}
+
+// Was the date `targetDate` a workout day, given the cycle anchored at `anchorDate`?
+function isWorkoutOnDate(anchorDate: string, splitPattern: boolean[], targetDate: string): boolean {
+  const len = splitPattern.length;
+  if (len === 0) return false;
+  const diff = daysBetween(anchorDate, targetDate);
+  return splitPattern[((diff % len) + len) % len];
+}
+
+// Count workout days strictly between fromDate and toDate (exclusive of both ends)
+function countMissedWorkouts(anchorDate: string, splitPattern: boolean[], fromDate: string, toDate: string): number {
+  const gap = daysBetween(fromDate, toDate);
+  let missed = 0;
+  for (let i = 1; i < gap; i++) {
+    const d = new Date(fromDate);
+    d.setDate(d.getDate() + i);
+    const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (isWorkoutOnDate(anchorDate, splitPattern, ds)) missed++;
+  }
+  return missed;
+}
+
+async function loadAndUpdateStreak(
+  programId: string,
+  splitPattern: boolean[], // index 0 = today's type in the cycle
+  isTodayWorkout: boolean,
+): Promise<number> {
+  const today = getTodayStr();
+  try {
+    const raw = await AsyncStorage.getItem(STREAK_KEY);
+    if (!raw) {
+      const data: StreakData = {
+        streak: 1,
+        lastOpenDate: today,
+        lastWorkoutDate: isTodayWorkout ? today : null,
+        anchorDate: today,
+        splitPattern,
+        programId,
+      };
+      await AsyncStorage.setItem(STREAK_KEY, JSON.stringify(data));
+      return 1;
+    }
+
+    const stored: StreakData = JSON.parse(raw);
+    if (stored.lastOpenDate === today) return stored.streak;
+
+    const programChanged =
+      stored.programId !== programId ||
+      JSON.stringify(stored.splitPattern) !== JSON.stringify(splitPattern);
+
+    let { streak, lastWorkoutDate, anchorDate } = stored;
+
+    if (programChanged) {
+      // Can't reliably infer missed days under a different cycle — keep streak, reset anchor
+      if (isTodayWorkout) {
+        streak += 1;
+        lastWorkoutDate = today;
+      }
+      anchorDate = today;
+    } else {
+      if (isTodayWorkout) {
+        const fromDate = lastWorkoutDate ?? stored.lastOpenDate;
+        const missed = countMissedWorkouts(anchorDate, stored.splitPattern, fromDate, today);
+        streak = missed === 0 ? streak + 1 : 1;
+        lastWorkoutDate = today;
+      } else {
+        // Rest day — check whether any workout days slipped past since last workout
+        if (lastWorkoutDate !== null) {
+          const missed = countMissedWorkouts(anchorDate, stored.splitPattern, lastWorkoutDate, today);
+          if (missed > 0) {
+            streak = 1;
+            lastWorkoutDate = null;
+          }
+        }
+      }
+    }
+
+    const data: StreakData = {
+      streak,
+      lastOpenDate: today,
+      lastWorkoutDate,
+      anchorDate,
+      splitPattern,
+      programId,
+    };
+    await AsyncStorage.setItem(STREAK_KEY, JSON.stringify(data));
+    return streak;
+  } catch {
+    return 1;
+  }
+}
+
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good Morning';
+  if (hour < 18) return 'Good Afternoon';
+  return 'Good Evening';
+};
+
+const getFormattedDate = () => {
+  const now = new Date();
+  return now.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+};
+
+function BookOpenIcon({ size = 24, color = '#000' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+    </Svg>
+  );
+}
+
+function BounceButton({ style, children, onPress, ...rest }: any) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const handlePressIn = () => {
+    Animated.spring(scale, {
+      toValue: 0.92,
+      useNativeDriver: true,
+      speed: 50,
+      bounciness: 4,
+    }).start();
+  };
+  const handlePressOut = () => {
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 20,
+      bounciness: 10,
+    }).start();
+  };
+  // Extract layout/position props for the outer wrapper, keep visual props for inner
+  const {
+    flex, flexGrow, flexShrink, flexBasis, alignSelf,
+    position, top, bottom, left, right, zIndex,
+    ...innerStyle
+  } = StyleSheet.flatten(style) || {} as any;
+  const outerStyle: any = {};
+  if (flex !== undefined) outerStyle.flex = flex;
+  if (flexGrow !== undefined) outerStyle.flexGrow = flexGrow;
+  if (flexShrink !== undefined) outerStyle.flexShrink = flexShrink;
+  if (flexBasis !== undefined) outerStyle.flexBasis = flexBasis;
+  if (alignSelf !== undefined) outerStyle.alignSelf = alignSelf;
+  if (position !== undefined) outerStyle.position = position;
+  if (top !== undefined) outerStyle.top = top;
+  if (bottom !== undefined) outerStyle.bottom = bottom;
+  if (left !== undefined) outerStyle.left = left;
+  if (right !== undefined) outerStyle.right = right;
+  if (zIndex !== undefined) outerStyle.zIndex = zIndex;
+  return (
+    <TouchableOpacity
+      activeOpacity={1}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onPress?.();
+      }}
+      style={outerStyle}
+      {...rest}
+    >
+      <Animated.View style={[innerStyle, { transform: [{ scale }] }]}>
+        {children}
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
+
+export default function HomeScreen() {
+  const router = useRouter();
+  const { programs, activeId } = useProgramStore();
+  const { isDark, colors } = useTheme();
+  const activeProgram = programs.find(p => p.id === activeId);
+  const accentColor = activeProgram?.color || '#47DDFF';
+  const todayDayIndex = 0; // today is always index 0 in the calendar
+  const [streak, setStreak] = useState(1);
+  const [workoutDone, setWorkoutDone] = useState(workoutState.finished);
+  const [recentEntries, setRecentEntries] = useState(() => workoutState.getJournalLog().slice(0, 3));
+  const [timerActive, setTimerActive] = useState(!!workoutState.getTimerStartedAt(todayDayIndex) || workoutState.getTimerPausedElapsed(todayDayIndex) > 0);
+  const [elapsed, setElapsed] = useState(workoutState.getElapsed(todayDayIndex));
+
+  useEffect(() => {
+    const splitPattern = activeProgram?.splitDays.map(sd => sd.type === 'training') ?? [];
+    const isTodayWorkout = splitPattern[0] ?? false;
+    const programId = activeProgram?.id ?? 'none';
+    loadAndUpdateStreak(programId, splitPattern, isTodayWorkout).then(setStreak);
+  }, []);
+
+  useEffect(() => {
+    return workoutState.subscribe(setWorkoutDone);
+  }, []);
+
+  useEffect(() => {
+    const sync = () => {
+      const running = !!workoutState.getTimerStartedAt(todayDayIndex);
+      setTimerActive(running || workoutState.getTimerPausedElapsed(todayDayIndex) > 0);
+      setElapsed(workoutState.getElapsed(todayDayIndex));
+    };
+    return workoutState.subscribeTimer(sync);
+  }, []);
+
+  useEffect(() => {
+    const running = !!workoutState.getTimerStartedAt(todayDayIndex);
+    if (!running) return;
+    const tick = () => setElapsed(workoutState.getElapsed(todayDayIndex));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [timerActive]);
+
+  const [fontsLoaded] = useFonts({
+    Arimo_400Regular,
+    Arimo_700Bold,
+    Nunito_700Bold,
+  });
+
+  const scrollRef = useRef<ScrollView>(null);
+
+  useFocusEffect(useCallback(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+    setRecentEntries(workoutState.getJournalLog().slice(0, 3));
+  }, []));
+
+  const flameScale = useRef(new Animated.Value(1)).current;
+  const flameOpacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(flameScale, { toValue: 1.15, duration: 300, useNativeDriver: true }),
+          Animated.timing(flameOpacity, { toValue: 0.7, duration: 300, useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(flameScale, { toValue: 0.95, duration: 200, useNativeDriver: true }),
+          Animated.timing(flameOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(flameScale, { toValue: 1.1, duration: 250, useNativeDriver: true }),
+          Animated.timing(flameOpacity, { toValue: 0.8, duration: 250, useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(flameScale, { toValue: 1, duration: 200, useNativeDriver: true }),
+          Animated.timing(flameOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+        ]),
+      ])
+    ).start();
+  }, []);
+
+  if (!fontsLoaded) return null;
+
+  return (
+    <LinearGradient
+      colors={[colors.gradientStart, colors.gradientEnd]}
+      style={styles.container}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
+    >
+      <StatusBar barStyle={colors.statusBar} backgroundColor={colors.gradientStart} />
+
+      {/* Fixed Profile - Top Right */}
+      <BounceButton style={[styles.fixedProfile, { backgroundColor: '#FFFFFF' }]} onPress={() => router.push('/settings')}>
+        <Text style={[styles.profileInitials, { color: '#2c3e50' }]}>MB</Text>
+      </BounceButton>
+
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* AV Logo */}
+        <Image
+          source={require('../../assets/images/av-logo.png')}
+          style={styles.headerLogo}
+          resizeMode="contain"
+        />
+
+        {/* Greeting */}
+        <View style={styles.greetingContainer}>
+          <View style={styles.greetingRow}>
+            <Text style={styles.greeting}>{getGreeting()}</Text>
+            <View style={[styles.streakBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#ffffff80', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#ffffffcc' }]}>
+              <Animated.View style={{ transform: [{ scale: flameScale }], opacity: flameOpacity }}>
+                <Ionicons name="flame" size={18} color="#FF9500" />
+              </Animated.View>
+              <Text style={styles.streakText}>{streak} Day{streak !== 1 ? 's' : ''} Streak</Text>
+            </View>
+          </View>
+          <Text style={styles.date}>{getFormattedDate()}</Text>
+        </View>
+
+        {/* Today's Workout Card */}
+        {(() => {
+          const todaySplit = activeProgram?.splitDays[0];
+          const isRestDay = !todaySplit || todaySplit.type === 'rest';
+          const dayLabel = isRestDay ? 'Rest Day' : getDayLabel(todaySplit);
+          const exerciseCount = isRestDay ? 0 : getDayExerciseCount(todaySplit);
+          const multiSession = !isRestDay && todaySplit.type === 'training' && isMultiSession(todaySplit);
+
+          return (
+            <View style={[styles.glassCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <View>
+                  <Text style={[styles.cardLabel, { color: colors.secondaryText }]}>TODAY'S WORKOUT</Text>
+                  <Text style={[styles.cardTitle, { color: colors.primaryText }]}>{dayLabel}</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={[styles.programLabel, { color: colors.secondaryText }]}>Active Program</Text>
+                  <View style={[styles.programBadge, { backgroundColor: `${accentColor}40`, borderColor: `${accentColor}80` }]}>
+                    <Text style={[styles.programBadgeText, { color: colors.primaryText }]}>{activeProgram?.name || 'None'}</Text>
+                  </View>
+                </View>
+              </View>
+              {isRestDay ? (
+                <Text style={[styles.cardSubtitle, { color: colors.secondaryText }]}>Recovery is part of the process</Text>
+              ) : (
+                <View style={styles.workoutMeta}>
+                  <View style={styles.metaItem}>
+                    <Ionicons name="barbell-outline" size={16} color={colors.secondaryText} />
+                    <Text style={[styles.metaText, { color: colors.secondaryText }]}>{exerciseCount} exercises</Text>
+                  </View>
+                  {multiSession && (
+                    <View style={styles.metaItem}>
+                      <Ionicons name="layers-outline" size={16} color={colors.secondaryText} />
+                      <Text style={[styles.metaText, { color: colors.secondaryText }]}>{todaySplit.sessions.length} sessions</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+              <BounceButton
+                style={[styles.startButton, { backgroundColor: accentColor }, workoutDone && { backgroundColor: `${accentColor}25`, borderWidth: 1, borderColor: `${accentColor}66` }]}
+                onPress={() => {
+                  if (!isRestDay && !workoutDone) workoutState.startTimer(todayDayIndex);
+                  router.navigate('/(tabs)/workout');
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={[styles.startButtonText, workoutDone && { color: isDark ? '#FFFFFF' : '#1C1C1E' }]}>
+                    {workoutDone ? 'Edit Workout' : isRestDay ? 'View Schedule' : timerActive ? 'Continue Workout' : 'Start Workout'}
+                  </Text>
+                  {timerActive && !workoutDone ? (
+                    <>
+                      <View style={{ width: 1, height: 16, backgroundColor: '#1C1C1E30' }} />
+                      <Ionicons name="time-outline" size={16} color="#1C1C1E" />
+                      <Text style={[styles.startButtonText, { fontVariant: ['tabular-nums'] as any }]}>
+                        {elapsed >= 3600
+                          ? `${Math.floor(elapsed / 3600)}:${String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`
+                          : `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`}
+                      </Text>
+                    </>
+                  ) : (
+                    <Ionicons name="arrow-forward" size={20} color={workoutDone ? (isDark ? '#FFFFFF' : '#1C1C1E') : '#1C1C1E'} />
+                  )}
+                </View>
+              </BounceButton>
+            </View>
+          );
+        })()}
+
+        {/* Quick Actions */}
+        <View style={styles.quickActions}>
+          {[
+            { icon: 'add-circle-outline' as const, label: 'Create New\nProgram', route: '/create-program' as const },
+            { icon: 'list-outline' as const, label: 'View/Change\nPrograms', route: '/programs' as const },
+          ].map((action, i) => (
+            <BounceButton key={i} style={styles.quickActionButton} onPress={() => router.push(action.route)}>
+              <View style={[styles.quickActionIcon, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#ffffff80', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#ffffffcc' }]}>
+                <Ionicons name={action.icon} size={30} color={colors.primaryText} />
+              </View>
+              <Text style={[styles.quickActionLabel, { color: colors.secondaryText }]}>{action.label}</Text>
+            </BounceButton>
+          ))}
+        </View>
+
+        {/* Progress Snapshot */}
+        <Text style={styles.sectionTitle}>This Week</Text>
+        <View style={styles.statsRow}>
+          {[
+            { value: '3/4', label: 'Workouts', icon: 'barbell-outline' as const },
+            { value: '8,350', label: 'Volume (kg)', icon: 'trending-up-outline' as const },
+            { value: '51 min', label: 'Avg Duration', icon: 'timer-outline' as const },
+          ].map((stat, i) => (
+            <View key={i} style={[styles.statCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
+              <Ionicons name={stat.icon} size={20} color={accentColor} />
+              <Text style={[styles.statValue, { color: colors.primaryText }]}>{stat.value}</Text>
+              <Text style={[styles.statLabel, { color: colors.secondaryText }]}>{stat.label}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Recent Activity */}
+        {(() => {
+          const formatDur = (secs: number) => {
+            const h = Math.floor(secs / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            const s = secs % 60;
+            if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+          };
+          const formatRelDay = (ts: number) => {
+            const now = new Date(); const d = new Date(ts);
+            const diff = Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) / 86400000);
+            if (diff === 0) return 'Today';
+            if (diff === 1) return 'Yesterday';
+            return d.toLocaleDateString('en-AU', { weekday: 'long' });
+          };
+          return (
+            <>
+              <View style={styles.sectionTitleRow}>
+                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Recent Activity</Text>
+                <TouchableOpacity
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/journal'); }}
+                  activeOpacity={0.7}
+                  style={[styles.viewAllBtn, { backgroundColor: `${accentColor}22`, borderColor: `${accentColor}55` }]}
+                >
+                  <Text style={[styles.viewAllText, { color: colors.primaryText }]}>View Journal</Text>
+                  <Ionicons name="chevron-forward" size={13} color={colors.primaryText} />
+                </TouchableOpacity>
+              </View>
+              {recentEntries.length === 0 ? (
+                <View style={[styles.activityCard, styles.emptyActivity, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
+                  <BookOpenIcon size={22} color={colors.tertiaryText} />
+                  <Text style={[styles.activityDay, { color: colors.tertiaryText, marginTop: 6 }]}>No workouts logged yet</Text>
+                </View>
+              ) : (
+                recentEntries.map((entry) => {
+                  const exCount = entry.sessions.reduce((sum, s) => sum + s.exercises.length, 0);
+                  return (
+                    <BounceButton
+                      key={entry.id}
+                      style={[styles.activityCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
+                      onPress={() => router.push({ pathname: '/journal', params: { entryId: entry.id } })}
+                    >
+                      <View style={[styles.activityAccentBar, { backgroundColor: entry.programColor }]} />
+                      <View style={styles.activityLeft}>
+                        <Text style={[styles.activityDay, { color: colors.secondaryText }]}>{formatRelDay(entry.date)}</Text>
+                        <Text style={[styles.activityName, { color: colors.primaryText }]} numberOfLines={1}>
+                          {entry.programName} — {entry.dayLabel}
+                        </Text>
+                      </View>
+                      <View style={styles.activityRight}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Ionicons name="barbell-outline" size={13} color={colors.secondaryText} />
+                          <Text style={[styles.activityStat, { color: colors.secondaryText }]}>{exCount} exercises</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Ionicons name="time-outline" size={13} color={colors.secondaryText} />
+                          <Text style={[styles.activityStat, { color: colors.secondaryText }]}>{formatDur(entry.durationSecs)}</Text>
+                        </View>
+                      </View>
+                    </BounceButton>
+                  );
+                })
+              )}
+            </>
+          );
+        })()}
+      </ScrollView>
+    </LinearGradient>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  fixedProfile: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 54 : 34,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  scrollContent: {
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingHorizontal: 20,
+    paddingBottom: 120,
+  },
+  headerLogo: {
+    width: 44,
+    height: 44,
+    marginBottom: 16,
+  },
+  greetingContainer: {
+    marginBottom: 20,
+  },
+  greetingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  streakBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ffffff80',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1.5,
+    borderColor: '#ffffffcc',
+  },
+  streakText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
+    color: '#FF9500',
+  },
+  greeting: {
+    fontSize: 28,
+    fontFamily: 'Arimo_700Bold',
+    color: '#FFFFFF',
+    lineHeight: 36,
+    textShadowColor: '#00000080',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  date: {
+    fontSize: 15,
+    fontFamily: 'Arimo_400Regular',
+    color: '#FFFFFF',
+    marginTop: 4,
+    lineHeight: 20,
+    textShadowColor: '#00000040',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
+  },
+  profileInitials: {
+    fontSize: 18,
+    fontFamily: 'Arimo_400Regular',
+    color: '#1C1C1E',
+    textAlign: 'center',
+    includeFontPadding: false,
+    lineHeight: 20,
+  },
+  glassCard: {
+    backgroundColor: '#ffffff59',
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: '#ffffffcc',
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
+    marginBottom: 20,
+  },
+  programLabel: {
+    fontSize: 10,
+    fontFamily: 'Arimo_700Bold',
+    color: '#5a6c7d',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  programBadge: {
+    backgroundColor: 'rgba(0, 235, 172, 0.25)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 235, 172, 0.5)',
+  },
+  programBadgeText: {
+    fontSize: 12,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+    letterSpacing: 1,
+  },
+  cardLabel: {
+    fontSize: 12,
+    fontFamily: 'Arimo_700Bold',
+    color: '#5a6c7d',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  cardTitle: {
+    fontSize: 24,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+    letterSpacing: 0.3,
+  },
+  cardSubtitle: {
+    fontSize: 16,
+    fontFamily: 'Arimo_400Regular',
+    color: '#5a6c7d',
+    marginTop: 2,
+    marginBottom: 12,
+  },
+  workoutMeta: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 10,
+    marginBottom: 16,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  metaText: {
+    fontSize: 14,
+    fontFamily: 'Arimo_400Regular',
+    color: '#5a6c7d',
+  },
+  startButton: {
+    backgroundColor: '#47DDFF',
+    borderRadius: 16,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editButton: {
+    backgroundColor: 'rgba(71, 221, 255, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(71, 221, 255, 0.4)',
+  },
+  startButtonText: {
+    color: '#1C1C1E',
+    fontSize: 16,
+    fontFamily: 'Nunito_700Bold',
+    letterSpacing: 0.4,
+  },
+  quickActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 64,
+    marginTop: 8,
+    marginBottom: 28,
+  },
+  quickActionButton: {
+    alignItems: 'center',
+  },
+  quickActionIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: '#ffffff80',
+    borderWidth: 1.5,
+    borderColor: '#ffffffcc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  quickActionLabel: {
+    fontSize: 13,
+    fontFamily: 'Arimo_700Bold',
+    color: '#5a6c7d',
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontFamily: 'Arimo_700Bold',
+    color: '#FFFFFF',
+    marginBottom: 12,
+    lineHeight: 28,
+    textShadowColor: '#00000080',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 28,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#ffffff59',
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: '#ffffffcc',
+    padding: 14,
+    alignItems: 'center',
+    gap: 6,
+  },
+  statValue: {
+    fontSize: 22,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+  },
+  statLabel: {
+    fontSize: 11,
+    fontFamily: 'Arimo_400Regular',
+    color: '#5a6c7d',
+    textAlign: 'center',
+  },
+  activityCard: {
+    backgroundColor: '#ffffff59',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#ffffffcc',
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  activityLeft: {
+    flex: 1,
+  },
+  activityDay: {
+    fontSize: 12,
+    fontFamily: 'Arimo_700Bold',
+    color: '#5a6c7d',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  activityName: {
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+  },
+  activityRight: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  activityStat: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    color: '#5a6c7d',
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  viewAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  viewAllText: {
+    fontSize: 13,
+    fontFamily: 'Arimo_700Bold',
+  },
+  emptyActivity: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+  },
+  activityAccentBar: {
+    width: 4,
+    alignSelf: 'stretch',
+    borderRadius: 2,
+    marginRight: 10,
+  },
+});
