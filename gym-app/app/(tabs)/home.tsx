@@ -23,6 +23,7 @@ import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/ar
 import { Nunito_700Bold } from '@expo-google-fonts/nunito';
 
 const STREAK_KEY = 'appStreak';
+let _streakAnimPlayed = false;
 
 type StreakData = {
   streak: number;
@@ -212,6 +213,39 @@ function BounceButton({ style, children, onPress, ...rest }: any) {
   );
 }
 
+function getWeekStart(): number {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 = Sun
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((dayOfWeek + 6) % 7));
+  monday.setHours(0, 0, 0, 0);
+  return monday.getTime();
+}
+
+function computeWeeklyStats() {
+  const weekStart = getWeekStart();
+  const now = Date.now();
+  const entries = workoutState.getJournalLog().filter(e => e.date >= weekStart && e.date <= now);
+  const workouts = entries.length;
+  const volume = entries.reduce((sum, e) => sum + e.totalVolume, 0);
+  const totalDuration = entries.reduce((sum, e) => sum + e.durationSecs, 0);
+  const avgDuration = workouts > 0 ? Math.round(totalDuration / workouts) : 0;
+  return { workouts, volume, avgDuration };
+}
+
+function fmtVolume(kg: number): string {
+  if (kg <= 0) return '—';
+  return Math.round(kg).toLocaleString();
+}
+
+function fmtAvgDuration(secs: number): string {
+  if (secs <= 0) return '—';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m} min`;
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const { programs, activeId } = useProgramStore();
@@ -222,6 +256,8 @@ export default function HomeScreen() {
   const [streak, setStreak] = useState(1);
   const [workoutDone, setWorkoutDone] = useState(workoutState.finished);
   const [recentEntries, setRecentEntries] = useState(() => workoutState.getJournalLog().slice(0, 3));
+  const [weeklyStats, setWeeklyStats] = useState(() => computeWeeklyStats());
+  const [weeklyPlanCount, setWeeklyPlanCount] = useState<number | null>(null);
   const [timerActive, setTimerActive] = useState(!!workoutState.getTimerStartedAt(todayDayIndex) || workoutState.getTimerPausedElapsed(todayDayIndex) > 0);
   const [elapsed, setElapsed] = useState(workoutState.getElapsed(todayDayIndex));
 
@@ -233,8 +269,29 @@ export default function HomeScreen() {
   }, []);
 
   useEffect(() => {
-    return workoutState.subscribe(setWorkoutDone);
+    return workoutState.subscribe((done) => {
+      setWorkoutDone(done);
+      setWeeklyStats(computeWeeklyStats());
+    });
   }, []);
+
+  // Compute planned training days this week for the current active program
+  useEffect(() => {
+    if (!activeProgram) { setWeeklyPlanCount(null); return; }
+    const cycleLength = activeProgram.splitDays.length;
+    if (cycleLength === 0) { setWeeklyPlanCount(null); return; }
+    workoutState.getCycleOffset(activeProgram.id, cycleLength).then(offset => {
+      const now = new Date();
+      const mondayOffset = (now.getDay() + 6) % 7; // days since Monday (0 = Mon, 6 = Sun)
+      let count = 0;
+      for (let i = 0; i < 7; i++) {
+        const daysFromToday = i - mondayOffset;
+        const ci = ((offset + daysFromToday) % cycleLength + cycleLength) % cycleLength;
+        if (activeProgram.splitDays[ci]?.type === 'training') count++;
+      }
+      setWeeklyPlanCount(count);
+    });
+  }, [activeProgram?.id]);
 
   useEffect(() => {
     const sync = () => {
@@ -265,10 +322,12 @@ export default function HomeScreen() {
   useFocusEffect(useCallback(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
     setRecentEntries(workoutState.getJournalLog().slice(0, 3));
+    setWeeklyStats(computeWeeklyStats());
   }, []));
 
   const flameScale = useRef(new Animated.Value(1)).current;
   const flameOpacity = useRef(new Animated.Value(1)).current;
+  const streakExpanded = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.loop(
@@ -292,6 +351,20 @@ export default function HomeScreen() {
       ])
     ).start();
   }, []);
+
+  // Expand badge and collapse after 2 s — only once per app session
+  useFocusEffect(useCallback(() => {
+    if (_streakAnimPlayed) return;
+    _streakAnimPlayed = true;
+    const t = setTimeout(() => {
+      Animated.timing(streakExpanded, {
+        toValue: 0,
+        duration: 550,
+        useNativeDriver: false,
+      }).start();
+    }, 2000);
+    return () => clearTimeout(t);
+  }, []));
 
   if (!fontsLoaded) return null;
 
@@ -329,7 +402,16 @@ export default function HomeScreen() {
               <Animated.View style={{ transform: [{ scale: flameScale }], opacity: flameOpacity }}>
                 <Ionicons name="flame" size={18} color="#FF9500" />
               </Animated.View>
-              <Text style={styles.streakText}>{streak} Day{streak !== 1 ? 's' : ''} Streak</Text>
+              <Text style={styles.streakText}>{streak}</Text>
+              <Animated.View style={{
+                overflow: 'hidden',
+                maxWidth: streakExpanded.interpolate({ inputRange: [0, 1], outputRange: [0, 110] }),
+                opacity: streakExpanded.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0, 0, 1] }),
+              }}>
+                <Text style={[styles.streakText, { marginLeft: 2 }]} numberOfLines={1}>
+                  {`Day${streak !== 1 ? 's' : ''} Streak`}
+                </Text>
+              </Animated.View>
             </View>
           </View>
           <Text style={styles.date}>{getFormattedDate()}</Text>
@@ -422,9 +504,9 @@ export default function HomeScreen() {
         <Text style={styles.sectionTitle}>This Week</Text>
         <View style={styles.statsRow}>
           {[
-            { value: '3/4', label: 'Workouts', icon: 'barbell-outline' as const },
-            { value: '8,350', label: 'Volume (kg)', icon: 'trending-up-outline' as const },
-            { value: '51 min', label: 'Avg Duration', icon: 'timer-outline' as const },
+            { value: weeklyPlanCount !== null ? `${weeklyStats.workouts}/${weeklyPlanCount}` : weeklyStats.workouts > 0 ? String(weeklyStats.workouts) : '—', label: 'Workouts', icon: 'barbell-outline' as const },
+            { value: fmtVolume(weeklyStats.volume), label: 'Volume (kg)', icon: 'trending-up-outline' as const },
+            { value: fmtAvgDuration(weeklyStats.avgDuration), label: 'Avg Duration', icon: 'timer-outline' as const },
           ].map((stat, i) => (
             <View key={i} style={[styles.statCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
               <Ionicons name={stat.icon} size={20} color={accentColor} />
