@@ -170,7 +170,7 @@ const defaultOwnedCommunities: Community[] = [
     color: '#34D399',
     memberCount: 8,
     createdAt: new Date('2024-03-01'),
-    inviteCode: 'MYGROUP24',
+    inviteCode: 'MYTRAIN4X',
     members: [
       { id: 'user-1', name: 'You', role: 'owner', joinedAt: new Date('2024-03-01') },
       { id: 'client-1', name: 'Alex M.', role: 'member', joinedAt: new Date('2024-03-05') },
@@ -265,14 +265,17 @@ const CommunityStoreContext = createContext<CommunityStoreState | null>(null);
 const COLORS = ['#47DDFF', '#FF6B6B', '#A78BFA', '#34D399', '#FBBF24', '#F472B6'];
 const getRandomColor = () => COLORS[Math.floor(Math.random() * COLORS.length)];
 
-// Generate random invite code
-const generateInviteCode = () => {
+// Generate random invite code including community name prefix
+const generateInviteCode = (name: string) => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = '';
-  for (let i = 0; i < 8; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  // Take up to 6 uppercase letters from the name (letters only)
+  const prefix = name.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 6);
+  const suffixLen = Math.max(2, 8 - prefix.length);
+  let suffix = '';
+  for (let i = 0; i < suffixLen; i++) {
+    suffix += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  return code;
+  return prefix + suffix;
 };
 
 export function CommunityProvider({ children }: { children: ReactNode }) {
@@ -289,7 +292,7 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
       color: getRandomColor(),
       memberCount: 1,
       createdAt: new Date(),
-      inviteCode: generateInviteCode(),
+      inviteCode: generateInviteCode(name),
       members: [
         { id: CURRENT_USER.id, name: CURRENT_USER.name, role: 'owner', joinedAt: new Date() },
       ],

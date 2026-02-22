@@ -205,9 +205,12 @@ export default function ProgramsScreen() {
               const isExpanded = expandedId === program.id;
               return (
                 <View key={program.id}>
-                  <BounceButton style={[styles.programCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, borderLeftColor: program.color, borderLeftWidth: 4 }]} onPress={() => toggleExpand(program.id)}>
+                  <BounceButton style={[styles.programCard, { backgroundColor: `${program.color}12`, borderColor: `${program.color}40` }]} onPress={() => toggleExpand(program.id)}>
                     <View style={styles.programCardHeader}>
-                      <View>
+                      <View style={[styles.sharedProgramIcon, { backgroundColor: `${program.color}25` }]}>
+                        <Ionicons name="barbell-outline" size={20} color={program.color} />
+                      </View>
+                      <View style={{ flex: 1 }}>
                         <Text style={[styles.programName, { color: colors.primaryText }]}>{program.name}</Text>
                         <Text style={[styles.programFullName, { color: colors.secondaryText }]}>From {program.sharedBy} · {program.splitDays.filter(d => d.type === 'training').length} training days</Text>
                       </View>
@@ -331,6 +334,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
+    gap: 12,
+  },
+  sharedProgramIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   programName: {
     fontSize: 20,

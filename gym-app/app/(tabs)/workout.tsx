@@ -1712,15 +1712,15 @@ export default function WorkoutScreen() {
 
             {!workoutFinished && (
               <TouchableOpacity
-                style={[styles.changeWorkoutBtn, { borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }]}
+                style={[styles.changeWorkoutBtn, { backgroundColor: `${accentColor}18`, borderColor: `${accentColor}60` }]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setShowSwapOverlay(true);
                 }}
                 activeOpacity={0.7}
               >
-                <Ionicons name="swap-horizontal" size={16} color={colors.secondaryText} />
-                <Text style={[styles.changeWorkoutBtnText, { color: colors.secondaryText }]}>Change Workout</Text>
+                <Ionicons name="swap-horizontal" size={16} color={colors.primaryText} />
+                <Text style={[styles.changeWorkoutBtnText, { color: colors.primaryText }]}>Change Workout</Text>
               </TouchableOpacity>
             )}
           </>
@@ -1730,15 +1730,15 @@ export default function WorkoutScreen() {
             <Text style={[styles.restDayTitle, { color: colors.primaryText }]}>Rest Day</Text>
             <Text style={[styles.restDaySubtitle, { color: colors.secondaryText }]}>Recovery is part of the process</Text>
             <TouchableOpacity
-              style={[styles.changeWorkoutBtn, { borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)', marginTop: 16, alignSelf: 'center' }]}
+              style={[styles.changeWorkoutBtn, { backgroundColor: `${accentColor}18`, borderColor: `${accentColor}60`, marginTop: 16, alignSelf: 'center' }]}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 setShowSwapOverlay(true);
               }}
               activeOpacity={0.7}
             >
-              <Ionicons name="swap-horizontal" size={16} color={colors.secondaryText} />
-              <Text style={[styles.changeWorkoutBtnText, { color: colors.secondaryText }]}>Change Workout</Text>
+              <Ionicons name="swap-horizontal" size={16} color={colors.primaryText} />
+              <Text style={[styles.changeWorkoutBtnText, { color: colors.primaryText }]}>Change Workout</Text>
             </TouchableOpacity>
           </View>
         ) : null}
@@ -3201,14 +3201,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 12,
+    paddingHorizontal: 24,
     borderRadius: 14,
-    borderWidth: 1,
-    borderStyle: 'dashed',
+    borderWidth: 1.5,
     marginTop: 10,
   },
   changeWorkoutBtnText: {
     fontSize: 14,
-    fontFamily: 'Arimo_400Regular',
+    fontFamily: 'Arimo_700Bold',
   },
 
   // Swap / Discard overlay

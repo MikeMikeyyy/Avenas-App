@@ -16,6 +16,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { useCommunityStore, Community, CURRENT_USER, Member } from '../../communityStore';
 import { useProgramStore } from '../../programStore';
@@ -134,6 +135,7 @@ export default function CommunityScreen() {
   const [newCommunityDesc, setNewCommunityDesc] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [joinError, setJoinError] = useState('');
+  const [copiedCode, setCopiedCode] = useState(false);
 
   // Chat state
   const [chatMessage, setChatMessage] = useState('');
@@ -554,7 +556,10 @@ export default function CommunityScreen() {
             <>
               <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24 }]}>PENDING PROGRAMS</Text>
               {pendingWorkouts.map(workout => (
-                <View key={workout.id} style={[styles.workoutCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, borderLeftColor: workout.color, borderLeftWidth: 4 }]}>
+                <View key={workout.id} style={[styles.workoutCard, { backgroundColor: `${workout.color}12`, borderColor: `${workout.color}40` }]}>
+                  <View style={[styles.workoutColorIcon, { backgroundColor: `${workout.color}25` }]}>
+                    <Ionicons name="barbell-outline" size={20} color={workout.color} />
+                  </View>
                   <View style={styles.workoutInfo}>
                     <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
                     <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
@@ -603,7 +608,7 @@ export default function CommunityScreen() {
               onPress={() => setViewMode('share')}
             >
               <View style={styles.groupChatBtnIcon}>
-                <Ionicons name="share" size={22} color={selectedCommunity.color} />
+                <Ionicons name="share" size={22} color="#34D399" />
               </View>
               <View style={styles.groupChatBtnTextContainer}>
                 <Text style={[styles.groupChatBtnTitle, { color: colors.primaryText }]}>Share Program</Text>
@@ -616,11 +621,11 @@ export default function CommunityScreen() {
           {/* Share with Coach Button (Member View) */}
           {!isOwnerView && (
             <BounceButton
-              style={[styles.groupChatBtn, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, marginTop: 8 }]}
+              style={[styles.groupChatBtn, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
               onPress={() => setViewMode('share')}
             >
               <View style={styles.groupChatBtnIcon}>
-                <Ionicons name="share" size={22} color={selectedCommunity.color} />
+                <Ionicons name="share" size={22} color="#34D399" />
               </View>
               <View style={styles.groupChatBtnTextContainer}>
                 <Text style={[styles.groupChatBtnTitle, { color: colors.primaryText }]}>Share with Coach</Text>
@@ -644,7 +649,10 @@ export default function CommunityScreen() {
                 </TouchableOpacity>
               </View>
               {selectedCommunity.sharedWorkouts.filter(w => w.direction !== 'toCoach').map(workout => (
-                <View key={workout.id} style={[styles.workoutCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, borderLeftColor: workout.color, borderLeftWidth: 4 }]}>
+                <View key={workout.id} style={[styles.workoutCard, { backgroundColor: `${workout.color}12`, borderColor: `${workout.color}40` }]}>
+                  <View style={[styles.workoutColorIcon, { backgroundColor: `${workout.color}25` }]}>
+                    <Ionicons name="barbell-outline" size={20} color={workout.color} />
+                  </View>
                   <View style={styles.workoutInfo}>
                     <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
                     <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
@@ -666,7 +674,10 @@ export default function CommunityScreen() {
             <>
               <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24 }]}>FROM MEMBERS</Text>
               {selectedCommunity.sharedWorkouts.filter(w => w.direction === 'toCoach').map(workout => (
-                <View key={workout.id} style={[styles.workoutCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, borderLeftColor: workout.color, borderLeftWidth: 4 }]}>
+                <View key={workout.id} style={[styles.workoutCard, { backgroundColor: `${workout.color}12`, borderColor: `${workout.color}40` }]}>
+                  <View style={[styles.workoutColorIcon, { backgroundColor: `${workout.color}25` }]}>
+                    <Ionicons name="barbell-outline" size={20} color={workout.color} />
+                  </View>
                   <View style={styles.workoutInfo}>
                     <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
                     <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
@@ -713,16 +724,17 @@ export default function CommunityScreen() {
             <>
               <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24 }]}>YOUR PROGRAMS</Text>
               {acceptedWorkouts.filter(w => w.direction !== 'toCoach').map(workout => (
-                <View key={workout.id} style={[styles.workoutCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, borderLeftColor: workout.color, borderLeftWidth: 4 }]}>
+                <View key={workout.id} style={[styles.workoutCard, { backgroundColor: `${workout.color}12`, borderColor: `${workout.color}40` }]}>
+                  <View style={[styles.workoutColorIcon, { backgroundColor: `${workout.color}25` }]}>
+                    <Ionicons name="barbell-outline" size={20} color={workout.color} />
+                  </View>
                   <View style={styles.workoutInfo}>
                     <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
                     <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
                       {workout.splitDays.length} day split · Shared {formatDate(workout.sharedAt)}
                     </Text>
                   </View>
-                  <View style={styles.acceptedBadge}>
-                    <Ionicons name="checkmark-circle" size={20} color="#34D399" />
-                  </View>
+                  <Ionicons name="checkmark-circle" size={22} color="#34D399" />
                 </View>
               ))}
             </>
@@ -733,7 +745,10 @@ export default function CommunityScreen() {
             <>
               <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24 }]}>SHARED WITH COACH</Text>
               {selectedCommunity.sharedWorkouts.filter(w => w.direction === 'toCoach').map(workout => (
-                <View key={workout.id} style={[styles.workoutCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, borderLeftColor: workout.color, borderLeftWidth: 4 }]}>
+                <View key={workout.id} style={[styles.workoutCard, { backgroundColor: `${workout.color}12`, borderColor: `${workout.color}40` }]}>
+                  <View style={[styles.workoutColorIcon, { backgroundColor: `${workout.color}25` }]}>
+                    <Ionicons name="barbell-outline" size={20} color={workout.color} />
+                  </View>
                   <View style={styles.workoutInfo}>
                     <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
                     <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
@@ -744,7 +759,7 @@ export default function CommunityScreen() {
                     <Ionicons name="time-outline" size={20} color={colors.tertiaryText} />
                   )}
                   {workout.status === 'accepted' && (
-                    <Ionicons name="checkmark-circle" size={20} color="#34D399" />
+                    <Ionicons name="checkmark-circle" size={22} color="#34D399" />
                   )}
                 </View>
               ))}
@@ -817,12 +832,15 @@ export default function CommunityScreen() {
                   <Text style={[styles.inviteSubtitle, { color: colors.secondaryText }]}>Code: {selectedCommunity.inviteCode}</Text>
                 </View>
                 <BounceButton
-                  style={[styles.copyButton, { backgroundColor: selectedCommunity.color }]}
-                  onPress={() => {
+                  style={[styles.copyButton, { backgroundColor: copiedCode ? '#34D399' : selectedCommunity.color }]}
+                  onPress={async () => {
+                    await Clipboard.setStringAsync(selectedCommunity.inviteCode);
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    setCopiedCode(true);
+                    setTimeout(() => setCopiedCode(false), 2000);
                   }}
                 >
-                  <Ionicons name="copy-outline" size={18} color="#fff" />
+                  <Ionicons name={copiedCode ? 'checkmark' : 'copy-outline'} size={18} color="#fff" />
                 </BounceButton>
               </View>
             </View>
@@ -1839,14 +1857,21 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   workoutCard: {
-    backgroundColor: '#ffffff59',
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: '#ffffffcc',
     padding: 14,
     marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  workoutColorIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    flexShrink: 0,
   },
   workoutInfo: {
     flex: 1,
