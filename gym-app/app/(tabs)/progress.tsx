@@ -253,27 +253,32 @@ export default function ProgressScreen() {
   const { programs, activeId } = useProgramStore();
   const { isDark, colors } = useTheme();
 
-  const [selectedProgramId, setSelectedProgramId] = useState(activeId);
+  const ALL_ACCENT = '#94A3B8';
+  const [selectedProgramId, setSelectedProgramId] = useState<string | null>(activeId ?? null);
   const selectedProgram = programs.find(p => p.id === selectedProgramId);
-  const accentColor = selectedProgram?.color || '#47DDFF';
+  const accentColor = selectedProgramId === null ? ALL_ACCENT : (selectedProgram?.color || '#47DDFF');
 
-  // Build unique training days with merged exercises for selected program
+  // Build unique training days with merged exercises for selected program (or all programs)
   const trainingDays = useMemo(() => {
-    if (!selectedProgram) return [];
-    const dayMap = new Map<string, string[]>();
-    for (const sd of selectedProgram.splitDays) {
-      if (sd.type === 'training') {
-        for (const session of sd.sessions) {
-          const existing = dayMap.get(session.label) || [];
-          for (const e of session.exercises) {
-            if (!existing.includes(e.name)) existing.push(e.name);
+    const programsToUse = selectedProgramId === null ? programs : (selectedProgram ? [selectedProgram] : []);
+    if (programsToUse.length === 0) return [];
+    const dayMap = new Map<string, { exercises: string[]; color: string }>();
+    for (const prog of programsToUse) {
+      for (const sd of prog.splitDays) {
+        if (sd.type === 'training') {
+          for (const session of sd.sessions) {
+            const existing = dayMap.get(session.label);
+            const exercises = existing?.exercises || [];
+            for (const e of session.exercises) {
+              if (!exercises.includes(e.name)) exercises.push(e.name);
+            }
+            dayMap.set(session.label, { exercises, color: prog.color });
           }
-          dayMap.set(session.label, existing);
         }
       }
     }
-    return Array.from(dayMap.entries()).map(([label, exercises]) => ({ label, exercises }));
-  }, [selectedProgramId]);
+    return Array.from(dayMap.entries()).map(([label, { exercises, color }]) => ({ label, exercises, color }));
+  }, [selectedProgramId, programs]);
 
   const firstExercise = trainingDays[0]?.exercises[0] || 'Bench Press';
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodKey>('week');
@@ -322,6 +327,7 @@ export default function ProgressScreen() {
     weight: entry.weight,
   }));
   const exercisePR = rawHistory.length > 0 ? Math.max(...rawHistory.map(e => e.weight)) : undefined;
+  const exerciseColor = trainingDays.find(d => d.exercises.includes(selectedExercise))?.color || accentColor;
 
   return (
     <LinearGradient
@@ -338,7 +344,45 @@ export default function ProgressScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.screenTitle}>Progress</Text>
-        <Text style={styles.subtitle}>{selectedProgram?.name || 'No Program'} Overview</Text>
+        <Text style={styles.subtitle}>{selectedProgramId === null ? 'All Programs' : (selectedProgram?.name || 'No Program')} Overview</Text>
+
+        {/* Program Selector */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16, marginHorizontal: -20 }} contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setSelectedProgramId(null);
+            }}
+            style={[
+              styles.periodPill,
+              { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder },
+              selectedProgramId === null && { backgroundColor: `${accentColor}25`, borderColor: accentColor },
+            ]}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.periodPillText, { color: colors.secondaryText }, selectedProgramId === null && { color: colors.primaryText }]}>All</Text>
+          </TouchableOpacity>
+          {programs.map((p) => {
+            const isActive = p.id === selectedProgramId;
+            return (
+              <TouchableOpacity
+                key={p.id}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setSelectedProgramId(p.id);
+                }}
+                style={[
+                  styles.periodPill,
+                  { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder },
+                  isActive && { backgroundColor: `${p.color}25`, borderColor: p.color },
+                ]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.periodPillText, { color: colors.secondaryText }, isActive && { color: colors.primaryText }]}>{p.name}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
 
         {/* Summary Stats */}
         <View style={styles.statsRow}>
@@ -383,31 +427,6 @@ export default function ProgressScreen() {
           <VolumeChart accentColor={accentColor} data={periodData[selectedPeriod].volume} />
         </View>
 
-        {/* Program Selector */}
-        <Text style={styles.sectionTitle}>Programs</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16, marginHorizontal: -20 }} contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}>
-          {programs.map((p) => {
-            const isActive = p.id === selectedProgramId;
-            return (
-              <TouchableOpacity
-                key={p.id}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setSelectedProgramId(p.id);
-                }}
-                style={[
-                  styles.periodPill,
-                  { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder },
-                  isActive && { backgroundColor: `${p.color}25`, borderColor: p.color },
-                ]}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.periodPillText, { color: colors.secondaryText }, isActive && { color: colors.primaryText }]}>{p.name}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
         {/* Exercise Progress */}
         <Text style={styles.sectionTitle}>Exercise Progress</Text>
 
@@ -425,7 +444,7 @@ export default function ProgressScreen() {
                 activeOpacity={0.7}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <View style={[styles.dayDot, { backgroundColor: accentColor }]} />
+                  <View style={[styles.dayDot, { backgroundColor: day.color }]} />
                   <Text style={[styles.dayHeaderText, { color: colors.primaryText }]}>{day.label}</Text>
                   <Text style={[styles.dayExerciseCount, { color: colors.secondaryText }]}>{day.exercises.length} exercises</Text>
                 </View>
@@ -443,12 +462,12 @@ export default function ProgressScreen() {
                     style={[
                       styles.exerciseRow,
                       { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder },
-                      isSelected && { backgroundColor: `${accentColor}20`, borderColor: `${accentColor}80` },
+                      isSelected && { backgroundColor: `${day.color}20`, borderColor: `${day.color}80` },
                     ]}
                     activeOpacity={0.7}
                   >
                     <Text style={[styles.exerciseRowText, { color: colors.primaryText }, isSelected && { fontFamily: 'Arimo_700Bold' }]}>{name}</Text>
-                    {isSelected && <Ionicons name="chevron-forward" size={16} color={accentColor} />}
+                    {isSelected && <Ionicons name="chevron-forward" size={16} color={day.color} />}
                   </TouchableOpacity>
                 );
               })}
@@ -461,14 +480,14 @@ export default function ProgressScreen() {
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <Text style={[styles.cardLabel, { color: colors.secondaryText }]}>WEIGHT PROGRESSION</Text>
             {exercisePR !== undefined && (
-              <View style={[styles.prBadge, { backgroundColor: `${accentColor}25`, borderColor: `${accentColor}4D` }]}>
-                <Ionicons name="trophy" size={12} color={accentColor} />
+              <View style={[styles.prBadge, { backgroundColor: `${exerciseColor}25`, borderColor: `${exerciseColor}4D` }]}>
+                <Ionicons name="trophy" size={12} color={exerciseColor} />
                 <Text style={[styles.prBadgeText, { color: colors.primaryText }]}>PR: {exercisePR}kg</Text>
               </View>
             )}
           </View>
           {exerciseData.length > 0 ? (
-            <LineChart data={exerciseData} accentColor={accentColor} />
+            <LineChart data={exerciseData} accentColor={exerciseColor} />
           ) : (
             <Text style={[styles.emptyText, { color: colors.secondaryText }]}>No data for this exercise yet</Text>
           )}
