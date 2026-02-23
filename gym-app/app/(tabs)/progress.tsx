@@ -112,18 +112,20 @@ function formatDuration(secs: number): string {
   return `${mins} min`;
 }
 
-/** Format a timestamp into a short date label relative to now */
-function formatHistoryDate(timestamp: number, index: number, total: number): string {
-  if (total === 1) return 'Latest';
-  if (index === total - 1) return 'Latest';
+/** Format a timestamp into a short date label */
+function formatHistoryDate(timestamp: number): string {
+  const d = new Date(timestamp);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+
+  if (isToday) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (isYesterday) return 'Yest';
   const daysAgo = Math.round((Date.now() - timestamp) / (1000 * 60 * 60 * 24));
-  if (daysAgo === 0) return 'Today';
-  if (daysAgo === 1) return '1d ago';
-  if (daysAgo < 7) return `${daysAgo}d ago`;
-  const weeks = Math.round(daysAgo / 7);
-  if (weeks <= 8) return `${weeks}w ago`;
-  const months = Math.round(daysAgo / 30);
-  return `${months}mo ago`;
+  if (daysAgo < 7) return DAY_NAMES_SHORT[d.getDay() === 0 ? 6 : d.getDay() - 1];
+  return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
 }
 
 // --- Components ---
@@ -172,9 +174,9 @@ function LineChart({ data, accentColor }: { data: { date: string; weight: number
   const maxW = Math.max(...weights);
   const range = maxW - minW || 1;
   const CHART_HEIGHT = 100;
-  const PAD_Y = 12; // top/bottom padding so dots aren't clipped
+  const PAD_Y = 12;
+  const Y_AXIS_W = 40;
 
-  // Calculate point positions based on actual measured width
   const points = data.map((d, i) => {
     const count = data.length;
     const x = count === 1 ? chartWidth / 2 : (i / (count - 1)) * chartWidth;
@@ -184,63 +186,63 @@ function LineChart({ data, accentColor }: { data: { date: string; weight: number
 
   return (
     <View style={styles.lineChartContainer}>
-      <View
-        style={{ height: CHART_HEIGHT }}
-        onLayout={(e) => setChartWidth(e.nativeEvent.layout.width)}
-      >
-        {chartWidth > 0 && (
-          <Svg width={chartWidth} height={CHART_HEIGHT}>
-            {/* Horizontal grid lines */}
-            {[0, 0.25, 0.5, 0.75, 1].map((frac, i) => {
-              const gy = PAD_Y + frac * (CHART_HEIGHT - PAD_Y * 2);
-              return (
-                <SvgLine
-                  key={i}
-                  x1={0} y1={gy} x2={chartWidth} y2={gy}
-                  stroke={isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}
-                  strokeWidth={1}
+      <View style={{ flexDirection: 'row', height: CHART_HEIGHT }}>
+        {/* Y-axis labels */}
+        <View style={{ width: Y_AXIS_W, justifyContent: 'space-between', paddingVertical: PAD_Y - 5 }}>
+          <Text style={[styles.yAxisText, { color: colors.tertiaryText, textAlign: 'right' }]}>{maxW}kg</Text>
+          <Text style={[styles.yAxisText, { color: colors.tertiaryText, textAlign: 'right' }]}>{minW}kg</Text>
+        </View>
+        {/* Chart area */}
+        <View
+          style={{ flex: 1 }}
+          onLayout={(e) => setChartWidth(e.nativeEvent.layout.width)}
+        >
+          {chartWidth > 0 && (
+            <Svg width={chartWidth} height={CHART_HEIGHT}>
+              {[0, 0.25, 0.5, 0.75, 1].map((frac, i) => {
+                const gy = PAD_Y + frac * (CHART_HEIGHT - PAD_Y * 2);
+                return (
+                  <SvgLine
+                    key={i}
+                    x1={0} y1={gy} x2={chartWidth} y2={gy}
+                    stroke={isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}
+                    strokeWidth={1}
+                  />
+                );
+              })}
+              {points.map((p, i) => {
+                if (i === points.length - 1) return null;
+                const next = points[i + 1];
+                return (
+                  <SvgLine
+                    key={`line-${i}`}
+                    x1={p.x} y1={p.y} x2={next.x} y2={next.y}
+                    stroke={`${accentColor}60`}
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                  />
+                );
+              })}
+              {points.map((p, i) => (
+                <SvgCircle
+                  key={`dot-${i}`}
+                  cx={p.x} cy={p.y} r={5}
+                  fill={accentColor}
+                  stroke={isDark ? colors.cardSolid : '#fff'}
+                  strokeWidth={2}
                 />
-              );
-            })}
-            {/* Connecting lines */}
-            {points.map((p, i) => {
-              if (i === points.length - 1) return null;
-              const next = points[i + 1];
-              return (
-                <SvgLine
-                  key={`line-${i}`}
-                  x1={p.x} y1={p.y} x2={next.x} y2={next.y}
-                  stroke={`${accentColor}60`}
-                  strokeWidth={2.5}
-                  strokeLinecap="round"
-                />
-              );
-            })}
-            {/* Dots */}
-            {points.map((p, i) => (
-              <SvgCircle
-                key={`dot-${i}`}
-                cx={p.x} cy={p.y} r={5}
-                fill={accentColor}
-                stroke={isDark ? colors.cardSolid : '#fff'}
-                strokeWidth={2}
-              />
-            ))}
-          </Svg>
-        )}
+              ))}
+            </Svg>
+          )}
+        </View>
       </View>
-      {/* X-axis labels */}
-      <View style={{ flexDirection: 'row', marginTop: 8 }}>
+      {/* X-axis labels aligned under chart area only */}
+      <View style={{ flexDirection: 'row', marginTop: 8, marginLeft: Y_AXIS_W }}>
         {data.map((d, i) => (
           <View key={i} style={{ flex: 1, alignItems: 'center' }}>
             <Text style={[styles.lineChartLabel, { color: colors.secondaryText }]}>{d.date}</Text>
           </View>
         ))}
-      </View>
-      {/* Y-axis range */}
-      <View style={styles.yAxisRange}>
-        <Text style={[styles.yAxisText, { color: colors.tertiaryText }]}>{minW}kg</Text>
-        <Text style={[styles.yAxisText, { color: colors.tertiaryText }]}>{maxW}kg</Text>
       </View>
     </View>
   );
@@ -322,8 +324,8 @@ export default function ProgressScreen() {
   if (!fontsLoaded) return <View style={{ flex: 1, backgroundColor: isDark ? colors.gradientStart : '#c3ced6' }} />;
 
   const rawHistory = workoutState.getHistory(selectedExercise);
-  const exerciseData = rawHistory.map((entry, i) => ({
-    date: formatHistoryDate(entry.date, i, rawHistory.length),
+  const exerciseData = rawHistory.map((entry) => ({
+    date: formatHistoryDate(entry.date),
     weight: entry.weight,
   }));
   const exercisePR = rawHistory.length > 0 ? Math.max(...rawHistory.map(e => e.weight)) : undefined;
@@ -646,13 +648,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontFamily: 'Arimo_400Regular',
     color: '#5a6c7d',
-  },
-  yAxisRange: {
-    position: 'absolute',
-    top: 0,
-    bottom: 20,
-    left: -4,
-    justifyContent: 'space-between',
   },
   yAxisText: {
     fontSize: 9,

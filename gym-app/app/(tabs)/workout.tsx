@@ -82,7 +82,7 @@ function BounceButton({ style, children, onPress, ...rest }: any) {
   );
 }
 
-function CalendarStrip({ selectedIndex, onSelect, accentColor, days, todayIndex, lockedTodayColor, onJournalPress }: { selectedIndex: number; onSelect: (i: number) => void; accentColor: string; days: CalendarDay[]; todayIndex: number; lockedTodayColor?: string; onJournalPress: () => void }) {
+function CalendarStrip({ selectedIndex, onSelect, accentColor, days, todayIndex, lockedTodayColor, loggedDateColors, onJournalPress }: { selectedIndex: number; onSelect: (i: number) => void; accentColor: string; days: CalendarDay[]; todayIndex: number; lockedTodayColor?: string; loggedDateColors: Record<string, string>; onJournalPress: () => void }) {
   const { isDark, colors } = useTheme();
   const scrollRef = useRef<ScrollView>(null);
   const hasScrolled = useRef(false);
@@ -123,6 +123,12 @@ function CalendarStrip({ selectedIndex, onSelect, accentColor, days, todayIndex,
         const isRest = item.label === 'Rest';
         // Today locked to a different program — use its color for the indicator and dot
         const cellColor = (isToday && lockedTodayColor) ? lockedTodayColor : accentColor;
+        // Grey out past days (or rest days) unless a workout was actually logged
+        const journalColor = loggedDateColors[item.date.toDateString()];
+        const hasLog = !!journalColor;
+        // Past days: grey if no log (missed workout or rest); today/future: use scheduled color
+        const effectiveIsRest = !hasLog && (isRest || isPast);
+        const effectiveColor = hasLog ? journalColor : cellColor;
 
         return (
           <TouchableOpacity
@@ -148,9 +154,9 @@ function CalendarStrip({ selectedIndex, onSelect, accentColor, days, todayIndex,
             </Text>
             <View style={[
               styles.dayIndicator,
-              { backgroundColor: isRest ? (isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)') : `${cellColor}60` },
-              isSelected && !isRest && { backgroundColor: isDark ? '#fff' : '#1C1C1E' },
-              isSelected && isRest && { backgroundColor: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.2)' },
+              { backgroundColor: effectiveIsRest ? (isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)') : `${effectiveColor}60` },
+              isSelected && !effectiveIsRest && { backgroundColor: isDark ? '#fff' : '#1C1C1E' },
+              isSelected && effectiveIsRest && { backgroundColor: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.2)' },
             ]} />
             {isToday && <View style={[styles.todayDot, { backgroundColor: cellColor }, isSelected && { backgroundColor: isDark ? '#fff' : '#1C1C1E' }]} />}
           </TouchableOpacity>
@@ -589,6 +595,16 @@ export default function WorkoutScreen() {
     return days;
   }, [activeProgram?.id, dayOverrides, isLocked, lockedToday?.dayLabel, cycleOffset]);
 
+  // Map of date string → program color for days that have been logged in the journal
+  const loggedDateColors = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const entry of workoutState.getJournalLog()) {
+      const ds = new Date(entry.date).toDateString();
+      if (!map[ds]) map[ds] = entry.programColor;
+    }
+    return map;
+  }, [prevVersion]);
+
   // Timer state (per-day)
   const [elapsed, setElapsed] = useState(0);
   const [timerRunning, setTimerRunning] = useState(!!workoutState.getTimerStartedAt(selectedDayIndex));
@@ -995,6 +1011,7 @@ export default function WorkoutScreen() {
             days={calendarDays}
             todayIndex={todayIndex}
             lockedTodayColor={isLocked ? lockedToday!.programColor : undefined}
+            loggedDateColors={loggedDateColors}
             onJournalPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/journal'); }}
           />
         </View>
