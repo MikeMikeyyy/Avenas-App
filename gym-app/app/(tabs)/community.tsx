@@ -877,7 +877,7 @@ export default function CommunityScreen() {
     return (
       <View style={{ flex: 1 }}>
         <View style={styles.groupChatHeader}>
-          <TouchableOpacity onPress={handleBack} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <TouchableOpacity style={[styles.heroBannerBtn, { backgroundColor: colors.backButtonBg }]} onPress={handleBack}>
             <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
           </TouchableOpacity>
           <View style={styles.groupChatHeaderInfo}>
@@ -942,13 +942,13 @@ export default function CommunityScreen() {
     return (
       <>
         <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <TouchableOpacity style={[styles.heroBannerBtn, { backgroundColor: colors.backButtonBg }]} onPress={handleBack}>
             <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: colors.primaryText }]}>
             {isOwnerView ? 'Share Program' : 'Share with Coach'}
           </Text>
-          <View style={{ width: 28 }} />
+          <View style={{ width: 44 }} />
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -1123,7 +1123,7 @@ export default function CommunityScreen() {
     return (
       <View style={{ flex: 1 }}>
         <View style={styles.privateChatHeader}>
-          <TouchableOpacity onPress={handleBack} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <TouchableOpacity style={[styles.heroBannerBtn, { backgroundColor: colors.backButtonBg }]} onPress={handleBack}>
             <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
           </TouchableOpacity>
           <View style={styles.privateChatHeaderInfo}>
@@ -1605,8 +1605,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 54 : 34,
+    paddingHorizontal: 16,
     paddingBottom: 12,
   },
   headerTitle: {
@@ -1993,8 +1993,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 54 : 34,
+    paddingHorizontal: 16,
     paddingBottom: 12,
   },
   groupChatHeaderInfo: {
@@ -2524,8 +2524,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 54 : 34,
+    paddingHorizontal: 16,
     paddingBottom: 12,
   },
   privateChatHeaderInfo: {
