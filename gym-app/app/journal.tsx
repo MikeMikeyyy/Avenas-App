@@ -13,6 +13,7 @@ import {
   TextInput,
   Keyboard,
   Modal,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -318,8 +319,9 @@ function JournalDetail({
       ))}
       {/* Duration edit modal */}
       <Modal visible={showDurationEdit} transparent animationType="slide" onRequestClose={() => setShowDurationEdit(false)}>
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setShowDurationEdit(false)} />
-        <View style={[styles.durationSheet, { backgroundColor: colors.modalBg }]}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setShowDurationEdit(false)} />
+          <View style={[styles.durationSheet, { backgroundColor: colors.modalBg }]}>
           <Text style={[styles.durationSheetTitle, { color: colors.primaryText }]}>Edit Duration</Text>
           <View style={styles.durationInputRow}>
             <View style={styles.durationInputGroup}>
@@ -359,6 +361,7 @@ function JournalDetail({
             </TouchableOpacity>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );
@@ -373,12 +376,14 @@ function JournalCalendar({
   onLogNew,
   colors,
   isDark,
+  highlightDate,
 }: {
   entries: WorkoutJournalEntry[];
   onSelect: (entry: WorkoutJournalEntry) => void;
   onLogNew: (date: Date) => void;
   colors: any;
   isDark: boolean;
+  highlightDate?: string;
 }) {
   const today = useMemo(() => new Date(), []);
   const todayStr = useMemo(() => toDateKey(today.getTime()), [today]);
@@ -399,6 +404,11 @@ function JournalCalendar({
   const months = useMemo(() => buildMonths(entries), [entries]);
 
   const [monthIdx, setMonthIdx] = useState(() => {
+    if (highlightDate) {
+      const d = new Date(highlightDate + 'T00:00:00');
+      const idx = months.findIndex(m => m.year === d.getFullYear() && m.month === d.getMonth());
+      if (idx >= 0) return idx;
+    }
     const idx = months.findIndex(m => m.year === today.getFullYear() && m.month === today.getMonth());
     return idx >= 0 ? idx : Math.max(0, months.length - 2);
   });
@@ -482,6 +492,7 @@ function JournalCalendar({
               const isToday = ds === todayStr;
               const isFuture = ds > maxFutureStr;
               const isPast = !isFuture;
+              const isHighlighted = !!highlightDate && ds === highlightDate;
               const tappable = isPast;
               return (
                 <TouchableOpacity
@@ -500,6 +511,7 @@ function JournalCalendar({
                     isToday && !hasWorkout && { borderWidth: 2, borderColor: isDark ? 'rgba(255,255,255,0.55)' : '#2c3e50' },
                     hasWorkout && !isFuture && !isToday && { backgroundColor: `${entry!.programColor}28`, borderWidth: 1.5, borderColor: entry!.programColor },
                     isToday && hasWorkout && !isFuture && { backgroundColor: `${entry!.programColor}35`, borderWidth: 2, borderColor: entry!.programColor },
+                    isHighlighted && !hasWorkout && { borderWidth: 2, borderColor: isDark ? '#FFFFFF' : '#2c3e50', backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(44,62,80,0.08)' },
                   ]}>
                     <Text style={[
                       styles.calendarDayNum,
@@ -507,6 +519,7 @@ function JournalCalendar({
                       isFuture && { opacity: 0.35 },
                       isToday && { color: isDark ? '#FFFFFF' : '#1a2a3a', fontFamily: 'Arimo_700Bold' },
                       hasWorkout && !isFuture && { color: colors.primaryText, fontFamily: 'Arimo_700Bold' },
+                      isHighlighted && { color: colors.primaryText, fontFamily: 'Arimo_700Bold' },
                     ]}>
                       {day}
                     </Text>
@@ -597,7 +610,7 @@ export default function JournalScreen() {
   const { isDark, colors } = useTheme();
   const { programs } = useProgramStore();
   const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold });
-  const params = useLocalSearchParams<{ entryId?: string }>();
+  const params = useLocalSearchParams<{ entryId?: string; logDate?: string }>();
   const [detailHasChanges, setDetailHasChanges] = useState(false);
   const originalDetailEntry = useRef<WorkoutJournalEntry | null>(null);
   // True when the detail was opened directly from the home screen (via entryId param)
@@ -613,7 +626,13 @@ export default function JournalScreen() {
   });
 
   const [entries, setEntries] = useState(() => workoutState.getJournalLog());
-  const [logState, setLogState] = useState<LogState | null>(null);
+  const [logState, setLogState] = useState<LogState | null>(() => {
+    if (params.logDate) {
+      const ts = Number(params.logDate);
+      if (!isNaN(ts)) return { date: new Date(ts), step: 'program', programId: null };
+    }
+    return null;
+  });
 
   if (!fontsLoaded) return null;
 
@@ -723,7 +742,14 @@ export default function JournalScreen() {
           }}
         />
       ) : (
-        <JournalCalendar entries={entries} onSelect={handleSelectEntry} onLogNew={handleLogNew} colors={colors} isDark={isDark} />
+        <JournalCalendar
+          entries={entries}
+          onSelect={handleSelectEntry}
+          onLogNew={handleLogNew}
+          colors={colors}
+          isDark={isDark}
+          highlightDate={logState ? toDateKey(logState.date.getTime()) : undefined}
+        />
       )}
 
       {/* Back button */}

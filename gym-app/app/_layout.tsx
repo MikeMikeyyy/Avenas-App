@@ -2,10 +2,12 @@ import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@rea
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
+import { useEffect } from 'react';
 
 import { ProgramProvider } from '../programStore';
 import { CommunityProvider } from '../communityStore';
 import { ThemeProvider, useTheme } from '../themeStore';
+import { workoutState } from '../workoutState';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -13,6 +15,10 @@ export const unstable_settings = {
 
 function InnerLayout() {
   const { isDark } = useTheme();
+
+  useEffect(() => {
+    workoutState.initStorage();
+  }, []);
 
   return (
     <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>

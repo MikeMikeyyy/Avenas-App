@@ -23,11 +23,12 @@ const _timerListeners: Array<() => void> = [];
 
 // Stores last completed exercise data per workout type (e.g. 'Push Day', 'Pull Day', 'Leg Day')
 // Each entry maps exercise name -> array of { reps, weight } per set
+// date: timestamp of the workout — only newer entries replace older ones
 type PrevSetData = { reps: number; weight: number; hold?: number };
 type PrevExerciseData = { name: string; sets: PrevSetData[]; mode?: 'reps' | 'hold' };
-const _prevData: Record<string, PrevExerciseData[]> = {};
-// One level of backup so a reset can restore the prev stats from before the now-reset workout
-const _prevDataBackup: Record<string, PrevExerciseData[] | undefined> = {};
+type PrevEntry = { exercises: PrevExerciseData[]; date: number };
+const _prevData: Record<string, PrevEntry> = {};
+const _prevDataBackup: Record<string, PrevEntry | undefined> = {};
 
 // Exercise weight history — accumulates over time for the progress chart
 // Key = exercise name, value = array of { date (timestamp), weight (max across sets) }
@@ -54,6 +55,46 @@ export type WorkoutJournalEntry = {
 };
 const _journalLog: WorkoutJournalEntry[] = [];
 
+// AsyncStorage keys
+const JOURNAL_KEY = '@journal_v1';
+const HISTORY_KEY = '@history_v1';
+const PREV_KEY = '@prev_v2';
+
+// Internal helper — updates prev data for a label only if the new date is >= stored date
+function _savePrevInternal(dayLabel: string, exercises: PrevExerciseData[], date: number) {
+  const current = _prevData[dayLabel];
+  if (!current || date >= current.date) {
+    _prevData[dayLabel] = { exercises, date };
+  }
+}
+
+// Listeners notified whenever _prevData changes (so workout tab can reload exercises)
+const _prevListeners: Array<() => void> = [];
+function _notifyPrevChanged() {
+  _prevListeners.forEach(fn => fn());
+}
+
+// Listeners notified when a journal entry is updated (so workout tab can patch its cache)
+const _journalUpdateListeners: Array<(entry: WorkoutJournalEntry) => void> = [];
+function _notifyJournalUpdate(entry: WorkoutJournalEntry) {
+  _journalUpdateListeners.forEach(fn => fn(entry));
+}
+
+// Persist all prev data to AsyncStorage
+function _persistPrev() {
+  AsyncStorage.setItem(PREV_KEY, JSON.stringify(_prevData)).catch(() => {});
+}
+
+// Persist journal to AsyncStorage
+function _persistJournal() {
+  AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(_journalLog)).catch(() => {});
+}
+
+// Persist history to AsyncStorage
+function _persistHistory() {
+  AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(_exerciseHistory)).catch(() => {});
+}
+
 export const workoutState = {
   get finished() { return _workoutFinished; },
   setFinished(v: boolean) {
@@ -66,6 +107,48 @@ export const workoutState = {
       const i = _listeners.indexOf(fn);
       if (i >= 0) _listeners.splice(i, 1);
     };
+  },
+
+  // Load all persisted data from AsyncStorage — call once on app startup
+  async initStorage(): Promise<void> {
+    try {
+      const [journalRaw, historyRaw, prevRaw] = await Promise.all([
+        AsyncStorage.getItem(JOURNAL_KEY),
+        AsyncStorage.getItem(HISTORY_KEY),
+        AsyncStorage.getItem(PREV_KEY),
+      ]);
+
+      if (journalRaw) {
+        const parsed: WorkoutJournalEntry[] = JSON.parse(journalRaw);
+        _journalLog.length = 0;
+        _journalLog.push(...parsed.map(e => ({ ...e, date: Number(e.date) })));
+      }
+
+      if (historyRaw) {
+        const parsed: Record<string, ExerciseHistoryEntry[]> = JSON.parse(historyRaw);
+        for (const [k, v] of Object.entries(parsed)) {
+          _exerciseHistory[k] = v;
+        }
+      }
+
+      if (prevRaw) {
+        const parsed: Record<string, PrevEntry> = JSON.parse(prevRaw);
+        for (const [k, v] of Object.entries(parsed)) {
+          _prevData[k] = v;
+        }
+      } else {
+        // Migration: load old-format prev data (array only, no date) if present
+        const oldPrevRaw = await AsyncStorage.getItem('@prev_data');
+        if (oldPrevRaw) {
+          const parsed: Record<string, PrevExerciseData[]> = JSON.parse(oldPrevRaw);
+          for (const [k, v] of Object.entries(parsed)) {
+            _prevData[k] = { exercises: v, date: 0 };
+          }
+          _persistPrev();
+        }
+      }
+      _notifyPrevChanged();
+    } catch {}
   },
 
   // Timer (per-day)
@@ -140,31 +223,60 @@ export const workoutState = {
     };
   },
 
-  savePrev(dayLabel: string, exercises: PrevExerciseData[]) {
-    _prevDataBackup[dayLabel] = _prevData[dayLabel]; // keep previous value so reset can restore it
-    _prevData[dayLabel] = exercises;
+  // Subscribe to prev data changes (e.g. journal entry saved) — workout tab uses this to reload exercises
+  subscribePrev(fn: () => void) {
+    _prevListeners.push(fn);
+    return () => {
+      const i = _prevListeners.indexOf(fn);
+      if (i >= 0) _prevListeners.splice(i, 1);
+    };
+  },
+
+  // Subscribe to journal entry updates — workout tab uses this to patch its live exercise cache
+  subscribeJournalUpdate(fn: (entry: WorkoutJournalEntry) => void) {
+    _journalUpdateListeners.push(fn);
+    return () => {
+      const i = _journalUpdateListeners.indexOf(fn);
+      if (i >= 0) _journalUpdateListeners.splice(i, 1);
+    };
+  },
+
+  // Save prev data for a session — only updates if date is more recent than what's stored
+  savePrev(dayLabel: string, exercises: PrevExerciseData[], date?: number) {
+    const ts = date ?? Date.now();
+    _prevDataBackup[dayLabel] = _prevData[dayLabel];
+    _savePrevInternal(dayLabel, exercises, ts);
+    _persistPrev();
+    _notifyPrevChanged();
   },
   restorePrev(dayLabel: string) {
     if (_prevDataBackup[dayLabel] !== undefined) {
-      _prevData[dayLabel] = _prevDataBackup[dayLabel]!;
-    } else {
-      delete _prevData[dayLabel];
+      // A backup exists — restore to the state before savePrev was called
+      if (_prevDataBackup[dayLabel]) {
+        _prevData[dayLabel] = _prevDataBackup[dayLabel]!;
+      } else {
+        delete _prevData[dayLabel];
+      }
+      delete _prevDataBackup[dayLabel];
+      _persistPrev();
+      _notifyPrevChanged();
     }
-    delete _prevDataBackup[dayLabel];
+    // No backup means savePrev was never called for this label — leave existing data untouched
   },
   getPrev(dayLabel: string): PrevExerciseData[] | undefined {
-    return _prevData[dayLabel];
+    return _prevData[dayLabel]?.exercises;
   },
 
   // Exercise history — records max weight per exercise each time a workout is saved
-  saveHistory(exercises: PrevExerciseData[]) {
-    const now = Date.now();
+  saveHistory(exercises: PrevExerciseData[], date?: number) {
+    const ts = date ?? Date.now();
     for (const ex of exercises) {
       const maxWeight = Math.max(...ex.sets.map(s => s.weight), 0);
       if (maxWeight <= 0) continue;
       if (!_exerciseHistory[ex.name]) _exerciseHistory[ex.name] = [];
-      _exerciseHistory[ex.name].push({ date: now, weight: maxWeight });
+      _exerciseHistory[ex.name].push({ date: ts, weight: maxWeight });
     }
+    _persistHistory();
   },
   getHistory(exerciseName: string): ExerciseHistoryEntry[] {
     return _exerciseHistory[exerciseName] || [];
@@ -181,10 +293,35 @@ export const workoutState = {
   // Journal — full detail log per completed workout
   logJournalEntry(entry: WorkoutJournalEntry) {
     _journalLog.push(entry);
+    // Update prev data for each session — this handles both today's and past workouts
+    for (const session of entry.sessions) {
+      const exercises = session.exercises.map(e => ({
+        name: e.name,
+        mode: e.mode,
+        sets: e.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })),
+      }));
+      _savePrevInternal(session.label, exercises, entry.date);
+    }
+    _persistPrev();
+    _notifyPrevChanged();
+    _persistJournal();
   },
   updateJournalEntry(entry: WorkoutJournalEntry) {
     const idx = _journalLog.findIndex(e => e.id === entry.id);
     if (idx >= 0) _journalLog[idx] = entry;
+    // Update prev data if this is the most recent entry for each session
+    for (const session of entry.sessions) {
+      const exercises = session.exercises.map(e => ({
+        name: e.name,
+        mode: e.mode,
+        sets: e.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })),
+      }));
+      _savePrevInternal(session.label, exercises, entry.date);
+    }
+    _persistPrev();
+    _notifyPrevChanged();
+    _notifyJournalUpdate(entry);
+    _persistJournal();
   },
   getJournalLog(): WorkoutJournalEntry[] {
     return [..._journalLog].reverse();
@@ -195,6 +332,24 @@ export const workoutState = {
   deleteJournalEntry(id: string) {
     const idx = _journalLog.findIndex(e => e.id === id);
     if (idx >= 0) _journalLog.splice(idx, 1);
+    _persistJournal();
+    // Rebuild prev data from remaining journal entries so deletion rolls back correctly
+    const keys = Object.keys(_prevData);
+    for (const k of keys) delete _prevData[k];
+    // Replay all remaining journal entries from oldest to newest
+    const sorted = [..._journalLog].sort((a, b) => a.date - b.date);
+    for (const e of sorted) {
+      for (const session of e.sessions) {
+        const exercises = session.exercises.map(ex => ({
+          name: ex.name,
+          mode: ex.mode,
+          sets: ex.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })),
+        }));
+        _savePrevInternal(session.label, exercises, e.date);
+      }
+    }
+    _persistPrev();
+    _notifyPrevChanged();
   },
 
   // Remove the workout log entry for a given calendar day (most recent match)
@@ -248,5 +403,6 @@ export const workoutState = {
         e => new Date(e.date).toDateString() !== dateStr
       );
     }
+    _persistHistory();
   },
 };
