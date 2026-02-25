@@ -9,7 +9,9 @@ import {
   StatusBar,
   Animated,
   Switch,
+  Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -145,6 +147,32 @@ export default function SettingsScreen() {
         <View style={[styles.sectionCard, { backgroundColor: colors.cardSolid }]}>
           {SUPPORT_ITEMS.map((item, i) => renderSettingsItem(item, i, i === SUPPORT_ITEMS.length - 1))}
         </View>
+
+        {/* Dev — Clear All Data */}
+        <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>DEVELOPER</Text>
+        <BounceButton
+          style={[styles.logoutButton, { backgroundColor: colors.cardSolid, marginBottom: 12 }]}
+          onPress={() => {
+            Alert.alert(
+              'Clear All Data',
+              'This will wipe all workouts, journal entries, history and programs. Cannot be undone.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Clear Everything',
+                  style: 'destructive',
+                  onPress: async () => {
+                    await AsyncStorage.clear();
+                    Alert.alert('Done', 'All data cleared. Please restart the app.');
+                  },
+                },
+              ],
+            );
+          }}
+        >
+          <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+          <Text style={styles.logoutText}>Clear All Data</Text>
+        </BounceButton>
 
         {/* Log Out */}
         <BounceButton style={[styles.logoutButton, { backgroundColor: colors.cardSolid }]} onPress={() => {}}>

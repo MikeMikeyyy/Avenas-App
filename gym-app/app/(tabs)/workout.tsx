@@ -758,18 +758,23 @@ export default function WorkoutScreen() {
 
   // When prev data changes (e.g. journal entry saved), clear cache entries that have
   // no user-entered data so they reload with updated prev values. Entries where the
-  // user has already typed reps/weight are preserved.
+  // user has already typed reps/weight are preserved. Cache is never evicted while
+  // a workout is active or has been completed this session.
   useEffect(() => {
     return workoutState.subscribePrev(() => {
-      Object.keys(exerciseCache).forEach(k => {
-        const exercises = exerciseCache[k];
-        const hasUserData = exercises?.some(ex =>
-          ex.sets.some(s => s.reps > 0 || s.weight !== null || (s.hold ?? 0) > 0)
-        );
-        if (!hasUserData) {
-          delete exerciseCache[k];
-        }
-      });
+      const isActive = workoutState.getActiveDay() !== null;
+      const isCompleted = workoutState.finished;
+      if (!isActive && !isCompleted) {
+        Object.keys(exerciseCache).forEach(k => {
+          const exercises = exerciseCache[k];
+          const hasUserData = exercises?.some(ex =>
+            ex.sets.some(s => s.reps > 0 || s.weight !== null || (s.hold ?? 0) > 0)
+          );
+          if (!hasUserData) {
+            delete exerciseCache[k];
+          }
+        });
+      }
       setPrevVersion(v => v + 1);
     });
   }, []);

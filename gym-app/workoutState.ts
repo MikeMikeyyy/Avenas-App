@@ -41,7 +41,7 @@ const _workoutLog: WorkoutLogEntry[] = [];
 
 // Workout journal — full detail log for the journal screen
 export type LoggedSet = { reps: number; weight: number | null; hold: number; isWarmup: boolean };
-export type LoggedExercise = { name: string; mode: 'reps' | 'hold'; sets: LoggedSet[] };
+export type LoggedExercise = { name: string; mode: 'reps' | 'hold'; sets: LoggedSet[]; notes?: string };
 export type LoggedSession = { label: string; exercises: LoggedExercise[] };
 export type WorkoutJournalEntry = {
   id: string;
@@ -63,7 +63,7 @@ const PREV_KEY = '@prev_v2';
 // Internal helper — updates prev data for a label only if the new date is >= stored date
 function _savePrevInternal(dayLabel: string, exercises: PrevExerciseData[], date: number) {
   const current = _prevData[dayLabel];
-  if (!current || date >= current.date) {
+  if (!current || date > current.date) {
     _prevData[dayLabel] = { exercises, date };
   }
 }
@@ -278,10 +278,13 @@ export const workoutState = {
     }
     _persistHistory();
   },
-  getHistory(exerciseName: string): ExerciseHistoryEntry[] {
+  getHistory(exerciseName: string, programName?: string): ExerciseHistoryEntry[] {
     // Derive both metrics from the journal log (authoritative, persisted source)
     const byDay = new Map<string, ExerciseHistoryEntry>();
-    for (const entry of _journalLog) {
+    const journalEntries = programName
+      ? _journalLog.filter(e => e.programName === programName)
+      : _journalLog;
+    for (const entry of journalEntries) {
       for (const session of entry.sessions) {
         const ex = session.exercises.find(e => e.name === exerciseName);
         if (!ex) continue;
@@ -306,10 +309,12 @@ export const workoutState = {
         }
       }
     }
-    // Fall back to stored history for any days not covered by the journal (legacy data)
-    for (const e of (_exerciseHistory[exerciseName] || [])) {
-      const day = new Date(e.date).toDateString();
-      if (!byDay.has(day)) byDay.set(day, { ...e, bestSetVolume: e.bestSetVolume ?? 0 });
+    // Fall back to stored history for any days not covered by the journal (legacy data, no program filter)
+    if (!programName) {
+      for (const e of (_exerciseHistory[exerciseName] || [])) {
+        const day = new Date(e.date).toDateString();
+        if (!byDay.has(day)) byDay.set(day, { ...e, bestSetVolume: e.bestSetVolume ?? 0 });
+      }
     }
     return Array.from(byDay.values()).sort((a, b) => a.date - b.date);
   },
@@ -318,10 +323,13 @@ export const workoutState = {
   logWorkout(volume: number, durationSecs: number) {
     _workoutLog.push({ date: Date.now(), volume, durationSecs });
   },
-  getWorkoutLog(): WorkoutLogEntry[] {
+  getWorkoutLog(programName?: string): WorkoutLogEntry[] {
     // Derive from the persisted journal log so stats survive app restarts
     // and include workouts logged manually via the journal
-    return [..._journalLog]
+    const entries = programName
+      ? _journalLog.filter(e => e.programName === programName)
+      : _journalLog;
+    return [...entries]
       .sort((a, b) => a.date - b.date)
       .map(e => ({ date: e.date, volume: e.totalVolume, durationSecs: e.durationSecs }));
   },
@@ -393,7 +401,7 @@ export const workoutState = {
     _persistJournal();
   },
   getJournalLog(): WorkoutJournalEntry[] {
-    return [..._journalLog].reverse();
+    return [..._journalLog].sort((a, b) => b.date - a.date);
   },
   getJournalEntry(id: string): WorkoutJournalEntry | undefined {
     return _journalLog.find(e => e.id === id);

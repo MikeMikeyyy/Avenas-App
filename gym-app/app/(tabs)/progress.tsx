@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -115,52 +115,123 @@ function formatDuration(secs: number): string {
 /** Format a timestamp into a short date label */
 function formatHistoryDate(timestamp: number): string {
   const d = new Date(timestamp);
-  const now = new Date();
-  const isToday = d.toDateString() === now.toDateString();
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const isYesterday = d.toDateString() === yesterday.toDateString();
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
+}
 
-  if (isToday) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  if (isYesterday) return 'Yest';
-  const daysAgo = Math.round((Date.now() - timestamp) / (1000 * 60 * 60 * 24));
-  if (daysAgo < 7) return DAY_NAMES_SHORT[d.getDay() === 0 ? 6 : d.getDay() - 1];
-  return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
+/** Generate nicely-spaced tick values for a chart axis */
+function getNiceTicks(min: number, max: number, targetCount = 5): number[] {
+  if (min === max) {
+    const pad = min >= 10 ? 5 : 1;
+    return [min - pad, min, min + pad];
+  }
+  const range = max - min;
+  const rawStep = range / Math.max(targetCount - 1, 1);
+  const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const norm = rawStep / mag;
+  let niceStep: number;
+  if (norm <= 1) niceStep = mag;
+  else if (norm <= 2) niceStep = 2 * mag;
+  else if (norm <= 2.5) niceStep = 2.5 * mag;
+  else if (norm <= 5) niceStep = 5 * mag;
+  else niceStep = 10 * mag;
+
+  const niceMin = Math.floor(min / niceStep) * niceStep;
+  const niceMax = Math.ceil(max / niceStep) * niceStep;
+  const ticks: number[] = [];
+  let t = niceMin;
+  while (t <= niceMax + niceStep * 0.001) {
+    ticks.push(Math.round(t * 1000) / 1000);
+    t += niceStep;
+  }
+  return ticks;
 }
 
 // --- Components ---
+
+/** Blend a hex colour towards white by `amount` (0–1) */
+function lightenColor(hex: string, amount = 0.55): string {
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6) return hex;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  const lr = Math.round(r + (255 - r) * amount);
+  const lg = Math.round(g + (255 - g) * amount);
+  const lb = Math.round(b + (255 - b) * amount);
+  return `rgb(${lr},${lg},${lb})`;
+}
 
 function VolumeChart({ accentColor, data }: { accentColor: string; data: { day: string; volume: number }[] }) {
   const { isDark, colors } = useTheme();
   const maxVolume = Math.max(...data.map(d => d.volume), 1);
   const CHART_HEIGHT = 120;
+  const Y_AXIS_W = 38;
+
+  const yLabels = [
+    maxVolume,
+    maxVolume / 2,
+    0,
+  ];
+
+  const axisColor = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
 
   return (
     <View style={styles.chartContainer}>
-      <View style={styles.barRow}>
-        {data.map((d, i) => {
-          const barHeight = d.volume > 0 ? (d.volume / maxVolume) * CHART_HEIGHT : 4;
-          const isRest = d.volume === 0;
-          return (
-            <View key={i} style={styles.barCol}>
-              <View style={{ height: CHART_HEIGHT, justifyContent: 'flex-end', alignItems: 'center' }}>
-                <View
-                  style={{
-                    width: 28,
-                    height: barHeight,
-                    borderRadius: 8,
-                    backgroundColor: isRest ? (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)') : accentColor,
-                    opacity: isRest ? 1 : 0.85,
-                  }}
-                />
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+        {/* Y-axis labels */}
+        <View style={{ width: Y_AXIS_W, height: CHART_HEIGHT, justifyContent: 'space-between', alignItems: 'flex-end', paddingRight: 6 }}>
+          {yLabels.map((v, i) => (
+            <Text key={i} style={[styles.yAxisText, { color: colors.tertiaryText }]}>
+              {formatVolume(Math.round(v))}
+            </Text>
+          ))}
+        </View>
+        {/* Bars + labels */}
+        <View style={{ flex: 1 }}>
+          {/* Chart area with axis lines */}
+          <View style={{
+            height: CHART_HEIGHT,
+            borderLeftWidth: 1,
+            borderBottomWidth: 1,
+            borderColor: axisColor,
+            flexDirection: 'row',
+            justifyContent: 'space-around',
+            alignItems: 'flex-end',
+            paddingHorizontal: 4,
+          }}>
+            {data.map((d, i) => {
+              const barHeight = d.volume > 0 ? (d.volume / maxVolume) * (CHART_HEIGHT - 8) : 4;
+              const isRest = d.volume === 0;
+              return (
+                <View key={i} style={{ flex: 1, alignItems: 'center', paddingBottom: 4 }}>
+                  {isRest ? (
+                    <View style={{ width: 28, height: barHeight, borderRadius: 8, backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }} />
+                  ) : (
+                    <LinearGradient
+                      colors={[accentColor, lightenColor(accentColor, 0.55)]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 0, y: 1 }}
+                      style={{ width: 28, height: barHeight, borderRadius: 8 }}
+                    />
+                  )}
+                </View>
+              );
+            })}
+          </View>
+          {/* X-axis labels below the axis line */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: 4, marginTop: 4 }}>
+            {data.map((d, i) => (
+              <View key={i} style={{ flex: 1, alignItems: 'center', gap: 2 }}>
+                <Text style={[styles.barLabel, { color: colors.secondaryText }]}>{d.day}</Text>
+                {d.volume > 0 ? (
+                  <Text style={[styles.barValue, { color: colors.tertiaryText }]}>{formatVolume(d.volume)}</Text>
+                ) : (
+                  <Text style={[styles.barValue, { color: colors.tertiaryText, opacity: 0.35 }]}>—</Text>
+                )}
               </View>
-              <Text style={[styles.barLabel, { color: colors.secondaryText }]}>{d.day}</Text>
-              {d.volume > 0 && (
-                <Text style={[styles.barValue, { color: colors.secondaryText }]}>{(d.volume / 1000).toFixed(1)}k</Text>
-              )}
-            </View>
-          );
-        })}
+            ))}
+          </View>
+        </View>
       </View>
     </View>
   );
@@ -168,81 +239,130 @@ function VolumeChart({ accentColor, data }: { accentColor: string; data: { day: 
 
 function LineChart({ data, accentColor, yUnit = 'kg' }: { data: { date: string; weight: number }[]; accentColor: string; yUnit?: string }) {
   const { isDark, colors } = useTheme();
-  const [chartWidth, setChartWidth] = useState(0);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
   const weights = data.map(d => d.weight);
   const minW = Math.min(...weights);
   const maxW = Math.max(...weights);
-  const range = maxW - minW || 1;
   const CHART_HEIGHT = 100;
   const PAD_Y = 12;
-  const Y_AXIS_W = 44;
+  const PAD_X = 20;
+  const Y_AXIS_W = 52;
+  const DOT_SPACING = 60;
+  const axisColor = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.14)';
+  const CHART_BOTTOM = CHART_HEIGHT - PAD_Y + 4; // y-position of x-axis line
+
+  const ticks = data.length > 0 ? getNiceTicks(minW, maxW) : [0];
+  const niceMin = ticks[0];
+  const niceMax = ticks[ticks.length - 1];
+  const niceRange = niceMax - niceMin || 1;
+  const tickY = (v: number) => PAD_Y + (1 - (v - niceMin) / niceRange) * (CHART_HEIGHT - PAD_Y * 2);
+  const formatTick = (v: number) => v % 1 === 0 ? String(v) : v.toFixed(1);
+
+  const count = data.length;
+  const svgWidth = containerWidth > 0
+    ? Math.max(containerWidth, count * DOT_SPACING + PAD_X * 2)
+    : 0;
 
   const points = data.map((d, i) => {
-    const count = data.length;
-    const x = count === 1 ? chartWidth / 2 : (i / (count - 1)) * chartWidth;
-    const y = PAD_Y + (1 - (d.weight - minW) / range) * (CHART_HEIGHT - PAD_Y * 2);
+    const x = count === 1 ? svgWidth / 2 : PAD_X + (i / (count - 1)) * (svgWidth - PAD_X * 2);
+    const y = tickY(d.weight);
     return { x, y };
   });
 
+  // Scroll to the most recent (rightmost) entry on load
+  useEffect(() => {
+    if (svgWidth > containerWidth) {
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 50);
+    }
+  }, [svgWidth, containerWidth]);
+
   return (
     <View style={styles.lineChartContainer}>
-      <View style={{ flexDirection: 'row', height: CHART_HEIGHT }}>
-        {/* Y-axis labels */}
-        <View style={{ width: Y_AXIS_W, justifyContent: 'space-between', paddingVertical: PAD_Y - 5 }}>
-          <Text style={[styles.yAxisText, { color: colors.tertiaryText, textAlign: 'right' }]}>{maxW}{yUnit}</Text>
-          <Text style={[styles.yAxisText, { color: colors.tertiaryText, textAlign: 'right' }]}>{minW}{yUnit}</Text>
+      <View style={{ flexDirection: 'row' }}>
+        {/* Y-axis — fixed, does not scroll */}
+        <View style={{ width: Y_AXIS_W, height: CHART_HEIGHT, paddingRight: 6 }}>
+          {ticks.map((t, i) => (
+            <Text
+              key={i}
+              style={[styles.yAxisText, { color: colors.tertiaryText, textAlign: 'right', position: 'absolute', top: tickY(t) - 5, right: 6, width: Y_AXIS_W - 6 }]}
+            >
+              {formatTick(t)}{yUnit}
+            </Text>
+          ))}
         </View>
-        {/* Chart area */}
+        {/* Scrollable chart area */}
         <View
           style={{ flex: 1 }}
-          onLayout={(e) => setChartWidth(e.nativeEvent.layout.width)}
+          onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
         >
-          {chartWidth > 0 && (
-            <Svg width={chartWidth} height={CHART_HEIGHT}>
-              {[0, 0.25, 0.5, 0.75, 1].map((frac, i) => {
-                const gy = PAD_Y + frac * (CHART_HEIGHT - PAD_Y * 2);
-                return (
+          {/* Fixed y-axis line — pinned, does not scroll, stops at x-axis */}
+          <View style={{ position: 'absolute', left: 0, top: 0, width: 1, height: CHART_BOTTOM, backgroundColor: axisColor }} />
+          <ScrollView
+            ref={scrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            bounces={false}
+          >
+            {svgWidth > 0 && (
+              <View style={{ width: svgWidth }}>
+                <Svg width={svgWidth} height={CHART_HEIGHT}>
+                  {/* Grid lines at each tick */}
+                  {ticks.map((t, gi) => (
+                    <SvgLine
+                      key={gi}
+                      x1={0} y1={tickY(t)} x2={svgWidth} y2={tickY(t)}
+                      stroke={isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}
+                      strokeWidth={1}
+                    />
+                  ))}
+                  {/* X-axis baseline */}
                   <SvgLine
-                    key={i}
-                    x1={0} y1={gy} x2={chartWidth} y2={gy}
-                    stroke={isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}
+                    x1={0} y1={CHART_BOTTOM} x2={svgWidth} y2={CHART_BOTTOM}
+                    stroke={isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.14)'}
                     strokeWidth={1}
                   />
-                );
-              })}
-              {points.map((p, i) => {
-                if (i === points.length - 1) return null;
-                const next = points[i + 1];
-                return (
-                  <SvgLine
-                    key={`line-${i}`}
-                    x1={p.x} y1={p.y} x2={next.x} y2={next.y}
-                    stroke={`${accentColor}60`}
-                    strokeWidth={2.5}
-                    strokeLinecap="round"
-                  />
-                );
-              })}
-              {points.map((p, i) => (
-                <SvgCircle
-                  key={`dot-${i}`}
-                  cx={p.x} cy={p.y} r={5}
-                  fill={accentColor}
-                  stroke={isDark ? colors.cardSolid : '#fff'}
-                  strokeWidth={2}
-                />
-              ))}
-            </Svg>
-          )}
+                  {points.map((p, i) => {
+                    if (i === points.length - 1) return null;
+                    const next = points[i + 1];
+                    return (
+                      <SvgLine
+                        key={`line-${i}`}
+                        x1={p.x} y1={p.y} x2={next.x} y2={next.y}
+                        stroke={`${accentColor}60`}
+                        strokeWidth={2.5}
+                        strokeLinecap="round"
+                      />
+                    );
+                  })}
+                  {points.map((p, i) => (
+                    <SvgCircle
+                      key={`dot-${i}`}
+                      cx={p.x} cy={p.y} r={5}
+                      fill={accentColor}
+                      stroke={isDark ? colors.cardSolid : '#fff'}
+                      strokeWidth={2}
+                    />
+                  ))}
+                </Svg>
+                {/* X-axis labels inside the scroll view, aligned to dots */}
+                <View style={{ height: 20, marginTop: 4 }}>
+                  {data.map((d, i) => {
+                    const labelX = count === 1 ? svgWidth / 2 : PAD_X + (i / (count - 1)) * (svgWidth - PAD_X * 2);
+                    return (
+                      <Text
+                        key={i}
+                        style={[styles.lineChartLabel, { color: colors.secondaryText, position: 'absolute', left: labelX - 20, width: 40, textAlign: 'center' }]}
+                      >
+                        {d.date}
+                      </Text>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+          </ScrollView>
         </View>
-      </View>
-      {/* X-axis labels aligned under chart area only */}
-      <View style={{ flexDirection: 'row', marginTop: 8, marginLeft: Y_AXIS_W }}>
-        {data.map((d, i) => (
-          <View key={i} style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={[styles.lineChartLabel, { color: colors.secondaryText }]}>{d.date}</Text>
-          </View>
-        ))}
       </View>
     </View>
   );
@@ -262,10 +382,12 @@ export default function ProgressScreen() {
   const accentColor = selectedProgramId === null ? ALL_ACCENT : (selectedProgram?.color || '#47DDFF');
 
   // Build unique training days with merged exercises for selected program (or all programs)
-  const trainingDays = useMemo(() => {
+  // Also builds exercisePrograms: exercise name -> all program colors it appears in
+  const { trainingDays, exercisePrograms } = useMemo(() => {
     const programsToUse = selectedProgramId === null ? programs : (selectedProgram ? [selectedProgram] : []);
-    if (programsToUse.length === 0) return [];
+    if (programsToUse.length === 0) return { trainingDays: [], exercisePrograms: new Map<string, string[]>() };
     const dayMap = new Map<string, { exercises: string[]; color: string }>();
+    const exPrograms = new Map<string, string[]>();
     for (const prog of programsToUse) {
       for (const sd of prog.splitDays) {
         if (sd.type === 'training') {
@@ -274,18 +396,25 @@ export default function ProgressScreen() {
             const exercises = existing?.exercises || [];
             for (const e of session.exercises) {
               if (!exercises.includes(e.name)) exercises.push(e.name);
+              const cols = exPrograms.get(e.name) || [];
+              if (!cols.includes(prog.color)) cols.push(prog.color);
+              exPrograms.set(e.name, cols);
             }
             dayMap.set(session.label, { exercises, color: prog.color });
           }
         }
       }
     }
-    return Array.from(dayMap.entries()).map(([label, { exercises, color }]) => ({ label, exercises, color }));
+    return {
+      trainingDays: Array.from(dayMap.entries()).map(([label, { exercises, color }]) => ({ label, exercises, color })),
+      exercisePrograms: exPrograms,
+    };
   }, [selectedProgramId, programs]);
 
   const firstExercise = trainingDays[0]?.exercises[0] || 'Bench Press';
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodKey>('week');
   const [selectedExercise, setSelectedExercise] = useState(firstExercise);
+  const [exerciseMetric, setExerciseMetric] = useState<'heaviest' | 'setVolume'>('heaviest');
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     if (trainingDays[0]) initial[trainingDays[0].label] = true;
@@ -298,6 +427,11 @@ export default function ProgressScreen() {
     setRefreshKey(k => k + 1);
   }, []));
 
+  // Re-render whenever journal data changes (including after initStorage completes)
+  useEffect(() => {
+    return workoutState.subscribePrev(() => setRefreshKey(k => k + 1));
+  }, []);
+
   // When switching programs, reset selected exercise and expand first day
   const prevProgramId = useRef(selectedProgramId);
   if (prevProgramId.current !== selectedProgramId) {
@@ -309,9 +443,10 @@ export default function ProgressScreen() {
     }
   }
 
-  // Build dynamic volume chart data & summary stats from workout log
-  const workoutLog = workoutState.getWorkoutLog();
-  const periodData = useMemo(() => buildPeriodData(workoutLog), [workoutLog.length, refreshKey]);
+  // Build dynamic volume chart data & summary stats from workout log (filtered by selected program)
+  const filterProgram = selectedProgramId !== null ? selectedProgram?.name : undefined;
+  const workoutLog = workoutState.getWorkoutLog(filterProgram);
+  const periodData = useMemo(() => buildPeriodData(workoutLog), [refreshKey, selectedProgramId]);
   const summaryStats = useMemo(() => {
     const total = workoutLog.length;
     const totalVol = workoutLog.reduce((s, e) => s + e.volume, 0);
@@ -321,12 +456,12 @@ export default function ProgressScreen() {
       volume: formatVolume(totalVol),
       avgDuration: formatDuration(avgDur),
     };
-  }, [workoutLog.length, refreshKey]);
+  }, [refreshKey, selectedProgramId]);
 
   if (!fontsLoaded) return <View style={{ flex: 1, backgroundColor: isDark ? colors.gradientStart : '#c3ced6' }} />;
 
-  const [exerciseMetric, setExerciseMetric] = useState<'heaviest' | 'setVolume'>('heaviest');
-  const rawHistory = workoutState.getHistory(selectedExercise);
+  const THREE_MONTHS_AGO = Date.now() - 90 * 24 * 60 * 60 * 1000;
+  const rawHistory = workoutState.getHistory(selectedExercise, filterProgram).filter(e => e.date >= THREE_MONTHS_AGO);
   const exerciseData = rawHistory.map((entry) => ({
     date: formatHistoryDate(entry.date),
     weight: exerciseMetric === 'heaviest' ? entry.weight : entry.bestSetVolume,
@@ -474,7 +609,20 @@ export default function ProgressScreen() {
                     activeOpacity={0.7}
                   >
                     <Text style={[styles.exerciseRowText, { color: colors.primaryText }, isSelected && { fontFamily: 'Arimo_700Bold' }]}>{name}</Text>
-                    {isSelected && <Ionicons name="chevron-forward" size={16} color={day.color} />}
+                    {isSelected
+                      ? <Ionicons name="chevron-forward" size={16} color={day.color} />
+                      : (() => {
+                          const cols = exercisePrograms.get(name) ?? [];
+                          if (cols.length <= 1) return null;
+                          return (
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              {cols.slice(0, 4).map((c, ci) => (
+                                <View key={ci} style={{ width: 9, height: 9, borderRadius: 4.5, backgroundColor: c, marginLeft: ci > 0 ? -3 : 0, borderWidth: 1.5, borderColor: colors.cardTranslucent }} />
+                              ))}
+                            </View>
+                          );
+                        })()
+                    }
                   </TouchableOpacity>
                 );
               })}
@@ -490,7 +638,7 @@ export default function ProgressScreen() {
               <View style={[styles.prBadge, { backgroundColor: `${exerciseColor}25`, borderColor: `${exerciseColor}4D` }]}>
                 <Ionicons name="trophy" size={12} color={exerciseColor} />
                 <Text style={[styles.prBadgeText, { color: colors.primaryText }]}>
-                  {exerciseMetric === 'heaviest' ? `PR: ${exercisePR}kg` : `Best: ${exercisePR}`}
+                  {exerciseMetric === 'heaviest' ? `PR: ${exercisePR}kg` : `Best: ${exercisePR}kg`}
                 </Text>
               </View>
             )}
@@ -499,7 +647,7 @@ export default function ProgressScreen() {
             <LineChart
               data={exerciseData}
               accentColor={exerciseColor}
-              yUnit={exerciseMetric === 'heaviest' ? 'kg' : ''}
+              yUnit="kg"
             />
           ) : (
             <Text style={[styles.emptyText, { color: colors.secondaryText }]}>No data for this exercise yet</Text>

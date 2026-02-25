@@ -120,6 +120,9 @@ function JournalDetail({
   const [editVal1, setEditVal1] = useState(''); // reps or hold secs
   const [editVal2, setEditVal2] = useState(''); // weight
 
+  const [editingNotesKey, setEditingNotesKey] = useState<string | null>(null);
+  const [notesVal, setNotesVal] = useState('');
+
   const [showDurationEdit, setShowDurationEdit] = useState(false);
   const [durationH, setDurationH] = useState('');
   const [durationM, setDurationM] = useState('');
@@ -148,6 +151,14 @@ function JournalDetail({
     setEditTarget({ si, ei, setI, mode });
     setEditVal1(mode === 'hold' ? (set.hold > 0 ? String(set.hold) : '') : (set.reps > 0 ? String(set.reps) : ''));
     setEditVal2(set.weight != null ? String(set.weight) : '');
+  };
+
+  const commitNotes = (si: number, ei: number) => {
+    const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
+    const trimmed = notesVal.trim();
+    newEntry.sessions[si].exercises[ei].notes = trimmed || undefined;
+    onUpdateEntry(newEntry);
+    setEditingNotesKey(null);
   };
 
   const commitEdit = () => {
@@ -231,7 +242,7 @@ function JournalDetail({
                   const hasData = exercise.mode === 'hold'
                     ? (set.hold > 0 || set.weight != null)
                     : set.reps > 0;
-                  const rowDividerColor = isDark ? colors.border : 'rgba(0,0,0,0.07)';
+                  const rowDividerColor = isDark ? colors.border : 'rgba(0,0,0,0.09)';
                   const isEditing = editTarget !== null && editTarget.si === si && editTarget.ei === ei && editTarget.setI === si2;
                   return (
                     <TouchableOpacity
@@ -312,6 +323,47 @@ function JournalDetail({
                     </TouchableOpacity>
                   );
                 })}
+                {/* Notes row */}
+                {(() => {
+                  const notesKey = `${si}-${ei}`;
+                  const isEditingNotes = editingNotesKey === notesKey;
+                  const divColor = isDark ? colors.border : 'rgba(0,0,0,0.09)';
+                  if (isEditingNotes) {
+                    return (
+                      <View style={[styles.notesRow, { borderTopColor: divColor }]}>
+                        <Ionicons name="create-outline" size={13} color={entry.programColor} style={{ marginTop: 2 }} />
+                        <TextInput
+                          style={[styles.notesInput, { color: colors.primaryText }]}
+                          value={notesVal}
+                          onChangeText={setNotesVal}
+                          placeholder="Add a note…"
+                          placeholderTextColor={colors.tertiaryText}
+                          multiline
+                          autoFocus
+                          onBlur={() => commitNotes(si, ei)}
+                          returnKeyType="done"
+                          blurOnSubmit
+                        />
+                      </View>
+                    );
+                  }
+                  return (
+                    <TouchableOpacity
+                      style={[styles.notesRow, { borderTopColor: divColor }]}
+                      onPress={() => {
+                        if (editTarget) commitEdit();
+                        setEditingNotesKey(notesKey);
+                        setNotesVal(exercise.notes || '');
+                      }}
+                      activeOpacity={0.6}
+                    >
+                      <Ionicons name="create-outline" size={13} color={exercise.notes ? colors.secondaryText : colors.tertiaryText} />
+                      <Text style={[styles.notesText, { color: exercise.notes ? colors.secondaryText : colors.tertiaryText }]}>
+                        {exercise.notes || 'Add note…'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })()}
               </View>
             );
           })}
@@ -1120,6 +1172,28 @@ const styles = StyleSheet.create({
     width: 22,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  notesRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+  },
+  notesText: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    flex: 1,
+    lineHeight: 18,
+  },
+  notesInput: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    flex: 1,
+    lineHeight: 18,
+    padding: 0,
+    minHeight: 18,
   },
   editInput: {
     width: 54,
