@@ -12,7 +12,6 @@ import {
   Alert,
   TextInput,
   Keyboard,
-  Modal,
   KeyboardAvoidingView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -25,6 +24,8 @@ import { workoutState, WorkoutJournalEntry, LoggedSession } from '../workoutStat
 import { useTheme } from '../themeStore';
 import { useProgramStore, getDayLabel, getDayExerciseCount } from '../programStore';
 import type { Program } from '../programStore';
+import { BottomSheetModal } from '../components/BottomSheetModal';
+import { FadeBackdrop } from '../components/FadeBackdrop';
 
 function BounceButton({ style, children, onPress, ...rest }: any) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -370,51 +371,50 @@ function JournalDetail({
         </View>
       ))}
       {/* Duration edit modal */}
-      <Modal visible={showDurationEdit} transparent animationType="slide" onRequestClose={() => setShowDurationEdit(false)}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setShowDurationEdit(false)} />
+      <BottomSheetModal visible={showDurationEdit} onDismiss={() => setShowDurationEdit(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={[styles.durationSheet, { backgroundColor: colors.modalBg }]}>
-          <Text style={[styles.durationSheetTitle, { color: colors.primaryText }]}>Edit Duration</Text>
-          <View style={styles.durationInputRow}>
-            <View style={styles.durationInputGroup}>
-              <TextInput
-                style={[styles.durationInput, { color: colors.primaryText, backgroundColor: colors.inputBg, borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)' }]}
-                value={durationH}
-                onChangeText={setDurationH}
-                keyboardType="number-pad"
-                placeholder="0"
-                placeholderTextColor={colors.tertiaryText}
-                maxLength={2}
-                selectTextOnFocus
-              />
-              <Text style={[styles.durationInputLabel, { color: colors.secondaryText }]}>hrs</Text>
+            <Text style={[styles.durationSheetTitle, { color: colors.primaryText }]}>Edit Duration</Text>
+            <View style={styles.durationInputRow}>
+              <View style={styles.durationInputGroup}>
+                <TextInput
+                  style={[styles.durationInput, { color: colors.primaryText, backgroundColor: colors.inputBg, borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)' }]}
+                  value={durationH}
+                  onChangeText={setDurationH}
+                  keyboardType="number-pad"
+                  placeholder="0"
+                  placeholderTextColor={colors.tertiaryText}
+                  maxLength={2}
+                  selectTextOnFocus
+                />
+                <Text style={[styles.durationInputLabel, { color: colors.secondaryText }]}>hrs</Text>
+              </View>
+              <Text style={[styles.durationColon, { color: colors.tertiaryText }]}>:</Text>
+              <View style={styles.durationInputGroup}>
+                <TextInput
+                  style={[styles.durationInput, { color: colors.primaryText, backgroundColor: colors.inputBg, borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)' }]}
+                  value={durationM}
+                  onChangeText={v => { const n = parseInt(v); setDurationM(isNaN(n) ? '' : String(Math.min(n, 59))); }}
+                  keyboardType="number-pad"
+                  placeholder="00"
+                  placeholderTextColor={colors.tertiaryText}
+                  maxLength={2}
+                  selectTextOnFocus
+                />
+                <Text style={[styles.durationInputLabel, { color: colors.secondaryText }]}>min</Text>
+              </View>
             </View>
-            <Text style={[styles.durationColon, { color: colors.tertiaryText }]}>:</Text>
-            <View style={styles.durationInputGroup}>
-              <TextInput
-                style={[styles.durationInput, { color: colors.primaryText, backgroundColor: colors.inputBg, borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)' }]}
-                value={durationM}
-                onChangeText={v => { const n = parseInt(v); setDurationM(isNaN(n) ? '' : String(Math.min(n, 59))); }}
-                keyboardType="number-pad"
-                placeholder="00"
-                placeholderTextColor={colors.tertiaryText}
-                maxLength={2}
-                selectTextOnFocus
-              />
-              <Text style={[styles.durationInputLabel, { color: colors.secondaryText }]}>min</Text>
+            <View style={styles.durationSheetActions}>
+              <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]} onPress={() => setShowDurationEdit(false)}>
+                <Text style={[styles.durationActionText, { color: colors.secondaryText }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: entry.programColor }]} onPress={commitDuration}>
+                <Text style={[styles.durationActionText, { color: '#fff' }]}>Done</Text>
+              </TouchableOpacity>
             </View>
           </View>
-          <View style={styles.durationSheetActions}>
-            <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]} onPress={() => setShowDurationEdit(false)}>
-              <Text style={[styles.durationActionText, { color: colors.secondaryText }]}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: entry.programColor }]} onPress={commitDuration}>
-              <Text style={[styles.durationActionText, { color: '#fff' }]}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
         </KeyboardAvoidingView>
-      </Modal>
+      </BottomSheetModal>
     </ScrollView>
   );
 }
@@ -869,7 +869,7 @@ export default function JournalScreen() {
       {/* Log Workout Modal */}
       {logState && (
         <View style={[StyleSheet.absoluteFillObject, { zIndex: 100 }]}>
-          <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' }} onPress={() => setLogState(null)} activeOpacity={1} />
+          <FadeBackdrop onPress={() => setLogState(null)} />
           <View style={[styles.logSheet, { backgroundColor: colors.modalBg }]}>
             <Text style={[styles.logSheetDate, { color: colors.tertiaryText }]}>
               {logState.date.toLocaleDateString('en-AU', { weekday: 'short', month: 'short', day: 'numeric' })}

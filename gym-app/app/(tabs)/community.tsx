@@ -21,6 +21,7 @@ import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/ar
 import { useCommunityStore, Community, CURRENT_USER, Member } from '../../communityStore';
 import { useProgramStore } from '../../programStore';
 import { useTheme } from '../../themeStore';
+import { BottomSheetModal } from '../../components/BottomSheetModal';
 
 function BounceButton({ style, children, onPress, disabled, ...rest }: any) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -1296,114 +1297,101 @@ export default function CommunityScreen() {
       </Modal>
 
       {/* Options Menu Modal */}
-      <Modal visible={showOptionsMenu} transparent animationType="slide">
-        <TouchableOpacity
-          style={[styles.optionsMenuOverlay, { backgroundColor: colors.overlayBg }]}
-          activeOpacity={1}
-          onPress={() => setShowOptionsMenu(false)}
-        >
-          <View style={[styles.optionsMenuContent, { backgroundColor: colors.modalBg }]}>
-            <View style={[styles.optionsMenuHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : '#e0e0e0' }]} />
-            {isOwnerView ? (
-              <>
-                <BounceButton
-                  style={[styles.optionsMenuItem, { borderBottomColor: colors.border }]}
-                  onPress={() => {
-                    setShowOptionsMenu(false);
-                    if (selectedCommunity) {
-                      setEditName(selectedCommunity.name);
-                      setEditDesc(selectedCommunity.description);
-                      setShowEditModal(true);
-                    }
-                  }}
-                >
-                  <Ionicons name="create-outline" size={22} color={colors.primaryText} />
-                  <Text style={[styles.optionsMenuItemText, { color: colors.primaryText }]}>Edit Community</Text>
-                </BounceButton>
-                <BounceButton
-                  style={[styles.optionsMenuItem, styles.optionsMenuItemLast]}
-                  onPress={() => {
-                    setShowOptionsMenu(false);
-                    if (selectedCommunity) {
-                      deleteCommunity(selectedCommunity.id);
-                      setViewMode('list');
-                      setSelectedCommunity(null);
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    }
-                  }}
-                >
-                  <Ionicons name="trash-outline" size={22} color="#e74c3c" />
-                  <Text style={styles.optionsMenuItemTextDanger}>Delete Community</Text>
-                </BounceButton>
-              </>
-            ) : (
+      <BottomSheetModal visible={showOptionsMenu} onDismiss={() => setShowOptionsMenu(false)} overlayColor={colors.overlayBg}>
+        <View style={[styles.optionsMenuContent, { backgroundColor: colors.modalBg }]}>
+          <View style={[styles.optionsMenuHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : '#e0e0e0' }]} />
+          {isOwnerView ? (
+            <>
+              <BounceButton
+                style={[styles.optionsMenuItem, { borderBottomColor: colors.border }]}
+                onPress={() => {
+                  setShowOptionsMenu(false);
+                  if (selectedCommunity) {
+                    setEditName(selectedCommunity.name);
+                    setEditDesc(selectedCommunity.description);
+                    setShowEditModal(true);
+                  }
+                }}
+              >
+                <Ionicons name="create-outline" size={22} color={colors.primaryText} />
+                <Text style={[styles.optionsMenuItemText, { color: colors.primaryText }]}>Edit Community</Text>
+              </BounceButton>
               <BounceButton
                 style={[styles.optionsMenuItem, styles.optionsMenuItemLast]}
                 onPress={() => {
                   setShowOptionsMenu(false);
                   if (selectedCommunity) {
-                    leaveCommunity(selectedCommunity.id);
+                    deleteCommunity(selectedCommunity.id);
                     setViewMode('list');
                     setSelectedCommunity(null);
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   }
                 }}
               >
-                <Ionicons name="exit-outline" size={22} color="#e74c3c" />
-                <Text style={styles.optionsMenuItemTextDanger}>Leave Community</Text>
+                <Ionicons name="trash-outline" size={22} color="#e74c3c" />
+                <Text style={styles.optionsMenuItemTextDanger}>Delete Community</Text>
               </BounceButton>
-            )}
-          </View>
-        </TouchableOpacity>
-      </Modal>
+            </>
+          ) : (
+            <BounceButton
+              style={[styles.optionsMenuItem, styles.optionsMenuItemLast]}
+              onPress={() => {
+                setShowOptionsMenu(false);
+                if (selectedCommunity) {
+                  leaveCommunity(selectedCommunity.id);
+                  setViewMode('list');
+                  setSelectedCommunity(null);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                }
+              }}
+            >
+              <Ionicons name="exit-outline" size={22} color="#e74c3c" />
+              <Text style={styles.optionsMenuItemTextDanger}>Leave Community</Text>
+            </BounceButton>
+          )}
+        </View>
+      </BottomSheetModal>
 
       {/* Manage Members Modal */}
-      <Modal visible={showManageMembersModal} transparent animationType="slide">
-        <View style={[styles.optionsMenuOverlay, { backgroundColor: colors.overlayBg }]}>
-          <TouchableOpacity
-            style={{ flex: 1 }}
-            activeOpacity={1}
+      <BottomSheetModal visible={showManageMembersModal} onDismiss={() => setShowManageMembersModal(false)} overlayColor={colors.overlayBg}>
+        <TouchableOpacity activeOpacity={1} style={[styles.manageMembersContent, { backgroundColor: colors.modalBg }]}>
+          <View style={[styles.optionsMenuHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : '#e0e0e0' }]} />
+          <Text style={[styles.manageMembersTitle, { color: colors.primaryText }]}>Remove Members</Text>
+          <Text style={[styles.manageMembersSubtitle, { color: colors.secondaryText }]}>Select a member to remove from the community</Text>
+          <ScrollView style={styles.manageMembersList} showsVerticalScrollIndicator={false}>
+            {selectedCommunity?.members
+              .filter(m => m.role !== 'owner')
+              .map(member => (
+                <BounceButton
+                  key={member.id}
+                  style={[styles.manageMemberItem, { backgroundColor: colors.inputBg }]}
+                  onPress={() => {
+                    setMemberToRemove(member);
+                    setShowManageMembersModal(false);
+                    setShowRemoveConfirmation(true);
+                  }}
+                >
+                  <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(member.id) }]}>
+                    <Text style={styles.memberAvatarText}>
+                      {member.name.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={styles.memberInfo}>
+                    <Text style={[styles.memberName, { color: colors.primaryText }]}>{member.name}</Text>
+                    <Text style={[styles.memberJoined, { color: colors.secondaryText }]}>Joined {formatDate(member.joinedAt)}</Text>
+                  </View>
+                  <Ionicons name="person-remove-outline" size={20} color="#e74c3c" />
+                </BounceButton>
+              ))}
+          </ScrollView>
+          <BounceButton
+            style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
             onPress={() => setShowManageMembersModal(false)}
-          />
-          <TouchableOpacity activeOpacity={1} style={[styles.manageMembersContent, { backgroundColor: colors.modalBg }]}>
-            <View style={[styles.optionsMenuHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : '#e0e0e0' }]} />
-            <Text style={[styles.manageMembersTitle, { color: colors.primaryText }]}>Remove Members</Text>
-            <Text style={[styles.manageMembersSubtitle, { color: colors.secondaryText }]}>Select a member to remove from the community</Text>
-            <ScrollView style={styles.manageMembersList} showsVerticalScrollIndicator={false}>
-              {selectedCommunity?.members
-                .filter(m => m.role !== 'owner')
-                .map(member => (
-                  <BounceButton
-                    key={member.id}
-                    style={[styles.manageMemberItem, { backgroundColor: colors.inputBg }]}
-                    onPress={() => {
-                      setMemberToRemove(member);
-                      setShowManageMembersModal(false);
-                      setShowRemoveConfirmation(true);
-                    }}
-                  >
-                    <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(member.id) }]}>
-                      <Text style={styles.memberAvatarText}>
-                        {member.name.charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                    <View style={styles.memberInfo}>
-                      <Text style={[styles.memberName, { color: colors.primaryText }]}>{member.name}</Text>
-                      <Text style={[styles.memberJoined, { color: colors.secondaryText }]}>Joined {formatDate(member.joinedAt)}</Text>
-                    </View>
-                    <Ionicons name="person-remove-outline" size={20} color="#e74c3c" />
-                  </BounceButton>
-                ))}
-            </ScrollView>
-            <BounceButton
-              style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
-              onPress={() => setShowManageMembersModal(false)}
-            >
-              <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>Cancel</Text>
-            </BounceButton>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+          >
+            <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>Cancel</Text>
+          </BounceButton>
+        </TouchableOpacity>
+      </BottomSheetModal>
 
       {/* Remove Confirmation Modal */}
       <Modal visible={showRemoveConfirmation} transparent animationType="fade">
@@ -1508,46 +1496,39 @@ export default function CommunityScreen() {
       </Modal>
 
       {/* Manage Programs Modal */}
-      <Modal visible={showManageProgramsModal} transparent animationType="slide">
-        <View style={[styles.optionsMenuOverlay, { backgroundColor: colors.overlayBg }]}>
-          <TouchableOpacity
-            style={{ flex: 1 }}
-            activeOpacity={1}
+      <BottomSheetModal visible={showManageProgramsModal} onDismiss={() => setShowManageProgramsModal(false)} overlayColor={colors.overlayBg}>
+        <TouchableOpacity activeOpacity={1} style={[styles.manageMembersContent, { backgroundColor: colors.modalBg }]}>
+          <View style={[styles.optionsMenuHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : '#e0e0e0' }]} />
+          <Text style={[styles.manageMembersTitle, { color: colors.primaryText }]}>Remove Programs</Text>
+          <Text style={[styles.manageMembersSubtitle, { color: colors.secondaryText }]}>Select a program to remove from the community</Text>
+          <ScrollView style={styles.manageMembersList} showsVerticalScrollIndicator={false}>
+            {selectedCommunity?.sharedWorkouts.map(workout => (
+              <BounceButton
+                key={workout.id}
+                style={[styles.manageMemberItem, { backgroundColor: colors.inputBg }]}
+                onPress={() => {
+                  setProgramToRemove({ id: workout.id, name: workout.programName });
+                  setShowManageProgramsModal(false);
+                  setShowRemoveProgramConfirmation(true);
+                }}
+              >
+                <View style={[styles.programColorDot, { backgroundColor: workout.color, marginRight: 12 }]} />
+                <View style={styles.memberInfo}>
+                  <Text style={[styles.memberName, { color: colors.primaryText }]}>{workout.programName}</Text>
+                  <Text style={[styles.memberJoined, { color: colors.secondaryText }]}>{workout.splitDays.length} day split · Shared {formatDate(workout.sharedAt)}</Text>
+                </View>
+                <Ionicons name="trash-outline" size={20} color="#e74c3c" />
+              </BounceButton>
+            ))}
+          </ScrollView>
+          <BounceButton
+            style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
             onPress={() => setShowManageProgramsModal(false)}
-          />
-          <TouchableOpacity activeOpacity={1} style={[styles.manageMembersContent, { backgroundColor: colors.modalBg }]}>
-            <View style={[styles.optionsMenuHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : '#e0e0e0' }]} />
-            <Text style={[styles.manageMembersTitle, { color: colors.primaryText }]}>Remove Programs</Text>
-            <Text style={[styles.manageMembersSubtitle, { color: colors.secondaryText }]}>Select a program to remove from the community</Text>
-            <ScrollView style={styles.manageMembersList} showsVerticalScrollIndicator={false}>
-              {selectedCommunity?.sharedWorkouts.map(workout => (
-                <BounceButton
-                  key={workout.id}
-                  style={[styles.manageMemberItem, { backgroundColor: colors.inputBg }]}
-                  onPress={() => {
-                    setProgramToRemove({ id: workout.id, name: workout.programName });
-                    setShowManageProgramsModal(false);
-                    setShowRemoveProgramConfirmation(true);
-                  }}
-                >
-                  <View style={[styles.programColorDot, { backgroundColor: workout.color, marginRight: 12 }]} />
-                  <View style={styles.memberInfo}>
-                    <Text style={[styles.memberName, { color: colors.primaryText }]}>{workout.programName}</Text>
-                    <Text style={[styles.memberJoined, { color: colors.secondaryText }]}>{workout.splitDays.length} day split · Shared {formatDate(workout.sharedAt)}</Text>
-                  </View>
-                  <Ionicons name="trash-outline" size={20} color="#e74c3c" />
-                </BounceButton>
-              ))}
-            </ScrollView>
-            <BounceButton
-              style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
-              onPress={() => setShowManageProgramsModal(false)}
-            >
-              <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>Cancel</Text>
-            </BounceButton>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+          >
+            <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>Cancel</Text>
+          </BounceButton>
+        </TouchableOpacity>
+      </BottomSheetModal>
 
       {/* Remove Program Confirmation Modal */}
       <Modal visible={showRemoveProgramConfirmation} transparent animationType="fade">

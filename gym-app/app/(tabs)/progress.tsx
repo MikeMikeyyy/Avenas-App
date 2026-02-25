@@ -7,13 +7,15 @@ import {
   TouchableOpacity,
   Platform,
   StatusBar,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect } from 'expo-router';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
-import Svg, { Line as SvgLine, Circle as SvgCircle } from 'react-native-svg';
+import Svg, { Line as SvgLine, Circle as SvgCircle, Defs as SvgDefs, LinearGradient as SvgLinearGradient, Stop as SvgStop } from 'react-native-svg';
 import { useProgramStore } from '../../programStore';
 import { useTheme } from '../../themeStore';
 import { workoutState } from '../../workoutState';
@@ -164,14 +166,13 @@ function lightenColor(hex: string, amount = 0.55): string {
 function VolumeChart({ accentColor, data }: { accentColor: string; data: { day: string; volume: number }[] }) {
   const { isDark, colors } = useTheme();
   const maxVolume = Math.max(...data.map(d => d.volume), 1);
-  const CHART_HEIGHT = 120;
-  const Y_AXIS_W = 38;
+  const CHART_HEIGHT = 160;
+  const Y_AXIS_W = 42;
 
-  const yLabels = [
-    maxVolume,
-    maxVolume / 2,
-    0,
-  ];
+  // Auto-scale: pick nice tick steps based on the data range, targeting 3-5 labels
+  const ticks = getNiceTicks(0, maxVolume, 4);
+  const chartTop = ticks[ticks.length - 1];
+  const yLabels = [...ticks].reverse(); // top → bottom for display
 
   const axisColor = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
 
@@ -200,7 +201,7 @@ function VolumeChart({ accentColor, data }: { accentColor: string; data: { day: 
             paddingHorizontal: 4,
           }}>
             {data.map((d, i) => {
-              const barHeight = d.volume > 0 ? (d.volume / maxVolume) * (CHART_HEIGHT - 8) : 4;
+              const barHeight = d.volume > 0 ? (d.volume / chartTop) * (CHART_HEIGHT - 8) : 4;
               const isRest = d.volume === 0;
               return (
                 <View key={i} style={{ flex: 1, alignItems: 'center', paddingBottom: 4 }}>
@@ -237,26 +238,36 @@ function VolumeChart({ accentColor, data }: { accentColor: string; data: { day: 
   );
 }
 
-function LineChart({ data, accentColor, yUnit = 'kg' }: { data: { date: string; weight: number }[]; accentColor: string; yUnit?: string }) {
+function LineChart({ data, accentColor, yUnit = 'kg', onPanActive }: { data: { date: string; weight: number; color?: string }[]; accentColor: string; yUnit?: string; onPanActive?: (active: boolean) => void }) {
   const { isDark, colors } = useTheme();
   const [containerWidth, setContainerWidth] = useState(0);
-  const scrollRef = useRef<ScrollView>(null);
+  const xLabelScrollRef = useRef<ScrollView>(null);
+
+  // Free-form 2D pan state
+  const translateX = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const baseX = useRef(0);
+  const baseY = useRef(0);
+
   const weights = data.map(d => d.weight);
-  const minW = Math.min(...weights);
-  const maxW = Math.max(...weights);
-  const CHART_HEIGHT = 100;
-  const PAD_Y = 12;
+  const minW = data.length > 0 ? Math.min(...weights) : 0;
+  const maxW = data.length > 0 ? Math.max(...weights) : 10;
+
+  const CHART_HEIGHT = 150;
+  const PAD_Y = 16;
   const PAD_X = 20;
   const Y_AXIS_W = 52;
   const DOT_SPACING = 60;
+  const MIN_TICK_PX = 35;
   const axisColor = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.14)';
-  const CHART_BOTTOM = CHART_HEIGHT - PAD_Y + 4; // y-position of x-axis line
 
-  const ticks = data.length > 0 ? getNiceTicks(minW, maxW) : [0];
+  const ticks = data.length > 0 ? getNiceTicks(minW, maxW, 10) : [0, 5, 10];
   const niceMin = ticks[0];
   const niceMax = ticks[ticks.length - 1];
   const niceRange = niceMax - niceMin || 1;
-  const tickY = (v: number) => PAD_Y + (1 - (v - niceMin) / niceRange) * (CHART_HEIGHT - PAD_Y * 2);
+
+  const fullH = Math.min(500, Math.max(CHART_HEIGHT, (ticks.length - 1) * MIN_TICK_PX + PAD_Y * 2));
+  const tickY = (v: number) => PAD_Y + (1 - (v - niceMin) / niceRange) * (fullH - PAD_Y * 2);
   const formatTick = (v: number) => v % 1 === 0 ? String(v) : v.toFixed(1);
 
   const count = data.length;
@@ -264,101 +275,190 @@ function LineChart({ data, accentColor, yUnit = 'kg' }: { data: { date: string; 
     ? Math.max(containerWidth, count * DOT_SPACING + PAD_X * 2)
     : 0;
 
-  const points = data.map((d, i) => {
-    const x = count === 1 ? svgWidth / 2 : PAD_X + (i / (count - 1)) * (svgWidth - PAD_X * 2);
-    const y = tickY(d.weight);
-    return { x, y };
-  });
+  const points = data.map((d, i) => ({
+    x: count === 1 ? svgWidth / 2 : PAD_X + (i / (count - 1)) * (svgWidth - PAD_X * 2),
+    y: tickY(d.weight),
+    color: d.color || accentColor,
+  }));
 
-  // Scroll to the most recent (rightmost) entry on load
+  // Refs so panResponder callbacks always see the latest computed values
+  const svgWidthRef = useRef(0);
+  const containerWidthRef = useRef(0);
+  const fullHRef = useRef(CHART_HEIGHT);
+  svgWidthRef.current = svgWidth;
+  containerWidthRef.current = containerWidth;
+  fullHRef.current = fullH;
+
+  // Pan to the rightmost (most recent) point once dimensions are known
   useEffect(() => {
-    if (svgWidth > containerWidth) {
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 50);
+    if (svgWidth > containerWidth && containerWidth > 0) {
+      const maxScrollX = svgWidth - containerWidth;
+      baseX.current = -maxScrollX;
+      translateX.setValue(-maxScrollX);
+      xLabelScrollRef.current?.scrollTo({ x: maxScrollX, animated: false });
     }
   }, [svgWidth, containerWidth]);
 
+  // Keep x-axis date labels in sync with horizontal pan
+  useEffect(() => {
+    const id = translateX.addListener(({ value }) => {
+      xLabelScrollRef.current?.scrollTo({ x: -value, animated: false });
+    });
+    return () => translateX.removeListener(id);
+  }, [translateX]);
+
+  const onPanActiveRef = useRef(onPanActive);
+  onPanActiveRef.current = onPanActive;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => {
+        onPanActiveRef.current?.(true);
+      },
+      onPanResponderMove: (_, { dx, dy }) => {
+        const maxX = Math.max(0, svgWidthRef.current - containerWidthRef.current);
+        const maxY = Math.max(0, fullHRef.current - CHART_HEIGHT);
+        translateX.setValue(Math.max(-maxX, Math.min(0, baseX.current + dx)));
+        translateY.setValue(Math.max(-maxY, Math.min(0, baseY.current + dy)));
+      },
+      onPanResponderRelease: (_, { dx, dy }) => {
+        const maxX = Math.max(0, svgWidthRef.current - containerWidthRef.current);
+        const maxY = Math.max(0, fullHRef.current - CHART_HEIGHT);
+        baseX.current = Math.max(-maxX, Math.min(0, baseX.current + dx));
+        baseY.current = Math.max(-maxY, Math.min(0, baseY.current + dy));
+        translateX.setValue(baseX.current);
+        translateY.setValue(baseY.current);
+        onPanActiveRef.current?.(false);
+      },
+      onPanResponderTerminate: () => {
+        onPanActiveRef.current?.(false);
+      },
+    })
+  ).current;
+
   return (
     <View style={styles.lineChartContainer}>
-      <View style={{ flexDirection: 'row' }}>
-        {/* Y-axis — fixed, does not scroll */}
-        <View style={{ width: Y_AXIS_W, height: CHART_HEIGHT, paddingRight: 6 }}>
+      {/* Viewport */}
+      <View style={{ height: CHART_HEIGHT, overflow: 'hidden' }} {...panResponder.panHandlers}>
+        {/* Fixed axis lines */}
+        <View style={{ position: 'absolute', left: Y_AXIS_W, top: 0, width: 1, height: CHART_HEIGHT, backgroundColor: axisColor, zIndex: 2 }} />
+        <View style={{ position: 'absolute', left: Y_AXIS_W, bottom: 0, right: 0, height: 1, backgroundColor: axisColor, zIndex: 2 }} />
+
+        {/* Y-axis labels — pan vertically only */}
+        <Animated.View style={{ position: 'absolute', left: 0, top: 0, width: Y_AXIS_W, height: fullH, transform: [{ translateY }] }}>
           {ticks.map((t, i) => (
             <Text
               key={i}
-              style={[styles.yAxisText, { color: colors.tertiaryText, textAlign: 'right', position: 'absolute', top: tickY(t) - 5, right: 6, width: Y_AXIS_W - 6 }]}
+              style={[styles.yAxisText, {
+                color: colors.tertiaryText,
+                textAlign: 'right',
+                position: 'absolute',
+                top: tickY(t) - 5,
+                right: 6,
+                width: Y_AXIS_W - 6,
+              }]}
             >
               {formatTick(t)}{yUnit}
             </Text>
           ))}
-        </View>
-        {/* Scrollable chart area */}
+        </Animated.View>
+
+        {/* Chart data — pan freely in X and Y */}
         <View
-          style={{ flex: 1 }}
+          style={{ position: 'absolute', left: Y_AXIS_W, top: 0, right: 0, bottom: 0, overflow: 'hidden' }}
           onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
         >
-          {/* Fixed y-axis line — pinned, does not scroll, stops at x-axis */}
-          <View style={{ position: 'absolute', left: 0, top: 0, width: 1, height: CHART_BOTTOM, backgroundColor: axisColor }} />
-          <ScrollView
-            ref={scrollRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            bounces={false}
-          >
+          <Animated.View style={{ transform: [{ translateX }, { translateY }] }}>
             {svgWidth > 0 && (
-              <View style={{ width: svgWidth }}>
-                <Svg width={svgWidth} height={CHART_HEIGHT}>
-                  {/* Grid lines at each tick */}
-                  {ticks.map((t, gi) => (
-                    <SvgLine
-                      key={gi}
-                      x1={0} y1={tickY(t)} x2={svgWidth} y2={tickY(t)}
-                      stroke={isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}
-                      strokeWidth={1}
-                    />
-                  ))}
-                  {/* X-axis baseline */}
-                  <SvgLine
-                    x1={0} y1={CHART_BOTTOM} x2={svgWidth} y2={CHART_BOTTOM}
-                    stroke={isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.14)'}
-                    strokeWidth={1}
-                  />
+              <Svg width={svgWidth} height={fullH}>
+                {/* Gradient definitions for lines that cross between two program colors */}
+                <SvgDefs>
                   {points.map((p, i) => {
                     if (i === points.length - 1) return null;
                     const next = points[i + 1];
+                    if (p.color === next.color) return null;
                     return (
-                      <SvgLine
-                        key={`line-${i}`}
+                      <SvgLinearGradient
+                        key={`grad-${i}`}
+                        id={`grad-${i}`}
                         x1={p.x} y1={p.y} x2={next.x} y2={next.y}
-                        stroke={`${accentColor}60`}
-                        strokeWidth={2.5}
-                        strokeLinecap="round"
-                      />
-                    );
-                  })}
-                  {points.map((p, i) => (
-                    <SvgCircle
-                      key={`dot-${i}`}
-                      cx={p.x} cy={p.y} r={5}
-                      fill={accentColor}
-                      stroke={isDark ? colors.cardSolid : '#fff'}
-                      strokeWidth={2}
-                    />
-                  ))}
-                </Svg>
-                {/* X-axis labels inside the scroll view, aligned to dots */}
-                <View style={{ height: 20, marginTop: 4 }}>
-                  {data.map((d, i) => {
-                    const labelX = count === 1 ? svgWidth / 2 : PAD_X + (i / (count - 1)) * (svgWidth - PAD_X * 2);
-                    return (
-                      <Text
-                        key={i}
-                        style={[styles.lineChartLabel, { color: colors.secondaryText, position: 'absolute', left: labelX - 20, width: 40, textAlign: 'center' }]}
+                        gradientUnits="userSpaceOnUse"
                       >
-                        {d.date}
-                      </Text>
+                        <SvgStop offset="0" stopColor={p.color} stopOpacity={0.6} />
+                        <SvgStop offset="1" stopColor={next.color} stopOpacity={0.6} />
+                      </SvgLinearGradient>
                     );
                   })}
-                </View>
+                </SvgDefs>
+                {ticks.map((t, gi) => (
+                  <SvgLine
+                    key={gi}
+                    x1={0} y1={tickY(t)} x2={svgWidth} y2={tickY(t)}
+                    stroke={isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}
+                    strokeWidth={1}
+                  />
+                ))}
+                {points.map((p, i) => {
+                  if (i === points.length - 1) return null;
+                  const next = points[i + 1];
+                  const sameColor = p.color === next.color;
+                  return (
+                    <SvgLine
+                      key={`line-${i}`}
+                      x1={p.x} y1={p.y} x2={next.x} y2={next.y}
+                      stroke={sameColor ? `${p.color}99` : `url(#grad-${i})`}
+                      strokeWidth={2.5}
+                      strokeLinecap="round"
+                    />
+                  );
+                })}
+                {points.map((p, i) => (
+                  <SvgCircle
+                    key={`dot-${i}`}
+                    cx={p.x} cy={p.y} r={5}
+                    fill={p.color}
+                    stroke={isDark ? colors.cardSolid : '#fff'}
+                    strokeWidth={2}
+                  />
+                ))}
+              </Svg>
+            )}
+          </Animated.View>
+        </View>
+      </View>
+
+      {/* X-axis date labels — pinned below viewport, synced to horizontal pan */}
+      <View style={{ flexDirection: 'row', marginTop: 4 }}>
+        <View style={{ width: Y_AXIS_W }} />
+        <View style={{ flex: 1, overflow: 'hidden' }}>
+          <ScrollView
+            ref={xLabelScrollRef}
+            horizontal
+            scrollEnabled={false}
+            showsHorizontalScrollIndicator={false}
+          >
+            {svgWidth > 0 && (
+              <View style={{ width: svgWidth, height: 20 }}>
+                {data.map((d, i) => {
+                  const labelX = count === 1 ? svgWidth / 2 : PAD_X + (i / (count - 1)) * (svgWidth - PAD_X * 2);
+                  return (
+                    <Text
+                      key={i}
+                      style={[styles.lineChartLabel, {
+                        color: colors.secondaryText,
+                        position: 'absolute',
+                        left: labelX - 20,
+                        width: 40,
+                        textAlign: 'center',
+                      }]}
+                    >
+                      {d.date}
+                    </Text>
+                  );
+                })}
               </View>
             )}
           </ScrollView>
@@ -375,6 +475,7 @@ export default function ProgressScreen() {
   const { programs, activeId } = useProgramStore();
   const { isDark, colors } = useTheme();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [chartPanning, setChartPanning] = useState(false);
 
   const ALL_ACCENT = '#94A3B8';
   const [selectedProgramId, setSelectedProgramId] = useState<string | null>(activeId ?? null);
@@ -465,6 +566,7 @@ export default function ProgressScreen() {
   const exerciseData = rawHistory.map((entry) => ({
     date: formatHistoryDate(entry.date),
     weight: exerciseMetric === 'heaviest' ? entry.weight : entry.bestSetVolume,
+    color: entry.programColor,
   }));
   const exercisePR = rawHistory.length > 0
     ? Math.max(...rawHistory.map(e => exerciseMetric === 'heaviest' ? e.weight : e.bestSetVolume))
@@ -484,6 +586,7 @@ export default function ProgressScreen() {
         ref={scrollRef}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!chartPanning}
       >
         <Text style={styles.screenTitle}>Progress</Text>
         <Text style={styles.subtitle}>{selectedProgramId === null ? 'All Programs' : (selectedProgram?.name || 'No Program')} Overview</Text>
@@ -631,7 +734,7 @@ export default function ProgressScreen() {
         })}
 
         {/* Line Chart + PR */}
-        <View style={[styles.glassCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
+        <View style={[styles.glassCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, marginTop: 16 }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <Text style={[styles.cardLabel, { color: colors.secondaryText }]}>WEIGHT PROGRESSION</Text>
             {exercisePR !== undefined && exercisePR > 0 && (
@@ -648,6 +751,7 @@ export default function ProgressScreen() {
               data={exerciseData}
               accentColor={exerciseColor}
               yUnit="kg"
+              onPanActive={setChartPanning}
             />
           ) : (
             <Text style={[styles.emptyText, { color: colors.secondaryText }]}>No data for this exercise yet</Text>

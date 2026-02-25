@@ -30,6 +30,24 @@ export const PROGRAM_COLORS = [
   '#34D399', // emerald
   '#FBBF24', // amber
   '#F472B6', // pink
+  '#60A5FA', // blue
+  '#FB923C', // orange
+  '#4ADE80', // green
+  '#E879F9', // fuchsia
+  '#F87171', // red
+  '#38BDF8', // sky
+  '#C084FC', // violet
+  '#86EFAC', // light green
+  '#FDE68A', // yellow
+  '#FDA4AF', // rose
+  '#67E8F9', // light cyan
+  '#FCA5A1', // light red
+  '#A5F3FC', // pale cyan
+  '#D8B4FE', // lavender
+  '#6EE7B7', // mint
+  '#FCD34D', // gold
+  '#F9A8D4', // light pink
+  '#93C5FD', // periwinkle
 ] as const;
 
 export type Program = {
@@ -119,10 +137,10 @@ type ProgramContextType = {
   programs: Program[];
   activeId: string;
   sharedPrograms: SharedProgram[];
-  addProgram: (name: string, splitDays: SplitDay[]) => string;
+  addProgram: (name: string, color: string, splitDays: SplitDay[]) => string;
   deleteProgram: (id: string) => void;
   setActive: (id: string) => void;
-  updateProgram: (id: string, name: string, splitDays: SplitDay[]) => void;
+  updateProgram: (id: string, name: string, color: string, splitDays: SplitDay[]) => void;
   addSharedProgram: (program: SharedProgram) => void;
   saveSharedProgram: (id: string) => void;
   removeSharedProgram: (id: string) => void;
@@ -137,12 +155,9 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
   const [activeId, setActiveId] = useState('1');
   const [sharedPrograms, setSharedPrograms] = useState<SharedProgram[]>(DEFAULT_SHARED);
 
-  const addProgram = useCallback((name: string, splitDays: SplitDay[]): string => {
+  const addProgram = useCallback((name: string, color: string, splitDays: SplitDay[]): string => {
     const id = String(_nextId++);
-    setPrograms(prev => {
-      const color = PROGRAM_COLORS[prev.length % PROGRAM_COLORS.length];
-      return [...prev, { id, name, color, splitDays }];
-    });
+    setPrograms(prev => [...prev, { id, name, color, splitDays }]);
     return id;
   }, []);
 
@@ -155,8 +170,8 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
     setActiveId(id);
   }, []);
 
-  const updateProgram = useCallback((id: string, name: string, splitDays: SplitDay[]) => {
-    setPrograms(prev => prev.map(p => p.id === id ? { ...p, name, splitDays } : p));
+  const updateProgram = useCallback((id: string, name: string, color: string, splitDays: SplitDay[]) => {
+    setPrograms(prev => prev.map(p => p.id === id ? { ...p, name, color, splitDays } : p));
   }, []);
 
   const addSharedProgram = useCallback((program: SharedProgram) => {
@@ -187,7 +202,7 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
 
   return React.createElement(
     ProgramContext.Provider,
-    { value: { programs, activeId, sharedPrograms, addProgram, deleteProgram, setActive, updateProgram, addSharedProgram, saveSharedProgram, removeSharedProgram } },
+    { value: { programs, activeId, sharedPrograms, addProgram, deleteProgram, setActive, updateProgram, addSharedProgram, saveSharedProgram, removeSharedProgram } as ProgramContextType },
     children
   );
 }

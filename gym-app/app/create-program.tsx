@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
-import { useProgramStore, type Exercise, type SplitDay } from '../programStore';
+import { useProgramStore, PROGRAM_COLORS, type Exercise, type SplitDay } from '../programStore';
 import { useTheme } from '../themeStore';
 
 function BounceButton({ style, children, onPress, ...rest }: any) {
@@ -45,6 +45,7 @@ export default function CreateProgramScreen() {
   const { isDark, colors } = useTheme();
   const editingProgram = editId ? programs.find(p => p.id === editId) : undefined;
   const [programName, setProgramName] = useState(editingProgram?.name || '');
+  const [selectedColor, setSelectedColor] = useState(editingProgram?.color || PROGRAM_COLORS[0]);
   const [splitDays, setSplitDays] = useState<SplitDay[]>(editingProgram?.splitDays || []);
 
   if (!fontsLoaded) return null;
@@ -181,6 +182,31 @@ export default function CreateProgramScreen() {
             onSubmitEditing={Keyboard.dismiss}
           />
         </View>
+
+        {/* Program Colour */}
+        <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24 }]}>PROGRAM COLOUR</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.colorPickerRow}
+          keyboardShouldPersistTaps="handled"
+        >
+          {PROGRAM_COLORS.map((color) => {
+            const selected = color === selectedColor;
+            return (
+              <TouchableOpacity
+                key={color}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelectedColor(color); }}
+                style={[styles.colorSwatch, selected && styles.colorSwatchSelected]}
+                activeOpacity={0.75}
+              >
+                <View style={[styles.colorSwatchInner, { backgroundColor: color }]}>
+                  {selected && <Ionicons name="checkmark" size={16} color="#1C1C1E" />}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
 
         {/* Split Schedule */}
         <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24 }]}>SPLIT SCHEDULE</Text>
@@ -359,11 +385,11 @@ export default function CreateProgramScreen() {
           onPress={() => {
             const name = programName || 'Untitled Program';
             if (editId) {
-              updateProgram(editId, name, splitDays);
+              updateProgram(editId, name, selectedColor, splitDays);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               router.back();
             } else {
-              const newId = addProgram(name, splitDays);
+              const newId = addProgram(name, selectedColor, splitDays);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               Alert.alert(
                 'Make Active Program?',
@@ -454,6 +480,32 @@ const styles = StyleSheet.create({
     color: '#5a6c7d',
     marginBottom: 14,
     marginTop: -4,
+  },
+  colorPickerRow: {
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    gap: 10,
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  colorSwatch: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2.5,
+    borderColor: 'transparent',
+  },
+  colorSwatchSelected: {
+    borderColor: '#ffffff',
+  },
+  colorSwatchInner: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   // Rest day row (inline)
   splitDayRow: {

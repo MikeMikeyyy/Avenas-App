@@ -13,7 +13,6 @@ import {
   LayoutAnimation,
   UIManager,
   Alert,
-  Modal,
 } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -28,6 +27,8 @@ import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/ar
 import { workoutState } from '../../workoutState';
 import { useProgramStore, getDayLabel, getDayExerciseCount } from '../../programStore';
 import { useTheme } from '../../themeStore';
+import { BottomSheetModal } from '../../components/BottomSheetModal';
+import { FadeBackdrop } from '../../components/FadeBackdrop';
 
 type SetData = { set: number; reps: number; weight: number | null; hold?: number; prevReps?: number; prevWeight?: number; prevHold?: number; isWarmup?: boolean; fillKey?: number };
 type Exercise = { name: string; sets: SetData[]; mode?: 'reps' | 'hold' };
@@ -80,6 +81,52 @@ function BounceButton({ style, children, onPress, ...rest }: any) {
       </Animated.View>
     </TouchableOpacity>
   );
+}
+
+function CheckboxCell({ completed, hasPrev, accentColor, onFillPrev, readOnly }: {
+  completed: boolean; hasPrev: boolean; accentColor: string; onFillPrev: () => void; readOnly?: boolean;
+}) {
+  const { colors } = useTheme();
+  const scale = useRef(new Animated.Value(1)).current;
+  const wasCompleted = useRef(completed);
+
+  // Pop animation when a set transitions from incomplete → complete
+  useEffect(() => {
+    if (completed && !wasCompleted.current) {
+      Animated.sequence([
+        Animated.spring(scale, { toValue: 0.70, useNativeDriver: true, speed: 60, bounciness: 0 }),
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 16 }),
+      ]).start();
+    }
+    wasCompleted.current = completed;
+  }, [completed]);
+
+  if (completed) {
+    return (
+      <Animated.View style={[styles.checkbox, styles.checkboxChecked, { transform: [{ scale }] }]}>
+        <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+      </Animated.View>
+    );
+  }
+
+  if (hasPrev) {
+    return (
+      <TouchableOpacity
+        activeOpacity={1}
+        onPressIn={() => Animated.spring(scale, { toValue: 0.78, useNativeDriver: true, speed: 50, bounciness: 4 }).start()}
+        onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 12 }).start()}
+        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onFillPrev(); }}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        disabled={readOnly}
+      >
+        <Animated.View style={[styles.checkbox, { borderWidth: 1.5, borderColor: accentColor, backgroundColor: `${accentColor}25`, transform: [{ scale }] }]}>
+          <Ionicons name="checkmark" size={14} color={accentColor} />
+        </Animated.View>
+      </TouchableOpacity>
+    );
+  }
+
+  return <View style={[styles.checkbox, { backgroundColor: colors.checkboxBg }]} />;
 }
 
 function CalendarStrip({ selectedIndex, onSelect, accentColor, days, todayIndex, lockedTodayColor, loggedDateColors, onJournalPress }: { selectedIndex: number; onSelect: (i: number) => void; accentColor: string; days: CalendarDay[]; todayIndex: number; lockedTodayColor?: string; loggedDateColors: Record<string, string>; onJournalPress: () => void }) {
@@ -283,23 +330,13 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
               </TouchableOpacity>
             ) : (
               <View style={styles.checkCol}>
-                {completed ? (
-                  <View style={[styles.checkbox, styles.checkboxChecked]}>
-                    <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-                  </View>
-                ) : hasPrev ? (
-                  <TouchableOpacity
-                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onFillPrev(si); }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    disabled={readOnly}
-                  >
-                    <View style={[styles.checkbox, { borderWidth: 1.5, borderColor: accentColor, backgroundColor: `${accentColor}25` }]}>
-                      <Ionicons name="checkmark" size={14} color={accentColor} />
-                    </View>
-                  </TouchableOpacity>
-                ) : (
-                  <View style={[styles.checkbox, { backgroundColor: colors.checkboxBg }]} />
-                )}
+                <CheckboxCell
+                  completed={completed}
+                  hasPrev={hasPrev}
+                  accentColor={accentColor}
+                  onFillPrev={() => onFillPrev(si)}
+                  readOnly={readOnly}
+                />
               </View>
             )}
           </View>
@@ -1454,7 +1491,7 @@ export default function WorkoutScreen() {
                       exs[i] = { ...exs[i], mode: newMode };
                       sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
                       splitDays[selectedDayIndex] = { ...day, sessions };
-                      updateProgram(activeProgram.id, activeProgram.name, splitDays);
+                      updateProgram(activeProgram.id, activeProgram.name, activeProgram.color, splitDays);
                     }
                   }
                 }}
@@ -1470,7 +1507,7 @@ export default function WorkoutScreen() {
                       const exs = sessions[selectedSessionIndex].exercises.filter((_, ei) => ei !== i);
                       sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
                       splitDays[selectedDayIndex] = { ...day, sessions };
-                      updateProgram(activeProgram.id, activeProgram.name, splitDays);
+                      updateProgram(activeProgram.id, activeProgram.name, activeProgram.color, splitDays);
                     }
                   }
                 }}
@@ -1888,7 +1925,7 @@ export default function WorkoutScreen() {
                 const exs = [...sessions[selectedSessionIndex].exercises, { name, sets: 3 }];
                 sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
                 splitDays[selectedDayIndex] = { ...day, sessions };
-                updateProgram(activeProgram.id, activeProgram.name, splitDays);
+                updateProgram(activeProgram.id, activeProgram.name, activeProgram.color, splitDays);
               }
             }
           } else if (changeExerciseIndex !== null) {
@@ -1903,7 +1940,7 @@ export default function WorkoutScreen() {
                 exs[idx] = { ...exs[idx], name };
                 sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
                 splitDays[selectedDayIndex] = { ...day, sessions };
-                updateProgram(activeProgram.id, activeProgram.name, splitDays);
+                updateProgram(activeProgram.id, activeProgram.name, activeProgram.color, splitDays);
               }
             }
           }
@@ -1917,7 +1954,7 @@ export default function WorkoutScreen() {
 
         return (
           <View style={styles.completeOverlay}>
-            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeOverlay} />
+            <FadeBackdrop onPress={closeOverlay} color="rgba(0,0,0,0.5)" />
             <View style={[styles.exerciseListCard, { backgroundColor: colors.modalBg }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <Text style={{ fontSize: 18, fontFamily: 'Arimo_700Bold', color: colors.primaryText }}>{addingExercise ? 'Add Exercise' : 'Change Exercise'}</Text>
@@ -1988,7 +2025,7 @@ export default function WorkoutScreen() {
       {/* Rest Timer / Stopwatch Overlay */}
       {showRestTimer && (
         <View style={styles.completeOverlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setShowRestTimer(false)} />
+          <FadeBackdrop onPress={() => setShowRestTimer(false)} color="rgba(0,0,0,0.5)" />
           <View style={[styles.restTimerCard, { backgroundColor: colors.modalBg }]}>
             {/* Close */}
             <View style={styles.restTimerCloseRow}>
@@ -2267,8 +2304,7 @@ export default function WorkoutScreen() {
       )}
 
       {/* Time picker — custom scroll wheel bottom sheet */}
-      <Modal visible={showTimePicker} transparent animationType="slide" onRequestClose={() => setShowTimePicker(false)}>
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setShowTimePicker(false)} />
+      <BottomSheetModal visible={showTimePicker} onDismiss={() => setShowTimePicker(false)}>
         <View style={[styles.timePickerSheet, { backgroundColor: colors.modalBg }]}>
           <View style={[styles.timePickerHeader, { borderBottomColor: colors.border }]}>
             <TouchableOpacity onPress={() => setShowTimePicker(false)}>
@@ -2347,12 +2383,12 @@ export default function WorkoutScreen() {
             </ScrollView>
           </View>
         </View>
-      </Modal>
+      </BottomSheetModal>
 
       {/* Make Today's Workout Prompt */}
       {showMakeTodayPrompt && (
         <View style={styles.overlayContainer}>
-          <TouchableOpacity style={styles.overlayBackdrop} activeOpacity={1} onPress={() => setShowMakeTodayPrompt(false)} />
+          <FadeBackdrop onPress={() => setShowMakeTodayPrompt(false)} color="rgba(0,0,0,0.5)" />
           <View style={[styles.swapOverlayCard, { backgroundColor: colors.modalBg, marginBottom: 120 }]}>
             <Text style={[styles.swapOverlayTitle, { color: colors.primaryText }]}>Make this today's workout?</Text>
             <Text style={[styles.swapOverlaySubtitle, { color: colors.secondaryText }]}>
@@ -2412,7 +2448,7 @@ export default function WorkoutScreen() {
         }
         return (
           <View style={styles.overlayContainer}>
-            <TouchableOpacity style={styles.overlayBackdrop} activeOpacity={1} onPress={() => setShowSwapOverlay(false)} />
+            <FadeBackdrop onPress={() => setShowSwapOverlay(false)} color="rgba(0,0,0,0.5)" />
             <View style={[styles.swapOverlayCard, { backgroundColor: colors.modalBg }]}>
               <Text style={[styles.swapOverlayTitle, { color: colors.primaryText }]}>Change Workout</Text>
               <Text style={[styles.swapOverlaySubtitle, { color: colors.secondaryText }]}>Swap today's session or skip it entirely</Text>
@@ -2998,7 +3034,6 @@ const styles = StyleSheet.create({
   },
   completeOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 100,
