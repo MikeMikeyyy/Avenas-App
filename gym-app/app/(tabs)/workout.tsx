@@ -1634,16 +1634,6 @@ export default function WorkoutScreen() {
               );
 
               if (allDone) {
-                // Gather all exercise data across sessions for history
-                const allExerciseData: { name: string; mode?: 'reps' | 'hold'; sets: { reps: number; weight: number; hold: number }[] }[] = [];
-                for (let si = 0; si < workout.sessions.length; si++) {
-                  const cached = exerciseCache[`${selectedDayIndex}-${si}`];
-                  if (cached) {
-                    allExerciseData.push(...cached.map(e => ({ name: e.name, mode: e.mode, sets: e.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })) })));
-                  }
-                }
-                workoutState.saveHistory(allExerciseData);
-
                 // Clear cache for other days so they pick up new prev data
                 Object.keys(exerciseCache).forEach(key => {
                   if (!key.startsWith(`${selectedDayIndex}-`)) {
@@ -1671,7 +1661,6 @@ export default function WorkoutScreen() {
                 const durationSecs = Math.max(0, Math.floor((endTime.getTime() - startTime.getTime()) / 1000));
                 const entryId = String(Date.now());
                 setLastEntryId(entryId);
-                workoutState.logWorkout(totalVolume, durationSecs);
                 workoutState.logJournalEntry({
                   id: entryId,
                   date: Date.now(),
@@ -1774,12 +1763,6 @@ export default function WorkoutScreen() {
                       );
 
                       if (allDone) {
-                        const allExerciseData: { name: string; mode?: 'reps' | 'hold'; sets: { reps: number; weight: number; hold: number }[] }[] = [];
-                        for (let si = 0; si < workout.sessions.length; si++) {
-                          const cached = exerciseCache[`${selectedDayIndex}-${si}`];
-                          if (cached) allExerciseData.push(...cached.map(e => ({ name: e.name, mode: e.mode, sets: e.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })) })));
-                        }
-                        workoutState.saveHistory(allExerciseData);
                         Object.keys(exerciseCache).forEach(key => { if (!key.startsWith(`${selectedDayIndex}-`)) delete exerciseCache[key]; });
                         const allCached: Exercise[] = [];
                         for (let si = 0; si < workout.sessions.length; si++) {
@@ -1793,7 +1776,6 @@ export default function WorkoutScreen() {
                         const durationSecs = Math.max(0, Math.floor((endTime2.getTime() - startTime2.getTime()) / 1000));
                         const entryId2 = String(Date.now());
                         setLastEntryId(entryId2);
-                        workoutState.logWorkout(totalVolume, durationSecs);
                         workoutState.logJournalEntry({
                           id: entryId2,
                           date: Date.now(),

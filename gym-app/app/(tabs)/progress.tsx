@@ -166,7 +166,7 @@ function VolumeChart({ accentColor, data }: { accentColor: string; data: { day: 
   );
 }
 
-function LineChart({ data, accentColor }: { data: { date: string; weight: number }[]; accentColor: string }) {
+function LineChart({ data, accentColor, yUnit = 'kg' }: { data: { date: string; weight: number }[]; accentColor: string; yUnit?: string }) {
   const { isDark, colors } = useTheme();
   const [chartWidth, setChartWidth] = useState(0);
   const weights = data.map(d => d.weight);
@@ -175,7 +175,7 @@ function LineChart({ data, accentColor }: { data: { date: string; weight: number
   const range = maxW - minW || 1;
   const CHART_HEIGHT = 100;
   const PAD_Y = 12;
-  const Y_AXIS_W = 40;
+  const Y_AXIS_W = 44;
 
   const points = data.map((d, i) => {
     const count = data.length;
@@ -189,8 +189,8 @@ function LineChart({ data, accentColor }: { data: { date: string; weight: number
       <View style={{ flexDirection: 'row', height: CHART_HEIGHT }}>
         {/* Y-axis labels */}
         <View style={{ width: Y_AXIS_W, justifyContent: 'space-between', paddingVertical: PAD_Y - 5 }}>
-          <Text style={[styles.yAxisText, { color: colors.tertiaryText, textAlign: 'right' }]}>{maxW}kg</Text>
-          <Text style={[styles.yAxisText, { color: colors.tertiaryText, textAlign: 'right' }]}>{minW}kg</Text>
+          <Text style={[styles.yAxisText, { color: colors.tertiaryText, textAlign: 'right' }]}>{maxW}{yUnit}</Text>
+          <Text style={[styles.yAxisText, { color: colors.tertiaryText, textAlign: 'right' }]}>{minW}{yUnit}</Text>
         </View>
         {/* Chart area */}
         <View
@@ -254,6 +254,7 @@ export default function ProgressScreen() {
   const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold });
   const { programs, activeId } = useProgramStore();
   const { isDark, colors } = useTheme();
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const ALL_ACCENT = '#94A3B8';
   const [selectedProgramId, setSelectedProgramId] = useState<string | null>(activeId ?? null);
@@ -294,6 +295,7 @@ export default function ProgressScreen() {
 
   useFocusEffect(useCallback(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
+    setRefreshKey(k => k + 1);
   }, []));
 
   // When switching programs, reset selected exercise and expand first day
@@ -309,7 +311,7 @@ export default function ProgressScreen() {
 
   // Build dynamic volume chart data & summary stats from workout log
   const workoutLog = workoutState.getWorkoutLog();
-  const periodData = useMemo(() => buildPeriodData(workoutLog), [workoutLog.length]);
+  const periodData = useMemo(() => buildPeriodData(workoutLog), [workoutLog.length, refreshKey]);
   const summaryStats = useMemo(() => {
     const total = workoutLog.length;
     const totalVol = workoutLog.reduce((s, e) => s + e.volume, 0);
@@ -319,16 +321,19 @@ export default function ProgressScreen() {
       volume: formatVolume(totalVol),
       avgDuration: formatDuration(avgDur),
     };
-  }, [workoutLog.length]);
+  }, [workoutLog.length, refreshKey]);
 
   if (!fontsLoaded) return <View style={{ flex: 1, backgroundColor: isDark ? colors.gradientStart : '#c3ced6' }} />;
 
+  const [exerciseMetric, setExerciseMetric] = useState<'heaviest' | 'setVolume'>('heaviest');
   const rawHistory = workoutState.getHistory(selectedExercise);
   const exerciseData = rawHistory.map((entry) => ({
     date: formatHistoryDate(entry.date),
-    weight: entry.weight,
+    weight: exerciseMetric === 'heaviest' ? entry.weight : entry.bestSetVolume,
   }));
-  const exercisePR = rawHistory.length > 0 ? Math.max(...rawHistory.map(e => e.weight)) : undefined;
+  const exercisePR = rawHistory.length > 0
+    ? Math.max(...rawHistory.map(e => exerciseMetric === 'heaviest' ? e.weight : e.bestSetVolume))
+    : undefined;
   const exerciseColor = trainingDays.find(d => d.exercises.includes(selectedExercise))?.color || accentColor;
 
   return (
@@ -481,18 +486,49 @@ export default function ProgressScreen() {
         <View style={[styles.glassCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <Text style={[styles.cardLabel, { color: colors.secondaryText }]}>WEIGHT PROGRESSION</Text>
-            {exercisePR !== undefined && (
+            {exercisePR !== undefined && exercisePR > 0 && (
               <View style={[styles.prBadge, { backgroundColor: `${exerciseColor}25`, borderColor: `${exerciseColor}4D` }]}>
                 <Ionicons name="trophy" size={12} color={exerciseColor} />
-                <Text style={[styles.prBadgeText, { color: colors.primaryText }]}>PR: {exercisePR}kg</Text>
+                <Text style={[styles.prBadgeText, { color: colors.primaryText }]}>
+                  {exerciseMetric === 'heaviest' ? `PR: ${exercisePR}kg` : `Best: ${exercisePR}`}
+                </Text>
               </View>
             )}
           </View>
           {exerciseData.length > 0 ? (
-            <LineChart data={exerciseData} accentColor={exerciseColor} />
+            <LineChart
+              data={exerciseData}
+              accentColor={exerciseColor}
+              yUnit={exerciseMetric === 'heaviest' ? 'kg' : ''}
+            />
           ) : (
             <Text style={[styles.emptyText, { color: colors.secondaryText }]}>No data for this exercise yet</Text>
           )}
+          {/* Metric toggle */}
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+            {([
+              { key: 'heaviest', label: 'Heaviest Weight' },
+              { key: 'setVolume', label: 'Best Set Volume' },
+            ] as const).map(opt => {
+              const isActive = exerciseMetric === opt.key;
+              return (
+                <TouchableOpacity
+                  key={opt.key}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setExerciseMetric(opt.key); }}
+                  style={[
+                    styles.periodPill,
+                    { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder },
+                    isActive && { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor },
+                  ]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.periodPillText, { color: colors.secondaryText }, isActive && { color: colors.primaryText }]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
       </ScrollView>

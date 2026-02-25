@@ -31,8 +31,8 @@ const _prevData: Record<string, PrevEntry> = {};
 const _prevDataBackup: Record<string, PrevEntry | undefined> = {};
 
 // Exercise weight history — accumulates over time for the progress chart
-// Key = exercise name, value = array of { date (timestamp), weight (max across sets) }
-export type ExerciseHistoryEntry = { date: number; weight: number };
+// Key = exercise name, value = array of { date (timestamp), weight (heaviest set), bestSetVolume (best reps×weight) }
+export type ExerciseHistoryEntry = { date: number; weight: number; bestSetVolume: number };
 const _exerciseHistory: Record<string, ExerciseHistoryEntry[]> = {};
 
 // Workout log — one entry per completed workout for volume/stats tracking
@@ -279,7 +279,39 @@ export const workoutState = {
     _persistHistory();
   },
   getHistory(exerciseName: string): ExerciseHistoryEntry[] {
-    return _exerciseHistory[exerciseName] || [];
+    // Derive both metrics from the journal log (authoritative, persisted source)
+    const byDay = new Map<string, ExerciseHistoryEntry>();
+    for (const entry of _journalLog) {
+      for (const session of entry.sessions) {
+        const ex = session.exercises.find(e => e.name === exerciseName);
+        if (!ex) continue;
+        const validSets = ex.sets.filter(s => (s.weight ?? 0) > 0);
+        if (validSets.length === 0) continue;
+        const maxWeight = Math.max(...validSets.map(s => s.weight ?? 0));
+        const bestSetVol = Math.max(...validSets.map(s =>
+          ex.mode === 'hold'
+            ? (s.hold ?? 0) * (s.weight ?? 0)
+            : (s.reps ?? 0) * (s.weight ?? 0)
+        ));
+        const day = new Date(entry.date).toDateString();
+        const existing = byDay.get(day);
+        if (!existing) {
+          byDay.set(day, { date: entry.date, weight: maxWeight, bestSetVolume: bestSetVol });
+        } else {
+          byDay.set(day, {
+            date: entry.date,
+            weight: Math.max(existing.weight, maxWeight),
+            bestSetVolume: Math.max(existing.bestSetVolume, bestSetVol),
+          });
+        }
+      }
+    }
+    // Fall back to stored history for any days not covered by the journal (legacy data)
+    for (const e of (_exerciseHistory[exerciseName] || [])) {
+      const day = new Date(e.date).toDateString();
+      if (!byDay.has(day)) byDay.set(day, { ...e, bestSetVolume: e.bestSetVolume ?? 0 });
+    }
+    return Array.from(byDay.values()).sort((a, b) => a.date - b.date);
   },
 
   // Workout log — records each completed workout with volume & duration
@@ -287,13 +319,17 @@ export const workoutState = {
     _workoutLog.push({ date: Date.now(), volume, durationSecs });
   },
   getWorkoutLog(): WorkoutLogEntry[] {
-    return _workoutLog;
+    // Derive from the persisted journal log so stats survive app restarts
+    // and include workouts logged manually via the journal
+    return [..._journalLog]
+      .sort((a, b) => a.date - b.date)
+      .map(e => ({ date: e.date, volume: e.totalVolume, durationSecs: e.durationSecs }));
   },
 
   // Journal — full detail log per completed workout
   logJournalEntry(entry: WorkoutJournalEntry) {
     _journalLog.push(entry);
-    // Update prev data for each session — this handles both today's and past workouts
+    // Update prev data and exercise history for each session
     for (const session of entry.sessions) {
       const exercises = session.exercises.map(e => ({
         name: e.name,
@@ -301,26 +337,59 @@ export const workoutState = {
         sets: e.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })),
       }));
       _savePrevInternal(session.label, exercises, entry.date);
+      // Record max weight and best set volume per exercise in history
+      for (const ex of exercises) {
+        const maxWeight = Math.max(...ex.sets.map(s => s.weight), 0);
+        if (maxWeight <= 0) continue;
+        const bestSetVolume = Math.max(...ex.sets.map(s =>
+          ex.mode === 'hold' ? (s.hold ?? 0) * s.weight : s.reps * s.weight
+        ), 0);
+        if (!_exerciseHistory[ex.name]) _exerciseHistory[ex.name] = [];
+        _exerciseHistory[ex.name].push({ date: entry.date, weight: maxWeight, bestSetVolume });
+      }
     }
+    _persistHistory();
     _persistPrev();
     _notifyPrevChanged();
     _persistJournal();
   },
   updateJournalEntry(entry: WorkoutJournalEntry) {
+    // Recalculate totalVolume from actual set data
+    const totalVolume = entry.sessions.reduce((sum, session) =>
+      sum + session.exercises.reduce((eSum, ex) =>
+        eSum + ex.sets.reduce((sSum, set) => {
+          if (ex.mode === 'hold') return sSum + ((set.hold ?? 0) * (set.weight ?? 0)) / 30;
+          return sSum + (set.reps * (set.weight ?? 0));
+        }, 0), 0), 0);
+    const updatedEntry = { ...entry, totalVolume };
     const idx = _journalLog.findIndex(e => e.id === entry.id);
-    if (idx >= 0) _journalLog[idx] = entry;
-    // Update prev data if this is the most recent entry for each session
-    for (const session of entry.sessions) {
+    if (idx >= 0) _journalLog[idx] = updatedEntry;
+    // Update prev data and exercise history for each session
+    const entryDateStr = new Date(entry.date).toDateString();
+    for (const session of updatedEntry.sessions) {
       const exercises = session.exercises.map(e => ({
         name: e.name,
         mode: e.mode,
         sets: e.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })),
       }));
       _savePrevInternal(session.label, exercises, entry.date);
+      // Replace history entries for this date with updated max weights
+      for (const ex of exercises) {
+        const maxWeight = Math.max(...ex.sets.map(s => s.weight), 0);
+        const bestSetVolume = Math.max(...ex.sets.map(s =>
+          ex.mode === 'hold' ? (s.hold ?? 0) * s.weight : s.reps * s.weight
+        ), 0);
+        if (!_exerciseHistory[ex.name]) _exerciseHistory[ex.name] = [];
+        _exerciseHistory[ex.name] = _exerciseHistory[ex.name].filter(
+          e => new Date(e.date).toDateString() !== entryDateStr
+        );
+        if (maxWeight > 0) _exerciseHistory[ex.name].push({ date: entry.date, weight: maxWeight, bestSetVolume });
+      }
     }
+    _persistHistory();
     _persistPrev();
     _notifyPrevChanged();
-    _notifyJournalUpdate(entry);
+    _notifyJournalUpdate(updatedEntry);
     _persistJournal();
   },
   getJournalLog(): WorkoutJournalEntry[] {
