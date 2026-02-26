@@ -19,6 +19,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { useProgramStore, PROGRAM_COLORS, type Exercise, type SplitDay } from '../programStore';
 import { useTheme } from '../themeStore';
+import { ExercisePicker } from '../components/ExercisePicker';
 
 function BounceButton({ style, children, onPress, ...rest }: any) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -61,8 +62,23 @@ export default function CreateProgramScreen() {
   const [programName, setProgramName] = useState(editingProgram?.name || '');
   const [selectedColor, setSelectedColor] = useState(editingProgram?.color || PROGRAM_COLORS[0]);
   const [splitDays, setSplitDays] = useState<SplitDay[]>(editingProgram?.splitDays || []);
+  const [pickerTarget, setPickerTarget] = useState<{ dayIndex: number; sessionIndex: number } | null>(null);
 
   if (!fontsLoaded) return null;
+
+  const handleExerciseSelected = (name: string) => {
+    if (!pickerTarget) return;
+    const { dayIndex, sessionIndex } = pickerTarget;
+    setSplitDays(prev => {
+      const next = JSON.parse(JSON.stringify(prev)) as SplitDay[];
+      const day = next[dayIndex];
+      if (day.type === 'training') {
+        day.sessions[sessionIndex].exercises.push({ name, sets: 3 });
+      }
+      return next;
+    });
+    setPickerTarget(null);
+  };
 
   const addTrainingDay = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -92,18 +108,9 @@ export default function CreateProgramScreen() {
     });
   };
 
-  const addExerciseToSession = (dayIndex: number, sessionIndex: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setSplitDays(prev => {
-      const next = [...prev];
-      const day = next[dayIndex];
-      if (day.type === 'training') {
-        const sessions = [...day.sessions];
-        sessions[sessionIndex] = { ...sessions[sessionIndex], exercises: [...sessions[sessionIndex].exercises, { name: '', sets: 3 }] };
-        next[dayIndex] = { ...day, sessions };
-      }
-      return next;
-    });
+  const addExerciseToSession = (_dayIndex: number, _sessionIndex: number) => {
+    // Replaced by ExercisePicker
+  };
   };
 
   const updateExercise = (dayIndex: number, sessionIndex: number, exIndex: number, field: 'name' | 'sets' | 'warmupSets', value: string | number) => {
@@ -358,7 +365,7 @@ export default function CreateProgramScreen() {
                       )}
                     </View>
                   ))}
-                  <BounceButton style={[styles.addExerciseBtn, { borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(90, 108, 125, 0.35)' }]} onPress={() => addExerciseToSession(i, si)}>
+                  <BounceButton style={[styles.addExerciseBtn, { borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(90, 108, 125, 0.35)' }]} onPress={() => setPickerTarget({ dayIndex: i, sessionIndex: si })}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Ionicons name="add" size={20} color={colors.secondaryText} />
                       <Text style={[styles.addExerciseText, { color: colors.secondaryText }]}>Add Exercise</Text>
@@ -422,6 +429,12 @@ export default function CreateProgramScreen() {
           </View>
         </BounceButton>
       </ScrollView>
+
+      <ExercisePicker
+        visible={!!pickerTarget}
+        onDismiss={() => setPickerTarget(null)}
+        onSelect={handleExerciseSelected}
+      />
 
       {/* Floating back button — rendered after ScrollView so it sits on top */}
       <TouchableOpacity
