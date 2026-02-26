@@ -19,6 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { workoutState } from '../../workoutState';
 import { useProgramStore, getDayLabel, getDayExerciseCount, isMultiSession } from '../../programStore';
 import { useTheme } from '../../themeStore';
+import { useUnits } from '../../unitsStore';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { Nunito_700Bold } from '@expo-google-fonts/nunito';
 
@@ -250,6 +251,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const { programs, activeId } = useProgramStore();
   const { isDark, colors } = useTheme();
+  const { unit } = useUnits();
   const activeProgram = programs.find(p => p.id === activeId);
   const accentColor = activeProgram?.color || '#47DDFF';
   const todayDayIndex = 0; // today is always index 0 in the calendar
@@ -355,8 +357,8 @@ export default function HomeScreen() {
   // Expand badge and collapse after 2 s — only once per app session
   useFocusEffect(useCallback(() => {
     if (_streakAnimPlayed) return;
-    _streakAnimPlayed = true;
     const t = setTimeout(() => {
+      _streakAnimPlayed = true;
       Animated.timing(streakExpanded, {
         toValue: 0,
         duration: 550,
@@ -505,7 +507,7 @@ export default function HomeScreen() {
         <View style={styles.statsRow}>
           {[
             { value: weeklyPlanCount !== null ? `${weeklyStats.workouts}/${weeklyPlanCount}` : weeklyStats.workouts > 0 ? String(weeklyStats.workouts) : '—', label: 'Workouts', icon: 'barbell-outline' as const },
-            { value: fmtVolume(weeklyStats.volume), label: 'Volume (kg)', icon: 'trending-up-outline' as const },
+            { value: fmtVolume(weeklyStats.volume), label: `Volume (${unit})`, icon: 'trending-up-outline' as const },
             { value: fmtAvgDuration(weeklyStats.avgDuration), label: 'Avg Duration', icon: 'timer-outline' as const },
           ].map((stat, i) => (
             <View key={i} style={[styles.statCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
@@ -553,13 +555,14 @@ export default function HomeScreen() {
               ) : (
                 recentEntries.map((entry) => {
                   const exCount = entry.sessions.reduce((sum, s) => sum + s.exercises.length, 0);
+                  const entryColor = programs.find(p => p.id === entry.programId)?.color ?? programs.find(p => p.name === entry.programName)?.color ?? entry.programColor;
                   return (
                     <BounceButton
                       key={entry.id}
                       style={[styles.activityCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
                       onPress={() => router.push({ pathname: '/journal', params: { entryId: entry.id } })}
                     >
-                      <View style={[styles.activityAccentBar, { backgroundColor: entry.programColor }]} />
+                      <View style={[styles.activityAccentBar, { backgroundColor: entryColor }]} />
                       <View style={styles.activityLeft}>
                         <Text style={[styles.activityDay, { color: colors.secondaryText }]}>{formatRelDay(entry.date)}</Text>
                         <Text style={[styles.activityName, { color: colors.primaryText }]} numberOfLines={1}>

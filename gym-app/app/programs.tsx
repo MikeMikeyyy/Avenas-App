@@ -126,14 +126,26 @@ export default function ProgramsScreen() {
                   );
                 })}
               </View>
-              <TouchableOpacity
-                style={[styles.restartRow, { borderTopColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(90, 108, 125, 0.15)' }]}
-                onPress={handleRestartCycle}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="refresh-outline" size={15} color={colors.secondaryText} />
-                <Text style={[styles.restartRowText, { color: colors.secondaryText }]}>Restart from Day 1</Text>
-              </TouchableOpacity>
+              <View style={[styles.actionsRow, { borderTopColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(90, 108, 125, 0.15)' }]}>
+                <BounceButton
+                  style={[styles.actionBtnActive, { backgroundColor: 'rgba(0, 235, 172, 0.2)', borderColor: isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.25)' }]}
+                  onPress={handleRestartCycle}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="refresh-outline" size={18} color={colors.primaryText} />
+                    <Text style={[styles.actionBtnActiveText, { color: colors.primaryText }]}>Restart Cycle</Text>
+                  </View>
+                </BounceButton>
+                <BounceButton
+                  style={[styles.actionBtnEdit, { backgroundColor: 'rgba(71, 221, 255, 0.12)', borderColor: isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.25)' }]}
+                  onPress={() => handleEdit(activeProgram.id)}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="create-outline" size={18} color={colors.primaryText} />
+                    <Text style={[styles.actionBtnEditText, { color: colors.primaryText }]}>Edit</Text>
+                  </View>
+                </BounceButton>
+              </View>
             </View>
           </>
         )}
@@ -446,18 +458,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: 'Arimo_700Bold',
     color: '#e74c3c',
-  },
-  restartRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 14,
-    paddingTop: 12,
-    borderTopWidth: 1,
-  },
-  restartRowText: {
-    fontSize: 13,
-    fontFamily: 'Arimo_400Regular',
   },
   createButton: {
     backgroundColor: '#47DDFF',

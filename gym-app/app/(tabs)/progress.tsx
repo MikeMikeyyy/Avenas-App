@@ -18,6 +18,7 @@ import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/ar
 import Svg, { Line as SvgLine, Circle as SvgCircle, Defs as SvgDefs, LinearGradient as SvgLinearGradient, Stop as SvgStop } from 'react-native-svg';
 import { useProgramStore } from '../../programStore';
 import { useTheme } from '../../themeStore';
+import { useUnits } from '../../unitsStore';
 import { workoutState } from '../../workoutState';
 
 type PeriodKey = 'week' | 'lastWeek' | 'month' | 'allTime';
@@ -289,15 +290,20 @@ function LineChart({ data, accentColor, yUnit = 'kg', onPanActive }: { data: { d
   containerWidthRef.current = containerWidth;
   fullHRef.current = fullH;
 
-  // Pan to the rightmost (most recent) point once dimensions are known
+  // Centre the most recent point in the viewport once dimensions are known
   useEffect(() => {
-    if (svgWidth > containerWidth && containerWidth > 0) {
-      const maxScrollX = svgWidth - containerWidth;
-      baseX.current = -maxScrollX;
-      translateX.setValue(-maxScrollX);
-      xLabelScrollRef.current?.scrollTo({ x: maxScrollX, animated: false });
-    }
-  }, [svgWidth, containerWidth]);
+    if (containerWidth <= 0 || points.length === 0) return;
+    const lastPoint = points[points.length - 1];
+    const maxScrollX = Math.max(0, svgWidth - containerWidth);
+    const maxScrollY = Math.max(0, fullH - CHART_HEIGHT);
+    const targetX = Math.max(-maxScrollX, Math.min(0, containerWidth / 2 - lastPoint.x));
+    const targetY = Math.max(-maxScrollY, Math.min(0, CHART_HEIGHT / 2 - lastPoint.y));
+    baseX.current = targetX;
+    baseY.current = targetY;
+    translateX.setValue(targetX);
+    translateY.setValue(targetY);
+    xLabelScrollRef.current?.scrollTo({ x: -targetX, animated: false });
+  }, [svgWidth, containerWidth, fullH]);
 
   // Keep x-axis date labels in sync with horizontal pan
   useEffect(() => {
@@ -474,6 +480,7 @@ export default function ProgressScreen() {
   const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold });
   const { programs, activeId } = useProgramStore();
   const { isDark, colors } = useTheme();
+  const { unit, toDisplay } = useUnits();
   const [refreshKey, setRefreshKey] = useState(0);
   const [chartPanning, setChartPanning] = useState(false);
 
@@ -565,11 +572,11 @@ export default function ProgressScreen() {
   const rawHistory = workoutState.getHistory(selectedExercise, filterProgram).filter(e => e.date >= THREE_MONTHS_AGO);
   const exerciseData = rawHistory.map((entry) => ({
     date: formatHistoryDate(entry.date),
-    weight: exerciseMetric === 'heaviest' ? entry.weight : entry.bestSetVolume,
-    color: entry.programColor,
+    weight: toDisplay(exerciseMetric === 'heaviest' ? entry.weight : entry.bestSetVolume),
+    color: programs.find(p => p.id === entry.programId)?.color ?? programs.find(p => p.name === entry.programName)?.color ?? entry.programColor,
   }));
   const exercisePR = rawHistory.length > 0
-    ? Math.max(...rawHistory.map(e => exerciseMetric === 'heaviest' ? e.weight : e.bestSetVolume))
+    ? toDisplay(Math.max(...rawHistory.map(e => exerciseMetric === 'heaviest' ? e.weight : e.bestSetVolume)))
     : undefined;
   const exerciseColor = trainingDays.find(d => d.exercises.includes(selectedExercise))?.color || accentColor;
 
@@ -633,7 +640,7 @@ export default function ProgressScreen() {
         <View style={styles.statsRow}>
           {[
             { value: summaryStats.workouts, label: 'Total Workouts', icon: 'barbell-outline' as const },
-            { value: summaryStats.volume, label: 'Volume (kg)', icon: 'trending-up-outline' as const },
+            { value: summaryStats.volume, label: `Volume (${unit})`, icon: 'trending-up-outline' as const },
             { value: summaryStats.avgDuration, label: 'Avg Duration', icon: 'timer-outline' as const },
           ].map((stat, i) => (
             <View key={i} style={[styles.statCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
@@ -741,16 +748,17 @@ export default function ProgressScreen() {
               <View style={[styles.prBadge, { backgroundColor: `${exerciseColor}25`, borderColor: `${exerciseColor}4D` }]}>
                 <Ionicons name="trophy" size={12} color={exerciseColor} />
                 <Text style={[styles.prBadgeText, { color: colors.primaryText }]}>
-                  {exerciseMetric === 'heaviest' ? `PR: ${exercisePR}kg` : `Best: ${exercisePR}kg`}
+                  {(() => { const v = exercisePR!; const r = Math.round(v * 10) / 10; const s = `${r % 1 === 0 ? Math.round(r) : r.toFixed(1)}${unit}`; return exerciseMetric === 'heaviest' ? `PR: ${s}` : `Best: ${s}`; })()}
                 </Text>
               </View>
             )}
           </View>
           {exerciseData.length > 0 ? (
             <LineChart
+              key={exerciseMetric}
               data={exerciseData}
               accentColor={exerciseColor}
-              yUnit="kg"
+              yUnit={unit}
               onPanActive={setChartPanning}
             />
           ) : (

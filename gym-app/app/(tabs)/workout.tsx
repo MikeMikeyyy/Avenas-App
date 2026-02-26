@@ -27,6 +27,7 @@ import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/ar
 import { workoutState } from '../../workoutState';
 import { useProgramStore, getDayLabel, getDayExerciseCount } from '../../programStore';
 import { useTheme } from '../../themeStore';
+import { useUnits } from '../../unitsStore';
 import { BottomSheetModal } from '../../components/BottomSheetModal';
 import { FadeBackdrop } from '../../components/FadeBackdrop';
 
@@ -218,7 +219,13 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
   const [showNotes, setShowNotes] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const { isDark, colors } = useTheme();
+  const { unit, toDisplay, toKg } = useUnits();
   const isHold = mode === 'hold';
+  const fmtW = (kg: number) => {
+    const v = toDisplay(kg);
+    const r = Math.round(v * 10) / 10;
+    return r % 1 === 0 ? String(Math.round(r)) : r.toFixed(1);
+  };
   return (
     <View style={[styles.exerciseCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
       <View style={styles.exerciseHeader}>
@@ -245,7 +252,7 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
         <View style={styles.prevCol}><Text style={[styles.prevColHeader, { color: colors.tertiaryText }]}>PREV</Text></View>
         <View style={styles.inputHeaderCol}><Text style={[styles.setHeaderText, { color: colors.secondaryText }]}>{isHold ? 'HOLD' : 'REPS'}</Text></View>
         <View style={styles.prevCol}><Text style={[styles.prevColHeader, { color: colors.tertiaryText }]}>PREV</Text></View>
-        <View style={styles.inputHeaderCol}><Text style={[styles.setHeaderText, { color: colors.secondaryText }]}>WEIGHT</Text></View>
+        <View style={styles.inputHeaderCol}><Text style={[styles.setHeaderText, { color: colors.secondaryText, letterSpacing: 0 }]} numberOfLines={1}>WEIGHT ({unit.toUpperCase()})</Text></View>
         <View style={styles.checkCol} />
       </View>
 
@@ -296,7 +303,7 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
               </View>
             </View>
             <View style={styles.prevCol}>
-              <Text style={[styles.prevValue, { color: colors.tertiaryText }]}>{s.prevWeight ?? '—'}</Text>
+              <Text style={[styles.prevValue, { color: colors.tertiaryText }]}>{s.prevWeight != null ? fmtW(s.prevWeight) : '—'}</Text>
             </View>
             <View style={styles.inputCell}>
               <View style={[styles.inputBox, { backgroundColor: isDark ? colors.inputBg : '#FFFFFF', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)' }]}>
@@ -306,10 +313,16 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
                   keyboardType="decimal-pad"
                   returnKeyType="done"
                   onSubmitEditing={Keyboard.dismiss}
-                  defaultValue={s.weight != null ? String(s.weight) : ''}
+                  defaultValue={s.weight != null ? fmtW(s.weight) : ''}
                   placeholder="—"
                   placeholderTextColor={colors.tertiaryText}
-                  onChangeText={(v) => onUpdateSet(si, 'weight', v)}
+                  onChangeText={(v) => {
+                    if (unit === 'lbs' && v !== '') {
+                      const n = parseFloat(v);
+                      if (!isNaN(n)) { onUpdateSet(si, 'weight', String(toKg(n))); return; }
+                    }
+                    onUpdateSet(si, 'weight', v);
+                  }}
                   caretHidden={false}
                   selectTextOnFocus
                   editable={!readOnly}
@@ -520,6 +533,7 @@ export default function WorkoutScreen() {
   const [showSwapOverlay, setShowSwapOverlay] = useState(false);
   const [showMakeTodayPrompt, setShowMakeTodayPrompt] = useState(false);
   const promptedDays = useRef<Set<number>>(new Set());
+  const pendingFillAction = useRef<(() => void) | null>(null);
   // Stores final workout duration per day after finishing
   const [finishedDurations, setFinishedDurations] = useState<Record<number, number>>({});
   // When today's workout was completed under a now-inactive program, lock day 0 to that program's data
@@ -527,7 +541,12 @@ export default function WorkoutScreen() {
   const [lockedToday, setLockedToday] = useState<LockedToday | null>(null);
   // Accent color: locked program's color for day 0 when locked, otherwise active program's color
   const isViewingLockedToday = !!(lockedToday && lockedToday.programId !== activeId && selectedDayIndex === 0 && !isViewingPast);
-  const accentColor = isViewingLockedToday ? lockedToday!.programColor : (activeProgram?.color ?? '#47DDFF');
+  const accentColor = isViewingLockedToday
+    ? (programs.find(p => p.id === lockedToday!.programId)?.color ?? lockedToday!.programColor)
+    : (activeProgram?.color ?? '#47DDFF');
+  // Helper: resolve current program color for a journal entry (handles color changes after logging)
+  const resolveEntryColor = (entry: { programId?: string; programName?: string; programColor: string }) =>
+    programs.find(p => p.id === entry.programId)?.color ?? programs.find(p => p.name === entry.programName)?.color ?? entry.programColor;
 
   // Cycle offset: which day of the program cycle is "today" (0 = first day, 1 = second, etc.)
   const [cycleOffset, setCycleOffset] = useState(0);
@@ -574,13 +593,15 @@ export default function WorkoutScreen() {
     setWorkoutStartTime(prev => prev ?? new Date());
   };
 
-  const maybePromptMakeToday = (fallback: () => void) => {
+  const maybePromptMakeToday = (timerAction: () => void, fillAction?: () => void) => {
     // If today is locked to a completed workout under a different program, don't offer
     // to reassign a future day as today — today is already taken.
     if (!isLocked && !isViewingPast && calendarIndex !== todayIndex && !promptedDays.current.has(selectedDayIndex)) {
+      pendingFillAction.current = fillAction ?? null;
       setShowMakeTodayPrompt(true);
     } else {
-      fallback();
+      fillAction?.();
+      timerAction();
     }
   };
 
@@ -637,10 +658,10 @@ export default function WorkoutScreen() {
     const map: Record<string, string> = {};
     for (const entry of workoutState.getJournalLog()) {
       const ds = new Date(entry.date).toDateString();
-      if (!map[ds]) map[ds] = entry.programColor;
+      if (!map[ds]) map[ds] = programs.find(p => p.id === entry.programId)?.color ?? programs.find(p => p.name === entry.programName)?.color ?? entry.programColor;
     }
     return map;
-  }, [prevVersion]);
+  }, [prevVersion, programs]);
 
   // Timer state (per-day)
   const [elapsed, setElapsed] = useState(0);
@@ -1064,7 +1085,7 @@ export default function WorkoutScreen() {
             <>
               {/* View in Journal button — top */}
               <BounceButton
-                style={[styles.pastDayBtn, { backgroundColor: `${pastEntryForDate.programColor}18`, borderColor: pastEntryForDate.programColor, marginBottom: 10 }]}
+                style={[styles.pastDayBtn, { backgroundColor: `${resolveEntryColor(pastEntryForDate)}18`, borderColor: resolveEntryColor(pastEntryForDate), marginBottom: 10 }]}
                 onPress={() => router.push(`/journal?entryId=${pastEntryForDate.id}`)}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
@@ -1075,23 +1096,18 @@ export default function WorkoutScreen() {
 
               {/* Duration / volume row */}
               <View style={[styles.timerRow, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}>
-                <Ionicons name="checkmark-circle" size={18} color={pastEntryForDate.programColor} />
-                <Text style={[styles.timerStartText, { color: pastEntryForDate.programColor }]}>Workout Complete</Text>
+                <Ionicons name="checkmark-circle" size={18} color={resolveEntryColor(pastEntryForDate)} />
+                <Text style={[styles.timerStartText, { color: resolveEntryColor(pastEntryForDate) }]}>Workout Complete</Text>
                 {pastEntryForDate.durationSecs > 0 && (
                   <Text style={[styles.timerText, { color: colors.primaryText }]}>
                     {(() => { const s = pastEntryForDate.durationSecs; const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = s % 60; return h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` : `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`; })()}
-                  </Text>
-                )}
-                {pastEntryForDate.totalVolume > 0 && (
-                  <Text style={[styles.timerStartText, { color: colors.tertiaryText }]}>
-                    {Math.round(pastEntryForDate.totalVolume)} kg vol
                   </Text>
                 )}
               </View>
 
               {/* Program badge */}
               <View style={styles.programRow}>
-                <View style={[styles.programBadge, { backgroundColor: `${pastEntryForDate.programColor}25`, borderColor: `${pastEntryForDate.programColor}4D` }]}>
+                <View style={[styles.programBadge, { backgroundColor: `${resolveEntryColor(pastEntryForDate)}25`, borderColor: `${resolveEntryColor(pastEntryForDate)}4D` }]}>
                   <Text style={[styles.programBadgeText, { color: colors.primaryText }]}>{pastEntryForDate.programName}</Text>
                 </View>
               </View>
@@ -1108,7 +1124,7 @@ export default function WorkoutScreen() {
                         style={[
                           styles.sessionTab,
                           { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder },
-                          isActive && { backgroundColor: `${pastEntryForDate.programColor}15`, borderColor: pastEntryForDate.programColor },
+                          isActive && { backgroundColor: `${resolveEntryColor(pastEntryForDate)}15`, borderColor: resolveEntryColor(pastEntryForDate) },
                         ]}
                         activeOpacity={0.7}
                       >
@@ -1137,7 +1153,7 @@ export default function WorkoutScreen() {
                       exercise={exData}
                       index={i}
                       mode={ex.mode}
-                      accentColor={pastEntryForDate.programColor}
+                      accentColor={resolveEntryColor(pastEntryForDate)}
                       readOnly={true}
                       isFirst={i === 0}
                       isLast={i === session.exercises.length - 1}
@@ -1585,7 +1601,7 @@ export default function WorkoutScreen() {
                   });
                 }}
                 onFillPrev={(setIndex) => {
-                  updateExercises(prev => prev.map((ex, ei) => {
+                  const doFill = () => updateExercises(prev => prev.map((ex, ei) => {
                     if (ei !== i) return ex;
                     return {
                       ...ex,
@@ -1606,9 +1622,11 @@ export default function WorkoutScreen() {
                   if (!workoutState.getTimerStartedAt(selectedDayIndex) && workoutState.getTimerPausedElapsed(selectedDayIndex) === 0) {
                     const otherDay = workoutState.getActiveDay();
                     if (otherDay === null || otherDay === selectedDayIndex) {
-                      maybePromptMakeToday(() => { workoutState.startTimer(selectedDayIndex); setWorkoutStartTime(prev => prev ?? new Date()); });
+                      maybePromptMakeToday(() => { workoutState.startTimer(selectedDayIndex); setWorkoutStartTime(prev => prev ?? new Date()); }, doFill);
+                      return;
                     }
                   }
+                  doFill();
                 }}
               />
             ))}
@@ -1707,6 +1725,7 @@ export default function WorkoutScreen() {
                   id: entryId,
                   date: Date.now(),
                   programName: workout.program,
+                  programId: isViewingLockedToday ? lockedToday!.programId : activeId,
                   programColor: accentColor,
                   dayLabel: workout.dayLabel,
                   durationSecs,
@@ -1822,6 +1841,7 @@ export default function WorkoutScreen() {
                           id: entryId2,
                           date: Date.now(),
                           programName: workout.program,
+                          programId: isViewingLockedToday ? lockedToday!.programId : activeId,
                           programColor: accentColor,
                           dayLabel: workout.dayLabel,
                           durationSecs,
@@ -2388,7 +2408,7 @@ export default function WorkoutScreen() {
       {/* Make Today's Workout Prompt */}
       {showMakeTodayPrompt && (
         <View style={styles.overlayContainer}>
-          <FadeBackdrop onPress={() => setShowMakeTodayPrompt(false)} color="rgba(0,0,0,0.5)" />
+          <FadeBackdrop onPress={() => { pendingFillAction.current = null; setShowMakeTodayPrompt(false); }} color="rgba(0,0,0,0.5)" />
           <View style={[styles.swapOverlayCard, { backgroundColor: colors.modalBg, marginBottom: 120 }]}>
             <Text style={[styles.swapOverlayTitle, { color: colors.primaryText }]}>Make this today's workout?</Text>
             <Text style={[styles.swapOverlaySubtitle, { color: colors.secondaryText }]}>
@@ -2397,7 +2417,7 @@ export default function WorkoutScreen() {
 
             <TouchableOpacity
               style={[styles.makeTodayPrimaryBtn, { backgroundColor: accentColor }]}
-              onPress={() => { setShowMakeTodayPrompt(false); handleSwapToToday(); }}
+              onPress={() => { setShowMakeTodayPrompt(false); pendingFillAction.current?.(); pendingFillAction.current = null; handleSwapToToday(); }}
               activeOpacity={0.8}
             >
               <Ionicons name="swap-vertical-outline" size={18} color="#fff" />
@@ -2406,15 +2426,15 @@ export default function WorkoutScreen() {
 
             <TouchableOpacity
               style={[styles.makeTodaySecondaryBtn, { borderColor: colors.border }]}
-              onPress={() => { setShowMakeTodayPrompt(false); handleStartCurrentDay(); }}
+              onPress={() => { setShowMakeTodayPrompt(false); pendingFillAction.current?.(); pendingFillAction.current = null; handleStartCurrentDay(); }}
               activeOpacity={0.7}
             >
               <Text style={[styles.makeTodaySecondaryText, { color: colors.primaryText }]}>No, just log it here</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.swapCancelBtn, { backgroundColor: colors.inputBg }]}
-              onPress={() => setShowMakeTodayPrompt(false)}
+              style={[styles.swapCancelBtn, { backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.border }]}
+              onPress={() => { pendingFillAction.current = null; setShowMakeTodayPrompt(false); }}
               activeOpacity={0.7}
             >
               <Text style={[styles.swapCancelText, { color: colors.primaryText }]}>Cancel</Text>

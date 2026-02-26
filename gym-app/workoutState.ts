@@ -32,7 +32,7 @@ const _prevDataBackup: Record<string, PrevEntry | undefined> = {};
 
 // Exercise weight history — accumulates over time for the progress chart
 // Key = exercise name, value = array of { date (timestamp), weight (heaviest set), bestSetVolume (best reps×weight) }
-export type ExerciseHistoryEntry = { date: number; weight: number; bestSetVolume: number; programColor?: string };
+export type ExerciseHistoryEntry = { date: number; weight: number; bestSetVolume: number; programColor?: string; programId?: string; programName?: string };
 const _exerciseHistory: Record<string, ExerciseHistoryEntry[]> = {};
 
 // Workout log — one entry per completed workout for volume/stats tracking
@@ -47,6 +47,7 @@ export type WorkoutJournalEntry = {
   id: string;
   date: number;
   programName: string;
+  programId?: string;
   programColor: string;
   dayLabel: string;
   durationSecs: number;
@@ -299,13 +300,16 @@ export const workoutState = {
         const day = new Date(entry.date).toDateString();
         const existing = byDay.get(day);
         if (!existing) {
-          byDay.set(day, { date: entry.date, weight: maxWeight, bestSetVolume: bestSetVol, programColor: entry.programColor });
+          byDay.set(day, { date: entry.date, weight: maxWeight, bestSetVolume: bestSetVol, programColor: entry.programColor, programId: entry.programId, programName: entry.programName });
         } else {
+          const useNew = maxWeight > existing.weight;
           byDay.set(day, {
             date: entry.date,
             weight: Math.max(existing.weight, maxWeight),
             bestSetVolume: Math.max(existing.bestSetVolume, bestSetVol),
-            programColor: maxWeight > existing.weight ? entry.programColor : existing.programColor,
+            programColor: useNew ? entry.programColor : existing.programColor,
+            programId: useNew ? entry.programId : existing.programId,
+            programName: useNew ? entry.programName : existing.programName,
           });
         }
       }

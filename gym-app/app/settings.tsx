@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { useTheme } from '../themeStore';
+import { useUnits } from '../unitsStore';
 
 function BounceButton({ style, children, onPress, ...rest }: any) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -42,6 +43,7 @@ type SettingsItem = {
   subtitle?: string;
   type: 'navigate' | 'toggle' | 'action';
   color?: string;
+  route?: string;
 };
 
 const ACCOUNT_ITEMS: SettingsItem[] = [
@@ -52,19 +54,19 @@ const ACCOUNT_ITEMS: SettingsItem[] = [
 
 const PREFERENCES_ITEMS: SettingsItem[] = [
   { icon: 'notifications-outline', label: 'Notifications', subtitle: 'Push, reminders', type: 'navigate' },
-  { icon: 'barbell-outline', label: 'Units', subtitle: 'kg / lbs', type: 'navigate' },
   { icon: 'moon-outline', label: 'Dark Mode', type: 'toggle' },
 ];
 
 const SUPPORT_ITEMS: SettingsItem[] = [
-  { icon: 'help-circle-outline', label: 'Help & Support', type: 'navigate' },
-  { icon: 'document-text-outline', label: 'Terms of Service', type: 'navigate' },
-  { icon: 'shield-checkmark-outline', label: 'Privacy Policy', type: 'navigate' },
+  { icon: 'help-circle-outline', label: 'Help & Support', type: 'navigate', route: 'help-support' },
+  { icon: 'document-text-outline', label: 'Terms of Service', type: 'navigate', route: 'terms' },
+  { icon: 'shield-checkmark-outline', label: 'Privacy Policy', type: 'navigate', route: 'privacy' },
 ];
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { isDark, colors, toggleTheme } = useTheme();
+  const { unit, setUnit } = useUnits();
   const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold });
 
   if (!fontsLoaded) return null;
@@ -74,7 +76,10 @@ export default function SettingsScreen() {
       key={index}
       style={[styles.settingsItem, !isLast && { borderBottomWidth: 1, borderBottomColor: colors.border }]}
       activeOpacity={0.6}
-      onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        if (item.route) router.push(item.route as any);
+      }}
     >
       <View style={[styles.settingsItemIcon, { backgroundColor: item.color || (isDark ? 'rgba(71, 221, 255, 0.15)' : 'rgba(71, 221, 255, 0.12)') }]}>
         <Ionicons name={item.icon} size={20} color={item.color ? '#fff' : '#47DDFF'} />
@@ -139,6 +144,33 @@ export default function SettingsScreen() {
         {/* Preferences Section */}
         <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>PREFERENCES</Text>
         <View style={[styles.sectionCard, { backgroundColor: colors.cardSolid }]}>
+          {/* Units row */}
+          <View style={[styles.settingsItem, { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
+            <View style={[styles.settingsItemIcon, { backgroundColor: isDark ? 'rgba(71, 221, 255, 0.15)' : 'rgba(71, 221, 255, 0.12)' }]}>
+              <Ionicons name="barbell-outline" size={20} color="#47DDFF" />
+            </View>
+            <View style={styles.settingsItemContent}>
+              <Text style={[styles.settingsItemLabel, { color: colors.primaryText }]}>Units</Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {(['kg', 'lbs'] as const).map(u => (
+                <TouchableOpacity
+                  key={u}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setUnit(u); }}
+                  style={{
+                    paddingHorizontal: 14,
+                    paddingVertical: 6,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: unit === u ? '#47DDFF' : colors.border,
+                    backgroundColor: unit === u ? 'rgba(71,221,255,0.12)' : 'transparent',
+                  }}
+                >
+                  <Text style={{ fontSize: 13, fontFamily: 'Arimo_700Bold', color: unit === u ? '#47DDFF' : colors.secondaryText }}>{u}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
           {PREFERENCES_ITEMS.map((item, i) => renderSettingsItem(item, i, i === PREFERENCES_ITEMS.length - 1))}
         </View>
 

@@ -22,6 +22,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { workoutState, WorkoutJournalEntry, LoggedSession } from '../workoutState';
 import { useTheme } from '../themeStore';
+import { useUnits } from '../unitsStore';
 import { useProgramStore, getDayLabel, getDayExerciseCount } from '../programStore';
 import type { Program } from '../programStore';
 import { BottomSheetModal } from '../components/BottomSheetModal';
@@ -114,6 +115,11 @@ function JournalDetail({
   isDark: boolean;
   onUpdateEntry: (updated: WorkoutJournalEntry) => void;
 }) {
+  const { programs } = useProgramStore();
+  const { unit, toDisplay, toKg } = useUnits();
+  // Always reflect the current program color, even if it was changed after logging
+  const entryColor = programs.find(p => p.id === entry.programId)?.color ?? programs.find(p => p.name === entry.programName)?.color ?? entry.programColor;
+  const fmtW = (kg: number) => { const v = toDisplay(kg); const r = Math.round(v * 10) / 10; return `${r % 1 === 0 ? Math.round(r) : r.toFixed(1)}`; };
   const totalExercises = countExercises(entry);
   const showSessionLabel = entry.sessions.length > 1;
 
@@ -151,7 +157,7 @@ function JournalDetail({
   const startEdit = (si: number, ei: number, setI: number, set: any, mode: 'reps' | 'hold') => {
     setEditTarget({ si, ei, setI, mode });
     setEditVal1(mode === 'hold' ? (set.hold > 0 ? String(set.hold) : '') : (set.reps > 0 ? String(set.reps) : ''));
-    setEditVal2(set.weight != null ? String(set.weight) : '');
+    setEditVal2(set.weight != null ? fmtW(set.weight) : '');
   };
 
   const commitNotes = (si: number, ei: number) => {
@@ -173,7 +179,7 @@ function JournalDetail({
       s.reps = parseInt(editVal1) || 0;
     }
     const w = editVal2 === '' ? null : parseFloat(editVal2);
-    s.weight = (w === null || isNaN(w)) ? null : w;
+    s.weight = (w === null || isNaN(w)) ? null : toKg(w);
     onUpdateEntry(newEntry);
     setEditTarget(null);
     Keyboard.dismiss();
@@ -194,21 +200,21 @@ function JournalDetail({
       {/* Stats row */}
       <View style={styles.statRow}>
         <TouchableOpacity
-          style={[styles.statPill, { backgroundColor: `${entry.programColor}20`, borderColor: entry.programColor }]}
+          style={[styles.statPill, { backgroundColor: `${entryColor}20`, borderColor: entryColor }]}
           onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); openDurationEdit(); }}
           activeOpacity={0.7}
         >
-          <Ionicons name="time-outline" size={14} color={isDark ? entry.programColor : colors.primaryText} />
-          <Text style={[styles.statPillText, { color: isDark ? entry.programColor : colors.primaryText }]}>
+          <Ionicons name="time-outline" size={14} color={isDark ? entryColor : colors.primaryText} />
+          <Text style={[styles.statPillText, { color: isDark ? entryColor : colors.primaryText }]}>
             {entry.durationSecs > 0 ? formatDuration(entry.durationSecs) : 'Add time'}
           </Text>
-          <Ionicons name="pencil-outline" size={11} color={isDark ? entry.programColor : colors.primaryText} style={{ opacity: 0.6 }} />
+          <Ionicons name="pencil-outline" size={11} color={isDark ? entryColor : colors.primaryText} style={{ opacity: 0.6 }} />
         </TouchableOpacity>
         {entry.totalVolume > 0 && (
-          <View style={[styles.statPill, { backgroundColor: `${entry.programColor}20`, borderColor: entry.programColor }]}>
-            <Ionicons name="barbell-outline" size={14} color={isDark ? entry.programColor : colors.primaryText} />
-            <Text style={[styles.statPillText, { color: isDark ? entry.programColor : colors.primaryText }]}>
-              {Math.round(entry.totalVolume).toLocaleString()} kg
+          <View style={[styles.statPill, { backgroundColor: `${entryColor}20`, borderColor: entryColor }]}>
+            <Ionicons name="barbell-outline" size={14} color={isDark ? entryColor : colors.primaryText} />
+            <Text style={[styles.statPillText, { color: isDark ? entryColor : colors.primaryText }]}>
+              {Math.round(toDisplay(entry.totalVolume)).toLocaleString()} {unit}
             </Text>
           </View>
         )}
@@ -257,8 +263,8 @@ function JournalDetail({
                       activeOpacity={isEditing ? 1 : 0.55}
                     >
                       {/* Set label */}
-                      <View style={[styles.setLabelBox, { borderColor: isWarmup ? entry.programColor : (isDark ? colors.border : 'rgba(0,0,0,0.25)') }]}>
-                        <Text style={[styles.setLabelText, { color: isWarmup ? entry.programColor : colors.primaryText }]}>
+                      <View style={[styles.setLabelBox, { borderColor: isWarmup ? entryColor : (isDark ? colors.border : 'rgba(0,0,0,0.25)') }]}>
+                        <Text style={[styles.setLabelText, { color: isWarmup ? entryColor : colors.primaryText }]}>
                           {isWarmup ? 'W' : workingIdx}
                         </Text>
                       </View>
@@ -291,14 +297,14 @@ function JournalDetail({
                               placeholderTextColor={colors.tertiaryText}
                               selectTextOnFocus
                             />
-                            <Text style={{ color: colors.tertiaryText, fontSize: 12, fontFamily: 'Arimo_400Regular' }}>kg</Text>
+                            <Text style={{ color: colors.tertiaryText, fontSize: 12, fontFamily: 'Arimo_400Regular' }}>{unit}</Text>
                           </View>
                           <TouchableOpacity
                             onPress={commitEdit}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             style={styles.rowIconSlot}
                           >
-                            <Ionicons name="checkmark-circle" size={22} color={entry.programColor} />
+                            <Ionicons name="checkmark-circle" size={22} color={entryColor} />
                           </TouchableOpacity>
                         </>
                       ) : (
@@ -306,11 +312,11 @@ function JournalDetail({
                           {hasData ? (
                             exercise.mode === 'hold' ? (
                               <Text style={[styles.setValue, { color: colors.primaryText, flex: 1, marginLeft: 6 }]}>
-                                {set.hold}s{set.weight != null ? `  ·  ${set.weight} kg` : ''}
+                                {set.hold}s{set.weight != null ? `  ·  ${fmtW(set.weight)} ${unit}` : ''}
                               </Text>
                             ) : (
                               <Text style={[styles.setValue, { color: colors.primaryText, flex: 1, marginLeft: 6 }]}>
-                                {set.reps} reps{set.weight != null ? `  ·  ${set.weight} kg` : ''}
+                                {set.reps} reps{set.weight != null ? `  ·  ${fmtW(set.weight)} ${unit}` : ''}
                               </Text>
                             )
                           ) : (
@@ -332,7 +338,7 @@ function JournalDetail({
                   if (isEditingNotes) {
                     return (
                       <View style={[styles.notesRow, { borderTopColor: divColor }]}>
-                        <Ionicons name="create-outline" size={13} color={entry.programColor} style={{ marginTop: 2 }} />
+                        <Ionicons name="create-outline" size={13} color={entryColor} style={{ marginTop: 2 }} />
                         <TextInput
                           style={[styles.notesInput, { color: colors.primaryText }]}
                           value={notesVal}
@@ -408,7 +414,7 @@ function JournalDetail({
               <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]} onPress={() => setShowDurationEdit(false)}>
                 <Text style={[styles.durationActionText, { color: colors.secondaryText }]}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: entry.programColor }]} onPress={commitDuration}>
+              <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: entryColor }]} onPress={commitDuration}>
                 <Text style={[styles.durationActionText, { color: '#fff' }]}>Done</Text>
               </TouchableOpacity>
             </View>
@@ -437,6 +443,10 @@ function JournalCalendar({
   isDark: boolean;
   highlightDate?: string;
 }) {
+  const { programs } = useProgramStore();
+  const { unit, toDisplay } = useUnits();
+  const resolveEntryColor = (entry: WorkoutJournalEntry) =>
+    programs.find(p => p.id === entry.programId)?.color ?? programs.find(p => p.name === entry.programName)?.color ?? entry.programColor;
   const today = useMemo(() => new Date(), []);
   const todayStr = useMemo(() => toDateKey(today.getTime()), [today]);
   const maxFutureStr = useMemo(() => {
@@ -561,8 +571,8 @@ function JournalCalendar({
                     styles.calendarCellInner,
                     isPast && !hasWorkout && !isToday && { borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.13)' : 'rgba(0,0,0,0.1)' },
                     isToday && !hasWorkout && { borderWidth: 2, borderColor: isDark ? 'rgba(255,255,255,0.55)' : '#2c3e50' },
-                    hasWorkout && !isFuture && !isToday && { backgroundColor: `${entry!.programColor}28`, borderWidth: 1.5, borderColor: entry!.programColor },
-                    isToday && hasWorkout && !isFuture && { backgroundColor: `${entry!.programColor}35`, borderWidth: 2, borderColor: entry!.programColor },
+                    hasWorkout && !isFuture && !isToday && { backgroundColor: `${resolveEntryColor(entry!)}28`, borderWidth: 1.5, borderColor: resolveEntryColor(entry!) },
+                    isToday && hasWorkout && !isFuture && { backgroundColor: `${resolveEntryColor(entry!)}35`, borderWidth: 2, borderColor: resolveEntryColor(entry!) },
                     isHighlighted && !hasWorkout && { borderWidth: 2, borderColor: isDark ? '#FFFFFF' : '#2c3e50', backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(44,62,80,0.08)' },
                   ]}>
                     <Text style={[
@@ -576,7 +586,7 @@ function JournalCalendar({
                       {day}
                     </Text>
                     {hasWorkout && !isFuture && (
-                      <View style={[styles.workoutDot, { backgroundColor: entry!.programColor }]} />
+                      <View style={[styles.workoutDot, { backgroundColor: resolveEntryColor(entry!) }]} />
                     )}
                   </View>
                 </TouchableOpacity>
@@ -614,28 +624,29 @@ function JournalCalendar({
           </Text>
           {displayedEntries.map(entry => {
             const exCount = countExercises(entry);
+            const eColor = resolveEntryColor(entry);
             return (
               <BounceButton
                 key={entry.id}
-                style={[styles.journalCard, { backgroundColor: colors.cardTranslucent, borderColor: entry.programColor }]}
+                style={[styles.journalCard, { backgroundColor: colors.cardTranslucent, borderColor: eColor }]}
                 onPress={() => onSelect(entry)}
               >
                 <View style={styles.cardContent}>
                   <View style={styles.cardTop}>
-                    <View style={[styles.cardColorDot, { backgroundColor: entry.programColor }]} />
+                    <View style={[styles.cardColorDot, { backgroundColor: eColor }]} />
                     <Text style={[styles.cardDayLabel, { color: colors.primaryText }]} numberOfLines={1}>
                       {entry.dayLabel}
                     </Text>
                   </View>
                   <View style={styles.cardMeta}>
-                    <View style={[styles.programBadge, { backgroundColor: `${entry.programColor}25` }]}>
-                      <Text style={[styles.programBadgeText, { color: entry.programColor }]}>{entry.programName}</Text>
+                    <View style={[styles.programBadge, { backgroundColor: `${eColor}25` }]}>
+                      <Text style={[styles.programBadgeText, { color: eColor }]}>{entry.programName}</Text>
                     </View>
                     <Text style={[styles.cardDate, { color: colors.tertiaryText }]}>{formatDate(entry.date)}</Text>
                   </View>
                   <Text style={[styles.cardStat, { color: colors.secondaryText }]}>
                     {exCount} exercise{exCount !== 1 ? 's' : ''}
-                    {entry.totalVolume > 0 ? `  ·  ${Math.round(entry.totalVolume).toLocaleString()} kg` : ''}
+                    {entry.totalVolume > 0 ? `  ·  ${Math.round(toDisplay(entry.totalVolume)).toLocaleString()} ${unit}` : ''}
                     {entry.durationSecs > 0 ? `  ·  ${formatDuration(entry.durationSecs)}` : ''}
                   </Text>
                 </View>
@@ -727,6 +738,7 @@ export default function JournalScreen() {
       id: `manual-${Date.now()}`,
       date: ts,
       programName: program.name,
+      programId: program.id,
       programColor: program.color,
       dayLabel: getDayLabel(splitDay),
       durationSecs: 0,
@@ -851,20 +863,25 @@ export default function JournalScreen() {
       )}
 
       {/* Save Changes floating button — shown only when detail has unsaved changes */}
-      {selectedEntry && detailHasChanges && (
-        <TouchableOpacity
-          style={[styles.saveChangesBtn, { backgroundColor: selectedEntry.programColor }]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setSelectedEntry(null);
-            setDetailHasChanges(false);
-          }}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="checkmark" size={16} color="#1C1C1E" />
-          <Text style={[styles.saveChangesBtnText, { color: '#1C1C1E' }]}>Save Changes</Text>
-        </TouchableOpacity>
-      )}
+      {selectedEntry && detailHasChanges && (() => {
+        const btnColor = programs.find(p => p.id === selectedEntry.programId)?.color
+          ?? programs.find(p => p.name === selectedEntry.programName)?.color
+          ?? selectedEntry.programColor;
+        return (
+          <TouchableOpacity
+            style={[styles.saveChangesBtn, { backgroundColor: btnColor }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setSelectedEntry(null);
+              setDetailHasChanges(false);
+            }}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="checkmark" size={16} color="#1C1C1E" />
+            <Text style={[styles.saveChangesBtnText, { color: '#1C1C1E' }]}>Save Changes</Text>
+          </TouchableOpacity>
+        );
+      })()}
 
       {/* Log Workout Modal */}
       {logState && (

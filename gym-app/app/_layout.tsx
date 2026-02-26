@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { ProgramProvider } from '../programStore';
 import { CommunityProvider } from '../communityStore';
 import { ThemeProvider, useTheme } from '../themeStore';
+import { UnitsProvider } from '../unitsStore';
 import { workoutState } from '../workoutState';
 
 export const unstable_settings = {
@@ -29,6 +30,9 @@ function InnerLayout() {
         <Stack.Screen name="create-program" options={{ headerShown: false }} />
         <Stack.Screen name="settings" options={{ headerShown: false }} />
         <Stack.Screen name="journal" options={{ headerShown: false }} />
+        <Stack.Screen name="help-support" options={{ headerShown: false }} />
+        <Stack.Screen name="terms" options={{ headerShown: false }} />
+        <Stack.Screen name="privacy" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style={isDark ? 'light' : 'dark'} />
@@ -39,11 +43,13 @@ function InnerLayout() {
 export default function RootLayout() {
   return (
     <ThemeProvider>
-      <CommunityProvider>
-        <ProgramProvider>
-          <InnerLayout />
-        </ProgramProvider>
-      </CommunityProvider>
+      <UnitsProvider>
+        <CommunityProvider>
+          <ProgramProvider>
+            <InnerLayout />
+          </ProgramProvider>
+        </CommunityProvider>
+      </UnitsProvider>
     </ThemeProvider>
   );
 }

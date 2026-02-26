@@ -1,6 +1,7 @@
 // Shared program state using React context
 
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type Exercise = { name: string; sets: number; warmupSets?: number; mode?: 'reps' | 'hold' };
 export type Session = { label: string; exercises: Exercise[] };
@@ -24,30 +25,31 @@ export function isMultiSession(sd: SplitDay): boolean {
 }
 
 export const PROGRAM_COLORS = [
-  '#47DDFF', // cyan
-  '#FF6B6B', // coral
-  '#A78BFA', // purple
-  '#34D399', // emerald
-  '#FBBF24', // amber
-  '#F472B6', // pink
-  '#60A5FA', // blue
-  '#FB923C', // orange
-  '#4ADE80', // green
-  '#E879F9', // fuchsia
-  '#F87171', // red
-  '#38BDF8', // sky
-  '#C084FC', // violet
-  '#86EFAC', // light green
-  '#FDE68A', // yellow
-  '#FDA4AF', // rose
-  '#67E8F9', // light cyan
-  '#FCA5A1', // light red
-  '#A5F3FC', // pale cyan
-  '#D8B4FE', // lavender
-  '#6EE7B7', // mint
-  '#FCD34D', // gold
-  '#F9A8D4', // light pink
-  '#93C5FD', // periwinkle
+  '#FF0000', // Red
+  '#CD5C5C', // Indian Red
+  '#FFA500', // Orange
+  '#EEB4B4', // Rosy Brown 2
+  '#FF7F50', // Coral
+  '#CD6600', // Dark Orange 3
+  '#FF1493', // Deep Pink
+  '#FF82AB', // Pale Violet Red 1
+  '#BA55D3', // Medium Orchid
+  '#9370DB', // Medium Purple
+  '#8B008B', // Dark Magenta
+  '#483D8B', // Dark Slate Blue
+  '#00CED1', // Dark Turquoise
+  '#98F5FF', // Cadet Blue 1
+  '#00BFFF', // Deep Sky Blue
+  '#1E90FF', // Dodger Blue 2
+  '#104E8B', // Dodger Blue 4
+  '#76EEC6', // Aquamarine 2
+  '#ADFF2F', // Green Yellow
+  '#54FF9F', // Sea Green 1
+  '#228B22', // Forest Green
+  '#FFD700', // Gold
+  '#FFFF00', // Yellow
+  '#F0E68C', // Khaki
+  '#8B7E66', // Wheat 4
 ] as const;
 
 export type Program = {
@@ -148,12 +150,47 @@ type ProgramContextType = {
 
 const ProgramContext = createContext<ProgramContextType | null>(null);
 
+const PROGRAMS_KEY = '@programs_v1';
+const ACTIVE_KEY = '@programs_activeId_v1';
 let _nextId = 4;
 
 export function ProgramProvider({ children }: { children: React.ReactNode }) {
   const [programs, setPrograms] = useState<Program[]>(DEFAULT_PROGRAMS);
   const [activeId, setActiveId] = useState('1');
   const [sharedPrograms, setSharedPrograms] = useState<SharedProgram[]>(DEFAULT_SHARED);
+  const [loaded, setLoaded] = useState(false);
+
+  // Load persisted programs on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const [programsRaw, activeRaw] = await Promise.all([
+          AsyncStorage.getItem(PROGRAMS_KEY),
+          AsyncStorage.getItem(ACTIVE_KEY),
+        ]);
+        if (programsRaw) {
+          const parsed: Program[] = JSON.parse(programsRaw);
+          setPrograms(parsed);
+          const maxId = Math.max(...parsed.map(p => Number(p.id)).filter(n => !isNaN(n)), 3);
+          _nextId = maxId + 1;
+        }
+        if (activeRaw) setActiveId(activeRaw);
+      } catch {}
+      setLoaded(true);
+    })();
+  }, []);
+
+  // Persist programs whenever they change (after initial load)
+  useEffect(() => {
+    if (!loaded) return;
+    AsyncStorage.setItem(PROGRAMS_KEY, JSON.stringify(programs)).catch(() => {});
+  }, [programs, loaded]);
+
+  // Persist active id
+  useEffect(() => {
+    if (!loaded) return;
+    AsyncStorage.setItem(ACTIVE_KEY, activeId).catch(() => {});
+  }, [activeId, loaded]);
 
   const addProgram = useCallback((name: string, color: string, splitDays: SplitDay[]): string => {
     const id = String(_nextId++);
