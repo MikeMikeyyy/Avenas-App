@@ -523,6 +523,14 @@ export default function ProgressScreen() {
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodKey>('week');
   const [selectedExercise, setSelectedExercise] = useState(firstExercise);
   const [exerciseMetric, setExerciseMetric] = useState<'heaviest' | 'setVolume'>('heaviest');
+  const chartFade = useRef(new Animated.Value(1)).current;
+  const handleMetricChange = (metric: 'heaviest' | 'setVolume') => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Animated.timing(chartFade, { toValue: 0, duration: 100, useNativeDriver: true }).start(() => {
+      setExerciseMetric(metric);
+      Animated.timing(chartFade, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+    });
+  };
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     if (trainingDays[0]) initial[trainingDays[0].label] = true;
@@ -749,17 +757,18 @@ export default function ProgressScreen() {
         {/* Line Chart + PR */}
         <View style={[styles.glassCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, marginTop: 16 }]}>
           <Text style={[styles.cardLabel, { color: colors.secondaryText, marginBottom: 12 }]}>WEIGHT PROGRESSION</Text>
-          {exerciseData.length > 0 ? (
-            <LineChart
-              key={exerciseMetric}
-              data={exerciseData}
-              accentColor={exerciseColor}
-              yUnit={unit}
-              onPanActive={setChartPanning}
-            />
-          ) : (
-            <Text style={[styles.emptyText, { color: colors.secondaryText }]}>No data for this exercise yet</Text>
-          )}
+          <Animated.View style={{ opacity: chartFade }}>
+            {exerciseData.length > 0 ? (
+              <LineChart
+                data={exerciseData}
+                accentColor={exerciseColor}
+                yUnit={unit}
+                onPanActive={setChartPanning}
+              />
+            ) : (
+              <Text style={[styles.emptyText, { color: colors.secondaryText }]}>No data for this exercise yet</Text>
+            )}
+          </Animated.View>
           {/* Metric toggle */}
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
             {([
@@ -770,7 +779,7 @@ export default function ProgressScreen() {
               return (
                 <TouchableOpacity
                   key={opt.key}
-                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setExerciseMetric(opt.key); }}
+                  onPress={() => handleMetricChange(opt.key)}
                   style={[
                     styles.periodPill,
                     { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder },

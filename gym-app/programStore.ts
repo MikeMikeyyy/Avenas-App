@@ -25,31 +25,30 @@ export function isMultiSession(sd: SplitDay): boolean {
 }
 
 export const PROGRAM_COLORS = [
-  '#FF0000', // Red
-  '#CD5C5C', // Indian Red
-  '#FFA500', // Orange
-  '#EEB4B4', // Rosy Brown 2
-  '#FF7F50', // Coral
-  '#CD6600', // Dark Orange 3
-  '#FF1493', // Deep Pink
-  '#FF82AB', // Pale Violet Red 1
+  '#47DDFF', // Cyan
+  '#00BFFF', // Deep Sky Blue
+  '#1E90FF', // Dodger Blue
+  '#7B68EE', // Medium Slate Blue
+  '#6C5CE7', // Indigo
+  '#A855F7', // Vivid Purple
   '#BA55D3', // Medium Orchid
   '#9370DB', // Medium Purple
-  '#8B008B', // Dark Magenta
-  '#483D8B', // Dark Slate Blue
-  '#00CED1', // Dark Turquoise
-  '#98F5FF', // Cadet Blue 1
-  '#00BFFF', // Deep Sky Blue
-  '#1E90FF', // Dodger Blue 2
-  '#104E8B', // Dodger Blue 4
-  '#76EEC6', // Aquamarine 2
-  '#ADFF2F', // Green Yellow
-  '#54FF9F', // Sea Green 1
-  '#228B22', // Forest Green
+  '#FF6EC7', // Hot Pink
+  '#FF1493', // Deep Pink
+  '#FF82AB', // Pale Pink
+  '#E74C3C', // Red
+  '#FF7675', // Soft Red
+  '#FF7F50', // Coral
+  '#FF9500', // Orange
+  '#F39C12', // Sunflower
   '#FFD700', // Gold
-  '#FFFF00', // Yellow
-  '#F0E68C', // Khaki
-  '#8B7E66', // Wheat 4
+  '#54FF9F', // Sea Green
+  '#2ECC71', // Emerald
+  '#32CD32', // Lime Green
+  '#228B22', // Forest Green
+  '#76EEC6', // Aquamarine
+  '#98F5FF', // Light Cyan
+  '#00CED1', // Turquoise
 ] as const;
 
 export type Program = {

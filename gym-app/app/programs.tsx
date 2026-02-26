@@ -178,6 +178,21 @@ export default function ProgramsScreen() {
           </>
         )}
 
+        {/* Create New Program Button */}
+        <BounceButton
+          style={[styles.createButton, { borderColor: isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)', backgroundColor: colors.cardTranslucent }]}
+          onPress={() => router.push('/create-program')}
+        >
+          <View style={styles.createButtonInner}>
+            <View style={[styles.createIconCircle, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)' }]}>
+              <Ionicons name="add" size={20} color={colors.primaryText} />
+            </View>
+            <Text style={[styles.createButtonText, { color: colors.primaryText }]}>New Program</Text>
+            <View style={{ flex: 1 }} />
+            <Ionicons name="chevron-forward" size={18} color={colors.tertiaryText} />
+          </View>
+        </BounceButton>
+
         {/* Other Programs */}
         {otherPrograms.length > 0 && (
           <>
@@ -346,16 +361,6 @@ export default function ProgramsScreen() {
           </>
         )}
 
-        {/* Create New Program Button */}
-        <BounceButton
-          style={styles.createButton}
-          onPress={() => router.push('/create-program')}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Ionicons name="add-circle-outline" size={22} color="#1C1C1E" />
-            <Text style={styles.createButtonText}>Create New Program</Text>
-          </View>
-        </BounceButton>
       </ScrollView>
 
       {/* Floating back button — rendered after ScrollView so it sits on top */}
@@ -556,17 +561,30 @@ const styles = StyleSheet.create({
     fontFamily: 'Arimo_700Bold',
   },
   createButton: {
-    backgroundColor: '#47DDFF',
     borderRadius: 16,
-    height: 52,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    marginTop: 12,
+    marginBottom: 4,
+    overflow: 'hidden',
+  },
+  createButtonInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  createIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 16,
   },
   createButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: 'Arimo_700Bold',
-    color: '#1C1C1E',
-    letterSpacing: 0.4,
+    letterSpacing: 0.2,
   },
 });
