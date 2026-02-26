@@ -1708,10 +1708,8 @@ export default function WorkoutScreen() {
                   if (cached) allCachedExercises.push(...cached);
                 }
                 const totalVolume = allCachedExercises.reduce((sum, ex) => {
-                  for (const s of ex.sets) {
-                    if (ex.mode === 'hold') sum += ((s.hold ?? 0) * (s.weight ?? 0)) / 30;
-                    else sum += s.reps * (s.weight ?? 0);
-                  }
+                  if (ex.mode === 'hold') return sum;
+                  for (const s of ex.sets) sum += s.reps * (s.weight ?? 0);
                   return sum;
                 }, 0);
                 const endTime = new Date();
@@ -1830,7 +1828,7 @@ export default function WorkoutScreen() {
                           const cached = exerciseCache[`${selectedDayIndex}-${si}`];
                           if (cached) allCached.push(...cached);
                         }
-                        const totalVolume = allCached.reduce((sum, ex) => { for (const s of ex.sets) { if (ex.mode === 'hold') sum += ((s.hold ?? 0) * (s.weight ?? 0)) / 30; else sum += s.reps * (s.weight ?? 0); } return sum; }, 0);
+                        const totalVolume = allCached.reduce((sum, ex) => { if (ex.mode === 'hold') return sum; for (const s of ex.sets) sum += s.reps * (s.weight ?? 0); return sum; }, 0);
                         const endTime2 = new Date();
                         setWorkoutEndTime(endTime2);
                         const startTime2 = workoutStartTime ?? new Date(Date.now() - workoutState.getElapsed(selectedDayIndex) * 1000);

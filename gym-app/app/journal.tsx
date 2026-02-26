@@ -13,6 +13,7 @@ import {
   TextInput,
   Keyboard,
   KeyboardAvoidingView,
+  LayoutAnimation,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,7 +27,6 @@ import { useUnits } from '../unitsStore';
 import { useProgramStore, getDayLabel, getDayExerciseCount } from '../programStore';
 import type { Program } from '../programStore';
 import { BottomSheetModal } from '../components/BottomSheetModal';
-import { FadeBackdrop } from '../components/FadeBackdrop';
 
 function BounceButton({ style, children, onPress, ...rest }: any) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -130,6 +130,11 @@ function JournalDetail({
   const [editingNotesKey, setEditingNotesKey] = useState<string | null>(null);
   const [notesVal, setNotesVal] = useState('');
 
+  const [exerciseMenuKey, setExerciseMenuKey] = useState<string | null>(null);
+  const [confirmRemoveKey, setConfirmRemoveKey] = useState<string | null>(null);
+  const [changeExerciseTarget, setChangeExerciseTarget] = useState<{ si: number; ei: number } | null>(null);
+  const [newExerciseName, setNewExerciseName] = useState('');
+
   const [showDurationEdit, setShowDurationEdit] = useState(false);
   const [durationH, setDurationH] = useState('');
   const [durationM, setDurationM] = useState('');
@@ -166,6 +171,62 @@ function JournalDetail({
     newEntry.sessions[si].exercises[ei].notes = trimmed || undefined;
     onUpdateEntry(newEntry);
     setEditingNotesKey(null);
+  };
+
+  const toggleMode = (si: number, ei: number) => {
+    const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
+    const ex = newEntry.sessions[si].exercises[ei];
+    ex.mode = ex.mode === 'hold' ? 'reps' : 'hold';
+    ex.sets = ex.sets.map(s => ({ ...s, reps: 0, hold: 0 }));
+    onUpdateEntry(newEntry);
+  };
+
+  const moveExercise = (si: number, ei: number, dir: 'up' | 'down') => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
+    const exs = newEntry.sessions[si].exercises;
+    const swap = dir === 'up' ? ei - 1 : ei + 1;
+    [exs[ei], exs[swap]] = [exs[swap], exs[ei]];
+    onUpdateEntry(newEntry);
+    setExerciseMenuKey(`${si}-${swap}`);
+  };
+
+  const removeExercise = (si: number, ei: number) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
+    newEntry.sessions[si].exercises.splice(ei, 1);
+    onUpdateEntry(newEntry);
+    setExerciseMenuKey(null);
+    setConfirmRemoveKey(null);
+  };
+
+  const addSet = (si: number, ei: number) => {
+    const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
+    const ex = newEntry.sessions[si].exercises[ei];
+    const lastSet = ex.sets[ex.sets.length - 1];
+    ex.sets.push({ reps: 0, weight: lastSet?.weight ?? null, hold: 0, isWarmup: false });
+    onUpdateEntry(newEntry);
+  };
+
+  const removeLastSet = (si: number, ei: number) => {
+    const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
+    const ex = newEntry.sessions[si].exercises[ei];
+    if (ex.sets.length <= 1) return;
+    ex.sets.pop();
+    if (editTarget && editTarget.si === si && editTarget.ei === ei && editTarget.setI >= ex.sets.length) {
+      setEditTarget(null);
+    }
+    onUpdateEntry(newEntry);
+  };
+
+  const commitChangeExercise = () => {
+    if (!changeExerciseTarget || !newExerciseName.trim()) return;
+    const { si, ei } = changeExerciseTarget;
+    const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
+    newEntry.sessions[si].exercises[ei].name = newExerciseName.trim();
+    onUpdateEntry(newEntry);
+    setChangeExerciseTarget(null);
+    setNewExerciseName('');
   };
 
   const commitEdit = () => {
@@ -210,14 +271,21 @@ function JournalDetail({
           </Text>
           <Ionicons name="pencil-outline" size={11} color={isDark ? entryColor : colors.primaryText} style={{ opacity: 0.6 }} />
         </TouchableOpacity>
-        {entry.totalVolume > 0 && (
-          <View style={[styles.statPill, { backgroundColor: `${entryColor}20`, borderColor: entryColor }]}>
-            <Ionicons name="barbell-outline" size={14} color={isDark ? entryColor : colors.primaryText} />
-            <Text style={[styles.statPillText, { color: isDark ? entryColor : colors.primaryText }]}>
-              {Math.round(toDisplay(entry.totalVolume)).toLocaleString()} {unit}
-            </Text>
-          </View>
-        )}
+        {(() => {
+          const repsVol = entry.sessions.reduce((sum, s) =>
+            sum + s.exercises.reduce((eSum, ex) =>
+              ex.mode === 'hold' ? eSum :
+              eSum + ex.sets.reduce((sSum, set) => sSum + (set.reps * (set.weight ?? 0)), 0), 0), 0);
+          if (repsVol <= 0) return null;
+          return (
+            <View style={[styles.statPill, { backgroundColor: `${entryColor}20`, borderColor: entryColor }]}>
+              <Ionicons name="barbell-outline" size={14} color={isDark ? entryColor : colors.primaryText} />
+              <Text style={[styles.statPillText, { color: isDark ? entryColor : colors.primaryText }]}>
+                {Math.round(toDisplay(repsVol)).toLocaleString()} {unit}
+              </Text>
+            </View>
+          );
+        })()}
         <View style={[styles.statPill, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
           <Text style={[styles.statPillText, { color: colors.secondaryText }]}>
             {totalExercises} exercise{totalExercises !== 1 ? 's' : ''}
@@ -241,7 +309,27 @@ function JournalDetail({
                 key={ei}
                 style={[styles.exerciseCard, { backgroundColor: colors.cardTranslucent, borderColor: isDark ? colors.cardBorder : 'rgba(0,0,0,0.1)' }]}
               >
-                <Text style={[styles.exerciseName, { color: colors.primaryText }]}>{exercise.name}</Text>
+                {/* Exercise header */}
+                {(() => {
+                  const menuKey = `${si}-${ei}`;
+                  const isMenuOpen = exerciseMenuKey === menuKey;
+                  return (
+                    <View style={styles.exerciseHeader}>
+                      <Text style={[styles.exerciseName, { color: colors.primaryText }]} numberOfLines={1}>{exercise.name}</Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setExerciseMenuKey(prev => prev === menuKey ? null : menuKey);
+                          setConfirmRemoveKey(null);
+                        }}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={{ paddingRight: 14 }}
+                      >
+                        <Ionicons name={isMenuOpen ? 'checkmark-circle' : 'ellipsis-horizontal'} size={isMenuOpen ? 24 : 22} color={isMenuOpen ? entryColor : colors.secondaryText} />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })()}
                 {/* Set rows */}
                 {exercise.sets.map((set, si2) => {
                   const isWarmup = set.isWarmup;
@@ -330,6 +418,74 @@ function JournalDetail({
                     </TouchableOpacity>
                   );
                 })}
+                {/* Exercise controls */}
+                {exerciseMenuKey === `${si}-${ei}` && (() => {
+                  const menuKey = `${si}-${ei}`;
+                  const totalExs = session.exercises.length;
+                  const divColor = isDark ? colors.border : 'rgba(0,0,0,0.09)';
+                  return (
+                    <View style={[styles.exerciseControls, { borderTopColor: divColor, borderBottomColor: divColor }]}>
+                      {/* Add / Remove Set */}
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TouchableOpacity style={[styles.exerciseMenuBtn, { flex: 1, backgroundColor: colors.inputBg, marginTop: 0 }]} onPress={() => addSet(si, ei)} activeOpacity={0.7}>
+                          <Ionicons name="add" size={16} color={colors.primaryText} />
+                          <Text style={[styles.exerciseMenuText, { color: colors.primaryText }]}>Add Set</Text>
+                        </TouchableOpacity>
+                        {exercise.sets.length > 1 && (
+                          <TouchableOpacity style={[styles.exerciseMenuBtn, { flex: 1, backgroundColor: colors.inputBg, marginTop: 0 }]} onPress={() => removeLastSet(si, ei)} activeOpacity={0.7}>
+                            <Ionicons name="remove" size={16} color={colors.primaryText} />
+                            <Text style={[styles.exerciseMenuText, { color: colors.primaryText }]}>Remove Set</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                      {/* Move Up / Down */}
+                      {(ei > 0 || ei < totalExs - 1) && (
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          {ei > 0 && (
+                            <TouchableOpacity style={[styles.exerciseMenuBtn, { flex: 1, backgroundColor: colors.inputBg }]} onPress={() => moveExercise(si, ei, 'up')} activeOpacity={0.7}>
+                              <Ionicons name="arrow-up" size={16} color={colors.primaryText} />
+                              <Text style={[styles.exerciseMenuText, { color: colors.primaryText }]}>Move Up</Text>
+                            </TouchableOpacity>
+                          )}
+                          {ei < totalExs - 1 && (
+                            <TouchableOpacity style={[styles.exerciseMenuBtn, { flex: 1, backgroundColor: colors.inputBg }]} onPress={() => moveExercise(si, ei, 'down')} activeOpacity={0.7}>
+                              <Ionicons name="arrow-down" size={16} color={colors.primaryText} />
+                              <Text style={[styles.exerciseMenuText, { color: colors.primaryText }]}>Move Down</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
+                      {/* Change Exercise */}
+                      <TouchableOpacity style={[styles.exerciseMenuBtn, { backgroundColor: colors.inputBg }]} onPress={() => { setNewExerciseName(exercise.name); setChangeExerciseTarget({ si, ei }); }} activeOpacity={0.7}>
+                        <Ionicons name="swap-horizontal" size={16} color={colors.primaryText} />
+                        <Text style={[styles.exerciseMenuText, { color: colors.primaryText }]}>Change Exercise</Text>
+                      </TouchableOpacity>
+                      {/* Toggle Mode */}
+                      <TouchableOpacity style={[styles.exerciseMenuBtn, { backgroundColor: colors.inputBg }]} onPress={() => toggleMode(si, ei)} activeOpacity={0.7}>
+                        <Ionicons name={exercise.mode === 'hold' ? 'timer-outline' : 'barbell-outline'} size={16} color={colors.primaryText} />
+                        <Text style={[styles.exerciseMenuText, { color: colors.primaryText }]}>{exercise.mode === 'hold' ? 'Isometric Hold' : 'Standard Reps'}</Text>
+                        <View style={{ flex: 1 }} />
+                        <Ionicons name="repeat" size={16} color={colors.secondaryText} />
+                      </TouchableOpacity>
+                      {/* Remove Exercise */}
+                      {confirmRemoveKey !== menuKey ? (
+                        <TouchableOpacity style={[styles.exerciseMenuBtn, { backgroundColor: '#FF3B3018' }]} onPress={() => setConfirmRemoveKey(menuKey)} activeOpacity={0.7}>
+                          <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+                          <Text style={[styles.exerciseMenuText, { color: '#FF3B30' }]}>Remove Exercise</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          <TouchableOpacity style={[styles.exerciseMenuBtn, { flex: 1, backgroundColor: colors.inputBg, marginTop: 0 }]} onPress={() => setConfirmRemoveKey(null)} activeOpacity={0.7}>
+                            <Text style={[styles.exerciseMenuText, { color: colors.primaryText }]}>Cancel</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.exerciseMenuBtn, { flex: 1, backgroundColor: '#FF3B30', marginTop: 0 }]} onPress={() => removeExercise(si, ei)} activeOpacity={0.7}>
+                            <Text style={[styles.exerciseMenuText, { color: '#fff' }]}>Confirm Remove</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })()}
                 {/* Notes row */}
                 {(() => {
                   const notesKey = `${si}-${ei}`;
@@ -376,6 +532,33 @@ function JournalDetail({
           })}
         </View>
       ))}
+      {/* Change Exercise modal */}
+      <BottomSheetModal visible={!!changeExerciseTarget} onDismiss={() => { setChangeExerciseTarget(null); setNewExerciseName(''); }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={[styles.durationSheet, { backgroundColor: colors.modalBg }]}>
+            <Text style={[styles.durationSheetTitle, { color: colors.primaryText }]}>Change Exercise</Text>
+            <TextInput
+              style={[styles.changeExInput, { color: colors.primaryText, backgroundColor: colors.inputBg, borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)' }]}
+              value={newExerciseName}
+              onChangeText={setNewExerciseName}
+              placeholder="Exercise name"
+              placeholderTextColor={colors.tertiaryText}
+              returnKeyType="done"
+              onSubmitEditing={commitChangeExercise}
+              autoFocus
+            />
+            <View style={styles.durationActions}>
+              <TouchableOpacity style={[styles.durationAction, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)' }]} onPress={() => { setChangeExerciseTarget(null); setNewExerciseName(''); }} activeOpacity={0.7}>
+                <Text style={[styles.durationActionText, { color: colors.secondaryText }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.durationAction, { backgroundColor: entryColor, borderColor: entryColor }]} onPress={commitChangeExercise} activeOpacity={0.7}>
+                <Text style={[styles.durationActionText, { color: '#fff' }]}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </BottomSheetModal>
+
       {/* Duration edit modal */}
       <BottomSheetModal visible={showDurationEdit} onDismiss={() => setShowDurationEdit(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -483,7 +666,7 @@ function JournalCalendar({
   const monthEntries = useMemo(() =>
     entries
       .filter(e => { const d = new Date(e.date); return d.getFullYear() === year && d.getMonth() === month; })
-      .sort((a, b) => a.date - b.date),
+      .sort((a, b) => b.date - a.date),
     [entries, year, month]);
 
   const [listFilter, setListFilter] = useState<'week' | 'month'>('month');
@@ -491,7 +674,7 @@ function JournalCalendar({
   const weekEntries = useMemo(() => {
     const now = today.getTime();
     const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
-    return entries.filter(e => e.date >= sevenDaysAgo && e.date <= now).sort((a, b) => a.date - b.date);
+    return entries.filter(e => e.date >= sevenDaysAgo && e.date <= now).sort((a, b) => b.date - a.date);
   }, [entries, today]);
 
   const displayedEntries = listFilter === 'week' ? weekEntries : monthEntries;
@@ -884,70 +1067,71 @@ export default function JournalScreen() {
       })()}
 
       {/* Log Workout Modal */}
-      {logState && (
-        <View style={[StyleSheet.absoluteFillObject, { zIndex: 100 }]}>
-          <FadeBackdrop onPress={() => setLogState(null)} />
-          <View style={[styles.logSheet, { backgroundColor: colors.modalBg }]}>
-            <Text style={[styles.logSheetDate, { color: colors.tertiaryText }]}>
-              {logState.date.toLocaleDateString('en-AU', { weekday: 'short', month: 'short', day: 'numeric' })}
-            </Text>
+      <BottomSheetModal visible={!!logState} onDismiss={() => setLogState(null)}>
+        <View style={[styles.logSheet, { backgroundColor: colors.modalBg }]}>
+          {logState !== null && (
+            <>
+              <Text style={[styles.logSheetDate, { color: colors.tertiaryText }]}>
+                {logState.date.toLocaleDateString('en-AU', { weekday: 'short', month: 'short', day: 'numeric' })}
+              </Text>
 
-            {logState.step === 'program' ? (
-              <>
-                <Text style={[styles.logSheetHeading, { color: colors.primaryText }]}>Select program</Text>
-                {programs.map(p => (
+              {logState.step === 'program' ? (
+                <>
+                  <Text style={[styles.logSheetHeading, { color: colors.primaryText }]}>Select program</Text>
+                  {programs.map(p => (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={[styles.logSheetRow, { borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.09)' }]}
+                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setLogState(prev => prev ? { ...prev, step: 'day', programId: p.id } : null); }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.logSheetDot, { backgroundColor: p.color }]} />
+                      <Text style={[styles.logSheetRowText, { color: colors.primaryText }]}>{p.name}</Text>
+                      <Ionicons name="chevron-forward" size={18} color={colors.tertiaryText} />
+                    </TouchableOpacity>
+                  ))}
+                </>
+              ) : (
+                <>
                   <TouchableOpacity
-                    key={p.id}
-                    style={[styles.logSheetRow, { borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.09)' }]}
-                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setLogState(prev => prev ? { ...prev, step: 'day', programId: p.id } : null); }}
-                    activeOpacity={0.7}
+                    style={styles.logSheetBack}
+                    onPress={() => setLogState(prev => prev ? { ...prev, step: 'program', programId: null } : null)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <View style={[styles.logSheetDot, { backgroundColor: p.color }]} />
-                    <Text style={[styles.logSheetRowText, { color: colors.primaryText }]}>{p.name}</Text>
-                    <Ionicons name="chevron-forward" size={18} color={colors.tertiaryText} />
+                    <Ionicons name="chevron-back" size={18} color={colors.secondaryText} />
+                    <Text style={[styles.logSheetBackText, { color: colors.secondaryText }]}>
+                      {programs.find(p => p.id === logState.programId)?.name}
+                    </Text>
                   </TouchableOpacity>
-                ))}
-              </>
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={styles.logSheetBack}
-                  onPress={() => setLogState(prev => prev ? { ...prev, step: 'program', programId: null } : null)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="chevron-back" size={18} color={colors.secondaryText} />
-                  <Text style={[styles.logSheetBackText, { color: colors.secondaryText }]}>
-                    {programs.find(p => p.id === logState.programId)?.name}
-                  </Text>
-                </TouchableOpacity>
-                <Text style={[styles.logSheetHeading, { color: colors.primaryText }]}>Select day</Text>
-                {(() => {
-                  const prog = programs.find(p => p.id === logState.programId);
-                  if (!prog) return null;
-                  return prog.splitDays.map((day, i) => {
-                    if (day.type === 'rest') return null;
-                    return (
-                      <TouchableOpacity
-                        key={i}
-                        style={[styles.logSheetRow, { borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.09)' }]}
-                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); handleCreateManualEntry(logState.date, prog, i); }}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[styles.logSheetRowText, { color: colors.primaryText }]}>{getDayLabel(day)}</Text>
-                        <Text style={[styles.logSheetRowSub, { color: colors.tertiaryText }]}>{getDayExerciseCount(day)} exercises</Text>
-                      </TouchableOpacity>
-                    );
-                  });
-                })()}
-              </>
-            )}
+                  <Text style={[styles.logSheetHeading, { color: colors.primaryText }]}>Select day</Text>
+                  {(() => {
+                    const prog = programs.find(p => p.id === logState.programId);
+                    if (!prog) return null;
+                    return prog.splitDays.map((day, i) => {
+                      if (day.type === 'rest') return null;
+                      return (
+                        <TouchableOpacity
+                          key={i}
+                          style={[styles.logSheetRow, { borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.09)' }]}
+                          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); handleCreateManualEntry(logState.date, prog, i); }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.logSheetRowText, { color: colors.primaryText }]}>{getDayLabel(day)}</Text>
+                          <Text style={[styles.logSheetRowSub, { color: colors.tertiaryText }]}>{getDayExerciseCount(day)} exercises</Text>
+                        </TouchableOpacity>
+                      );
+                    });
+                  })()}
+                </>
+              )}
 
-            <TouchableOpacity style={styles.logSheetCancel} onPress={() => setLogState(null)}>
-              <Text style={[styles.logSheetCancelText, { color: colors.tertiaryText }]}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity style={[styles.logSheetCancel, { backgroundColor: colors.inputBg, borderColor: colors.border }]} onPress={() => setLogState(null)}>
+                <Text style={[styles.logSheetCancelText, { color: colors.primaryText }]}>Cancel</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
-      )}
+      </BottomSheetModal>
 
     </LinearGradient>
   );
@@ -1153,12 +1337,46 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     overflow: 'hidden',
   },
-  exerciseName: {
-    fontSize: 15,
-    fontFamily: 'Arimo_700Bold',
-    paddingHorizontal: 14,
+  exerciseHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 14,
     paddingTop: 12,
     paddingBottom: 8,
+  },
+  exerciseControls: {
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 0,
+  },
+  exerciseMenuBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 6,
+    borderRadius: 10,
+  },
+  exerciseMenuText: {
+    fontSize: 13,
+    fontFamily: 'Arimo_700Bold',
+  },
+  changeExInput: {
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    fontSize: 15,
+    fontFamily: 'Arimo_400Regular',
+    marginBottom: 16,
+  },
+  exerciseName: {
+    flex: 1,
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
   },
 
   // Set rows
@@ -1196,7 +1414,6 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderTopWidth: 1,
   },
   notesText: {
     fontSize: 13,
@@ -1475,11 +1692,16 @@ const styles = StyleSheet.create({
     fontFamily: 'Arimo_400Regular',
   },
   logSheetCancel: {
+    alignSelf: 'center',
     alignItems: 'center',
-    paddingTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 28,
+    marginTop: 12,
+    borderRadius: 20,
+    borderWidth: 1,
   },
   logSheetCancelText: {
-    fontSize: 15,
-    fontFamily: 'Arimo_400Regular',
+    fontSize: 13,
+    fontFamily: 'Arimo_700Bold',
   },
 });

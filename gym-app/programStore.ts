@@ -57,6 +57,7 @@ export type Program = {
   name: string;
   color: string;
   splitDays: SplitDay[];
+  archived?: boolean;
 };
 
 export type SharedProgram = Program & {
@@ -141,6 +142,8 @@ type ProgramContextType = {
   sharedPrograms: SharedProgram[];
   addProgram: (name: string, color: string, splitDays: SplitDay[]) => string;
   deleteProgram: (id: string) => void;
+  archiveProgram: (id: string) => void;
+  restoreProgram: (id: string) => void;
   setActive: (id: string) => void;
   updateProgram: (id: string, name: string, color: string, splitDays: SplitDay[]) => void;
   addSharedProgram: (program: SharedProgram) => void;
@@ -200,7 +203,24 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
 
   const deleteProgram = useCallback((id: string) => {
     setPrograms(prev => prev.filter(p => p.id !== id));
-    setActiveId(prev => prev === id ? '1' : prev);
+    setActiveId(prev => {
+      if (prev !== id) return prev;
+      const remaining = programs.filter(p => p.id !== id && !p.archived);
+      return remaining[0]?.id ?? '1';
+    });
+  }, [programs]);
+
+  const archiveProgram = useCallback((id: string) => {
+    setPrograms(prev => prev.map(p => p.id === id ? { ...p, archived: true } : p));
+    setActiveId(prev => {
+      if (prev !== id) return prev;
+      const remaining = programs.filter(p => p.id !== id && !p.archived);
+      return remaining[0]?.id ?? '1';
+    });
+  }, [programs]);
+
+  const restoreProgram = useCallback((id: string) => {
+    setPrograms(prev => prev.map(p => p.id === id ? { ...p, archived: false } : p));
   }, []);
 
   const setActive = useCallback((id: string) => {
@@ -239,7 +259,7 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
 
   return React.createElement(
     ProgramContext.Provider,
-    { value: { programs, activeId, sharedPrograms, addProgram, deleteProgram, setActive, updateProgram, addSharedProgram, saveSharedProgram, removeSharedProgram } as ProgramContextType },
+    { value: { programs, activeId, sharedPrograms, addProgram, deleteProgram, archiveProgram, restoreProgram, setActive, updateProgram, addSharedProgram, saveSharedProgram, removeSharedProgram } as ProgramContextType },
     children
   );
 }

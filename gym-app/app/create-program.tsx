@@ -37,6 +37,20 @@ function BounceButton({ style, children, onPress, ...rest }: any) {
   );
 }
 
+function isLightColor(hex: string): boolean {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return 0.299 * r + 0.587 * g + 0.114 * b > 140;
+}
+
+function hexAlpha(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export default function CreateProgramScreen() {
   const router = useRouter();
   const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold });
@@ -201,7 +215,7 @@ export default function CreateProgramScreen() {
                 activeOpacity={0.75}
               >
                 <View style={[styles.colorSwatchInner, { backgroundColor: color }]}>
-                  {selected && <Ionicons name="checkmark" size={16} color="#1C1C1E" />}
+                  {selected && <Ionicons name="checkmark" size={16} color={isLightColor(color) ? '#1C1C1E' : '#ffffff'} />}
                 </View>
               </TouchableOpacity>
             );
@@ -365,7 +379,7 @@ export default function CreateProgramScreen() {
         })}
 
         <View style={styles.splitAddRow}>
-          <BounceButton style={styles.splitAddBtn} onPress={addTrainingDay}>
+          <BounceButton style={[styles.splitAddBtn, { backgroundColor: hexAlpha(selectedColor, 0.15), borderColor: hexAlpha(selectedColor, 0.4) }]} onPress={addTrainingDay}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Ionicons name="add" size={18} color={colors.primaryText} />
               <Text style={[styles.splitAddText, { color: colors.primaryText }]}>Training Day</Text>
@@ -381,7 +395,7 @@ export default function CreateProgramScreen() {
 
         {/* Save Button */}
         <BounceButton
-          style={styles.saveButton}
+          style={[styles.saveButton, { backgroundColor: selectedColor }]}
           onPress={() => {
             const name = programName || 'Untitled Program';
             if (editId) {
@@ -403,8 +417,8 @@ export default function CreateProgramScreen() {
           }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={styles.saveButtonText}>Save Program</Text>
-            <Ionicons name="checkmark" size={22} color="#1C1C1E" />
+            <Text style={[styles.saveButtonText, { color: isLightColor(selectedColor) ? '#1C1C1E' : '#ffffff' }]}>Save Program</Text>
+            <Ionicons name="checkmark" size={22} color={isLightColor(selectedColor) ? '#1C1C1E' : '#ffffff'} />
           </View>
         </BounceButton>
       </ScrollView>
@@ -667,9 +681,7 @@ const styles = StyleSheet.create({
     height: 48,
     paddingHorizontal: 24,
     borderRadius: 14,
-    backgroundColor: 'rgba(71, 221, 255, 0.12)',
     borderWidth: 1.5,
-    borderColor: 'rgba(71, 221, 255, 0.3)',
   },
   splitAddRestBtn: {
     backgroundColor: 'rgba(90, 108, 125, 0.08)',
@@ -682,7 +694,6 @@ const styles = StyleSheet.create({
   },
   // Save
   saveButton: {
-    backgroundColor: '#47DDFF',
     borderRadius: 16,
     height: 52,
     alignItems: 'center',

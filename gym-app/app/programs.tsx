@@ -40,14 +40,15 @@ function BounceButton({ style, children, onPress, ...rest }: any) {
 export default function ProgramsScreen() {
   const router = useRouter();
   const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold });
-  const { programs, activeId, setActive, deleteProgram: removeProgram, sharedPrograms, saveSharedProgram, removeSharedProgram } = useProgramStore();
+  const { programs, activeId, setActive, deleteProgram: removeProgram, archiveProgram, restoreProgram, sharedPrograms, saveSharedProgram, removeSharedProgram } = useProgramStore();
   const { isDark, colors } = useTheme();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (!fontsLoaded) return null;
 
-  const activeProgram = programs.find(p => p.id === activeId);
-  const otherPrograms = programs.filter(p => p.id !== activeId);
+  const activeProgram = programs.find(p => p.id === activeId && !p.archived);
+  const otherPrograms = programs.filter(p => p.id !== activeId && !p.archived);
+  const archivedPrograms = programs.filter(p => p.archived);
 
   const handleMakeActive = (id: string) => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -71,10 +72,28 @@ export default function ProgramsScreen() {
     );
   };
 
+  const handleArchive = (id: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    archiveProgram(id);
+    setExpandedId(null);
+  };
+
+  const handleRestore = (id: string) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    restoreProgram(id);
+    setExpandedId(null);
+  };
+
   const handleDelete = (id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    removeProgram(id);
-    setExpandedId(null);
+    Alert.alert(
+      'Delete Program',
+      'This will permanently remove the program structure. Your workout history will be kept.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => { removeProgram(id); setExpandedId(null); } },
+      ]
+    );
   };
 
   const handleEdit = (id: string) => {
@@ -145,6 +164,15 @@ export default function ProgramsScreen() {
                     <Text style={[styles.actionBtnEditText, { color: colors.primaryText }]}>Edit</Text>
                   </View>
                 </BounceButton>
+                <BounceButton
+                  style={[styles.actionBtnArchive, { borderColor: isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.25)' }]}
+                  onPress={() => handleArchive(activeProgram.id)}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="archive-outline" size={18} color={colors.primaryText} />
+                    <Text style={[styles.actionBtnArchiveText, { color: colors.primaryText }]}>Archive</Text>
+                  </View>
+                </BounceButton>
               </View>
             </View>
           </>
@@ -194,10 +222,10 @@ export default function ProgramsScreen() {
                             <Text style={[styles.actionBtnEditText, { color: colors.primaryText }]}>Edit</Text>
                           </View>
                         </BounceButton>
-                        <BounceButton style={styles.actionBtnDelete} onPress={() => handleDelete(program.id)}>
+                        <BounceButton style={[styles.actionBtnArchive, { borderColor: isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.25)' }]} onPress={() => handleArchive(program.id)}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                            <Ionicons name="trash-outline" size={18} color="#e74c3c" />
-                            <Text style={styles.actionBtnDeleteText}>Delete</Text>
+                            <Ionicons name="archive-outline" size={18} color={colors.primaryText} />
+                            <Text style={[styles.actionBtnArchiveText, { color: colors.primaryText }]}>Archive</Text>
                           </View>
                         </BounceButton>
                       </View>
@@ -252,8 +280,61 @@ export default function ProgramsScreen() {
                         </BounceButton>
                         <BounceButton style={styles.actionBtnDelete} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); removeSharedProgram(program.id); setExpandedId(null); }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                            <Ionicons name="trash-outline" size={18} color="#e74c3c" />
-                            <Text style={styles.actionBtnDeleteText}>Remove</Text>
+                            <Ionicons name="trash-outline" size={18} color={colors.primaryText} />
+                            <Text style={[styles.actionBtnDeleteText, { color: colors.primaryText }]}>Remove</Text>
+                          </View>
+                        </BounceButton>
+                      </View>
+                    )}
+                  </BounceButton>
+                </View>
+              );
+            })}
+          </>
+        )}
+
+        {/* Archived Programs */}
+        {archivedPrograms.length > 0 && (
+          <>
+            <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24 }]}>ARCHIVED</Text>
+            {archivedPrograms.map(program => {
+              const isExpanded = expandedId === program.id;
+              return (
+                <View key={program.id}>
+                  <BounceButton style={[styles.programCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]} onPress={() => toggleExpand(program.id)}>
+                    <View style={[styles.programCardHeader, { opacity: 0.6 }]}>
+                      <View>
+                        <Text style={[styles.programName, { color: colors.primaryText }]}>{program.name}</Text>
+                        <Text style={[styles.programFullName, { color: colors.secondaryText }]}>{program.splitDays.filter(d => d.type === 'training').length} training days · {program.splitDays.length} day cycle</Text>
+                      </View>
+                      <Ionicons
+                        name={isExpanded ? 'chevron-down' : 'chevron-forward'}
+                        size={22}
+                        color={colors.secondaryText}
+                      />
+                    </View>
+                    <View style={[styles.daysRow, { opacity: 0.6 }]}>
+                      {program.splitDays.map((day, i) => {
+                        const label = getDayLabel(day);
+                        return (
+                          <View key={i} style={[styles.dayChip, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(90, 108, 125, 0.1)' }]}>
+                            <Text style={[styles.dayChipText, { color: colors.secondaryText }]}>{label}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                    {isExpanded && (
+                      <View style={[styles.actionsRow, { borderTopColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(90, 108, 125, 0.15)' }]}>
+                        <BounceButton style={styles.actionBtnActive} onPress={() => handleRestore(program.id)}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Ionicons name="arrow-undo-outline" size={18} color={colors.primaryText} />
+                            <Text style={[styles.actionBtnActiveText, { color: colors.primaryText }]}>Restore</Text>
+                          </View>
+                        </BounceButton>
+                        <BounceButton style={styles.actionBtnDelete} onPress={() => handleDelete(program.id)}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Ionicons name="trash-outline" size={18} color={colors.primaryText} />
+                            <Text style={[styles.actionBtnDeleteText, { color: colors.primaryText }]}>Delete</Text>
                           </View>
                         </BounceButton>
                       </View>
@@ -458,6 +539,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: 'Arimo_700Bold',
     color: '#e74c3c',
+  },
+  actionBtnArchive: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 40,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 160, 50, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 160, 50, 0.4)',
+  },
+  actionBtnArchiveText: {
+    fontSize: 13,
+    fontFamily: 'Arimo_700Bold',
   },
   createButton: {
     backgroundColor: '#47DDFF',

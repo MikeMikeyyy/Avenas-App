@@ -570,14 +570,20 @@ export default function ProgressScreen() {
 
   const THREE_MONTHS_AGO = Date.now() - 90 * 24 * 60 * 60 * 1000;
   const rawHistory = workoutState.getHistory(selectedExercise, filterProgram).filter(e => e.date >= THREE_MONTHS_AGO);
-  const exerciseData = rawHistory.map((entry) => ({
+  const repsHistory = rawHistory.filter(e => (e.repsWeight ?? 0) > 0);
+  const exerciseData = repsHistory.map((entry) => ({
     date: formatHistoryDate(entry.date),
-    weight: toDisplay(exerciseMetric === 'heaviest' ? entry.weight : entry.bestSetVolume),
+    weight: toDisplay(exerciseMetric === 'heaviest' ? (entry.repsWeight ?? entry.weight) : entry.bestSetVolume),
     color: programs.find(p => p.id === entry.programId)?.color ?? programs.find(p => p.name === entry.programName)?.color ?? entry.programColor,
   }));
-  const exercisePR = rawHistory.length > 0
-    ? toDisplay(Math.max(...rawHistory.map(e => exerciseMetric === 'heaviest' ? e.weight : e.bestSetVolume)))
-    : undefined;
+
+  const heaviestPR = repsHistory.length > 0 ? toDisplay(Math.max(...repsHistory.map(e => e.repsWeight ?? e.weight))) : undefined;
+  const repsEntries = rawHistory.filter(e => (e.bestSetReps ?? 0) > 0 && e.bestSetVolume > 0);
+  const bestVolumeEntry = repsEntries.length > 0 ? repsEntries.reduce((best, e) => e.bestSetVolume > best.bestSetVolume ? e : best) : undefined;
+  const multiRepEntries = rawHistory.filter(e => (e.bestMultiRepWeight ?? 0) > 0);
+  const bestMultiRepPR = multiRepEntries.length > 0 ? toDisplay(Math.max(...multiRepEntries.map(e => e.bestMultiRepWeight!))) : undefined;
+  const isoEntries = rawHistory.filter(e => (e.bestIsometricHold ?? 0) > 0);
+  const bestIsometricEntry = isoEntries.length > 0 ? isoEntries.reduce((best, e) => ((e.bestIsometricWeight ?? 0) * (e.bestIsometricHold ?? 0)) > ((best.bestIsometricWeight ?? 0) * (best.bestIsometricHold ?? 0)) ? e : best) : undefined;
   const exerciseColor = trainingDays.find(d => d.exercises.includes(selectedExercise))?.color || accentColor;
 
   return (
@@ -742,17 +748,7 @@ export default function ProgressScreen() {
 
         {/* Line Chart + PR */}
         <View style={[styles.glassCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, marginTop: 16 }]}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <Text style={[styles.cardLabel, { color: colors.secondaryText }]}>WEIGHT PROGRESSION</Text>
-            {exercisePR !== undefined && exercisePR > 0 && (
-              <View style={[styles.prBadge, { backgroundColor: `${exerciseColor}25`, borderColor: `${exerciseColor}4D` }]}>
-                <Ionicons name="trophy" size={12} color={exerciseColor} />
-                <Text style={[styles.prBadgeText, { color: colors.primaryText }]}>
-                  {(() => { const v = exercisePR!; const r = Math.round(v * 10) / 10; const s = `${r % 1 === 0 ? Math.round(r) : r.toFixed(1)}${unit}`; return exerciseMetric === 'heaviest' ? `PR: ${s}` : `Best: ${s}`; })()}
-                </Text>
-              </View>
-            )}
-          </View>
+          <Text style={[styles.cardLabel, { color: colors.secondaryText, marginBottom: 12 }]}>WEIGHT PROGRESSION</Text>
           {exerciseData.length > 0 ? (
             <LineChart
               key={exerciseMetric}
@@ -789,7 +785,55 @@ export default function ProgressScreen() {
               );
             })}
           </View>
+
         </View>
+
+        {/* PR Summary Table */}
+        {rawHistory.length > 0 && (
+          <View style={[styles.glassCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
+            <Text style={[styles.cardLabel, { color: colors.secondaryText, marginBottom: 12 }]}>PERSONAL RECORDS</Text>
+            <View style={{ flexDirection: 'column', gap: 10 }}>
+              {/* Heaviest Weight */}
+              <View style={[styles.prStatCell, { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor }]}>
+                <Ionicons name="barbell-outline" size={16} color={exerciseColor} />
+                <Text style={[styles.prStatValue, { color: colors.primaryText }]}>
+                  {heaviestPR !== undefined ? `${(() => { const r = Math.round(heaviestPR * 10) / 10; return r % 1 === 0 ? Math.round(r) : r.toFixed(1); })()}${unit}` : '—'}
+                </Text>
+                <Text style={[styles.prStatLabel, { color: colors.secondaryText }]}>Heaviest Weight</Text>
+              </View>
+              {/* Best Set Volume — only shown if there are reps-based entries */}
+              {bestVolumeEntry && (
+                <View style={[styles.prStatCell, { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor }]}>
+                  <Ionicons name="layers-outline" size={16} color={exerciseColor} />
+                  <Text style={[styles.prStatValue, { color: colors.primaryText }]}>
+                    {(() => { const w = toDisplay(bestVolumeEntry.bestSetWeight!); const r = Math.round(w * 10) / 10; return `${r % 1 === 0 ? Math.round(r) : r.toFixed(1)}${unit} × ${bestVolumeEntry.bestSetReps ?? 0}`; })()}
+                  </Text>
+                  <Text style={[styles.prStatLabel, { color: colors.secondaryText }]}>Best Set Volume</Text>
+                </View>
+              )}
+              {/* Heaviest 2+ Rep Weight — only shown if there are multi-rep entries */}
+              {bestMultiRepPR !== undefined && (
+                <View style={[styles.prStatCell, { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor }]}>
+                  <Ionicons name="trophy-outline" size={16} color={exerciseColor} />
+                  <Text style={[styles.prStatValue, { color: colors.primaryText }]}>
+                    {`${(() => { const r = Math.round(bestMultiRepPR * 10) / 10; return r % 1 === 0 ? Math.round(r) : r.toFixed(1); })()}${unit}`}
+                  </Text>
+                  <Text style={[styles.prStatLabel, { color: colors.secondaryText }]}>Heaviest 2+ Reps</Text>
+                </View>
+              )}
+              {/* Best Isometric Hold — only shown if there are hold-based entries */}
+              {bestIsometricEntry && (
+                <View style={[styles.prStatCell, { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor }]}>
+                  <Ionicons name="timer-outline" size={16} color={exerciseColor} />
+                  <Text style={[styles.prStatValue, { color: colors.primaryText }]}>
+                    {(() => { const w = toDisplay(bestIsometricEntry.bestIsometricWeight!); const r = Math.round(w * 10) / 10; return `${r % 1 === 0 ? Math.round(r) : r.toFixed(1)}${unit} × ${bestIsometricEntry.bestIsometricHold ?? 0}s`; })()}
+                  </Text>
+                  <Text style={[styles.prStatLabel, { color: colors.secondaryText }]}>Best Isometric Hold</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
 
       </ScrollView>
     </LinearGradient>
@@ -1019,5 +1063,21 @@ const styles = StyleSheet.create({
     color: '#5a6c7d',
     textAlign: 'center',
     paddingVertical: 20,
+  },
+  prStatCell: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    alignItems: 'center',
+    gap: 4,
+  },
+  prStatValue: {
+    fontSize: 18,
+    fontFamily: 'Arimo_700Bold',
+  },
+  prStatLabel: {
+    fontSize: 11,
+    fontFamily: 'Arimo_400Regular',
+    textAlign: 'center',
   },
 });

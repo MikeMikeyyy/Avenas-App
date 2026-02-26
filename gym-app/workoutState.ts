@@ -32,7 +32,7 @@ const _prevDataBackup: Record<string, PrevEntry | undefined> = {};
 
 // Exercise weight history — accumulates over time for the progress chart
 // Key = exercise name, value = array of { date (timestamp), weight (heaviest set), bestSetVolume (best reps×weight) }
-export type ExerciseHistoryEntry = { date: number; weight: number; bestSetVolume: number; programColor?: string; programId?: string; programName?: string };
+export type ExerciseHistoryEntry = { date: number; weight: number; repsWeight?: number; bestMultiRepWeight?: number; bestSetVolume: number; bestSetWeight?: number; bestSetReps?: number; bestIsometricWeight?: number; bestIsometricHold?: number; programColor?: string; programId?: string; programName?: string };
 const _exerciseHistory: Record<string, ExerciseHistoryEntry[]> = {};
 
 // Workout log — one entry per completed workout for volume/stats tracking
@@ -123,6 +123,16 @@ export const workoutState = {
         const parsed: WorkoutJournalEntry[] = JSON.parse(journalRaw);
         _journalLog.length = 0;
         _journalLog.push(...parsed.map(e => ({ ...e, date: Number(e.date) })));
+        // Restore finished flag if today was already logged
+        const todayStr = _getTodayStr();
+        const loggedToday = _journalLog.some(e => {
+          const d = new Date(e.date);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === todayStr;
+        });
+        if (loggedToday) {
+          _workoutFinished = true;
+          _listeners.forEach(fn => fn(true));
+        }
       }
 
       if (historyRaw) {
@@ -292,21 +302,38 @@ export const workoutState = {
         const validSets = ex.sets.filter(s => (s.weight ?? 0) > 0);
         if (validSets.length === 0) continue;
         const maxWeight = Math.max(...validSets.map(s => s.weight ?? 0));
-        const bestSetVol = Math.max(...validSets.map(s =>
-          ex.mode === 'hold'
-            ? (s.hold ?? 0) * (s.weight ?? 0)
-            : (s.reps ?? 0) * (s.weight ?? 0)
-        ));
+        const maxRepsWeight = ex.mode !== 'hold' ? maxWeight : 0;
+        let bestSetVol = 0, bestSetWeight = 0, bestSetReps = 0, bestMultiRepWeight = 0;
+        let bestIsoVol = 0, bestIsoWeight = 0, bestIsoHold = 0;
+        for (const s of validSets) {
+          if (ex.mode === 'hold') {
+            const vol = (s.hold ?? 0) * (s.weight ?? 0);
+            if (vol > bestIsoVol) { bestIsoVol = vol; bestIsoWeight = s.weight ?? 0; bestIsoHold = s.hold ?? 0; }
+          } else {
+            const vol = (s.reps ?? 0) * (s.weight ?? 0);
+            if (vol > bestSetVol) { bestSetVol = vol; bestSetWeight = s.weight ?? 0; bestSetReps = s.reps ?? 0; }
+            if ((s.reps ?? 0) >= 2 && (s.weight ?? 0) > bestMultiRepWeight) bestMultiRepWeight = s.weight ?? 0;
+          }
+        }
         const day = new Date(entry.date).toDateString();
         const existing = byDay.get(day);
         if (!existing) {
-          byDay.set(day, { date: entry.date, weight: maxWeight, bestSetVolume: bestSetVol, programColor: entry.programColor, programId: entry.programId, programName: entry.programName });
+          byDay.set(day, { date: entry.date, weight: maxWeight, repsWeight: maxRepsWeight || undefined, bestMultiRepWeight: bestMultiRepWeight || undefined, bestSetVolume: bestSetVol, bestSetWeight: bestSetWeight || undefined, bestSetReps: bestSetReps || undefined, bestIsometricWeight: bestIsoWeight || undefined, bestIsometricHold: bestIsoHold || undefined, programColor: entry.programColor, programId: entry.programId, programName: entry.programName });
         } else {
           const useNew = maxWeight > existing.weight;
+          const useBestVol = bestSetVol > existing.bestSetVolume;
+          const existingIsoVol = (existing.bestIsometricWeight ?? 0) * (existing.bestIsometricHold ?? 0);
+          const useBestIso = bestIsoVol > existingIsoVol;
           byDay.set(day, {
             date: entry.date,
             weight: Math.max(existing.weight, maxWeight),
+            repsWeight: Math.max(existing.repsWeight ?? 0, maxRepsWeight) || undefined,
+            bestMultiRepWeight: Math.max(existing.bestMultiRepWeight ?? 0, bestMultiRepWeight) || undefined,
             bestSetVolume: Math.max(existing.bestSetVolume, bestSetVol),
+            bestSetWeight: useBestVol ? (bestSetWeight || undefined) : existing.bestSetWeight,
+            bestSetReps: useBestVol ? (bestSetReps || undefined) : existing.bestSetReps,
+            bestIsometricWeight: useBestIso ? (bestIsoWeight || undefined) : existing.bestIsometricWeight,
+            bestIsometricHold: useBestIso ? (bestIsoHold || undefined) : existing.bestIsometricHold,
             programColor: useNew ? entry.programColor : existing.programColor,
             programId: useNew ? entry.programId : existing.programId,
             programName: useNew ? entry.programName : existing.programName,
@@ -354,11 +381,21 @@ export const workoutState = {
       for (const ex of exercises) {
         const maxWeight = Math.max(...ex.sets.map(s => s.weight), 0);
         if (maxWeight <= 0) continue;
-        const bestSetVolume = Math.max(...ex.sets.map(s =>
-          ex.mode === 'hold' ? (s.hold ?? 0) * s.weight : s.reps * s.weight
-        ), 0);
+        const maxRepsWeight = ex.mode !== 'hold' ? maxWeight : 0;
+        let bestSetVolume = 0, bestSetWeight = 0, bestSetReps = 0, bestMultiRepWeight = 0;
+        let bestIsoVolume = 0, bestIsoWeight = 0, bestIsoHold = 0;
+        for (const s of ex.sets) {
+          if (ex.mode === 'hold') {
+            const vol = (s.hold ?? 0) * s.weight;
+            if (vol > bestIsoVolume) { bestIsoVolume = vol; bestIsoWeight = s.weight; bestIsoHold = s.hold ?? 0; }
+          } else {
+            const vol = s.reps * s.weight;
+            if (vol > bestSetVolume) { bestSetVolume = vol; bestSetWeight = s.weight; bestSetReps = s.reps; }
+            if (s.reps >= 2 && s.weight > bestMultiRepWeight) bestMultiRepWeight = s.weight;
+          }
+        }
         if (!_exerciseHistory[ex.name]) _exerciseHistory[ex.name] = [];
-        _exerciseHistory[ex.name].push({ date: entry.date, weight: maxWeight, bestSetVolume });
+        _exerciseHistory[ex.name].push({ date: entry.date, weight: maxWeight, repsWeight: maxRepsWeight || undefined, bestMultiRepWeight: bestMultiRepWeight || undefined, bestSetVolume, bestSetWeight: bestSetWeight || undefined, bestSetReps: bestSetReps || undefined, bestIsometricWeight: bestIsoWeight || undefined, bestIsometricHold: bestIsoHold || undefined });
       }
     }
     _persistHistory();
@@ -371,7 +408,7 @@ export const workoutState = {
     const totalVolume = entry.sessions.reduce((sum, session) =>
       sum + session.exercises.reduce((eSum, ex) =>
         eSum + ex.sets.reduce((sSum, set) => {
-          if (ex.mode === 'hold') return sSum + ((set.hold ?? 0) * (set.weight ?? 0)) / 30;
+          if (ex.mode === 'hold') return sSum;
           return sSum + (set.reps * (set.weight ?? 0));
         }, 0), 0), 0);
     const updatedEntry = { ...entry, totalVolume };
@@ -389,14 +426,24 @@ export const workoutState = {
       // Replace history entries for this date with updated max weights
       for (const ex of exercises) {
         const maxWeight = Math.max(...ex.sets.map(s => s.weight), 0);
-        const bestSetVolume = Math.max(...ex.sets.map(s =>
-          ex.mode === 'hold' ? (s.hold ?? 0) * s.weight : s.reps * s.weight
-        ), 0);
+        const maxRepsWeight = ex.mode !== 'hold' ? maxWeight : 0;
+        let bestSetVolume = 0, bestSetWeight = 0, bestSetReps = 0, bestMultiRepWeight = 0;
+        let bestIsoVolume = 0, bestIsoWeight = 0, bestIsoHold = 0;
+        for (const s of ex.sets) {
+          if (ex.mode === 'hold') {
+            const vol = (s.hold ?? 0) * s.weight;
+            if (vol > bestIsoVolume) { bestIsoVolume = vol; bestIsoWeight = s.weight; bestIsoHold = s.hold ?? 0; }
+          } else {
+            const vol = s.reps * s.weight;
+            if (vol > bestSetVolume) { bestSetVolume = vol; bestSetWeight = s.weight; bestSetReps = s.reps; }
+            if (s.reps >= 2 && s.weight > bestMultiRepWeight) bestMultiRepWeight = s.weight;
+          }
+        }
         if (!_exerciseHistory[ex.name]) _exerciseHistory[ex.name] = [];
         _exerciseHistory[ex.name] = _exerciseHistory[ex.name].filter(
           e => new Date(e.date).toDateString() !== entryDateStr
         );
-        if (maxWeight > 0) _exerciseHistory[ex.name].push({ date: entry.date, weight: maxWeight, bestSetVolume });
+        if (maxWeight > 0) _exerciseHistory[ex.name].push({ date: entry.date, weight: maxWeight, repsWeight: maxRepsWeight || undefined, bestMultiRepWeight: bestMultiRepWeight || undefined, bestSetVolume, bestSetWeight: bestSetWeight || undefined, bestSetReps: bestSetReps || undefined, bestIsometricWeight: bestIsoWeight || undefined, bestIsometricHold: bestIsoHold || undefined });
       }
     }
     _persistHistory();
