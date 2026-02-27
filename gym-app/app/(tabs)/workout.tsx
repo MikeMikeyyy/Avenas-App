@@ -1500,13 +1500,14 @@ export default function WorkoutScreen() {
                   updateExercises(prev => prev.map((ex, ei) => ei !== i ? ex : { ...ex, mode: newMode }));
                   if (activeProgram) {
                     const splitDays = [...activeProgram.splitDays];
-                    const day = splitDays[selectedDayIndex];
+                    const splitIdx = getEffectiveSplitIndex(selectedDayIndex);
+                    const day = splitDays[splitIdx];
                     if (day?.type === 'training') {
                       const sessions = [...day.sessions];
                       const exs = [...sessions[selectedSessionIndex].exercises];
                       exs[i] = { ...exs[i], mode: newMode };
                       sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
-                      splitDays[selectedDayIndex] = { ...day, sessions };
+                      splitDays[splitIdx] = { ...day, sessions };
                       updateProgram(activeProgram.id, activeProgram.name, activeProgram.color, splitDays);
                     }
                   }
@@ -1517,12 +1518,13 @@ export default function WorkoutScreen() {
                   updateExercises(prev => prev.filter((_, ei) => ei !== i));
                   if (activeProgram) {
                     const splitDays = [...activeProgram.splitDays];
-                    const day = splitDays[selectedDayIndex];
+                    const splitIdx = getEffectiveSplitIndex(selectedDayIndex);
+                    const day = splitDays[splitIdx];
                     if (day?.type === 'training') {
                       const sessions = [...day.sessions];
                       const exs = sessions[selectedSessionIndex].exercises.filter((_, ei) => ei !== i);
                       sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
-                      splitDays[selectedDayIndex] = { ...day, sessions };
+                      splitDays[splitIdx] = { ...day, sessions };
                       updateProgram(activeProgram.id, activeProgram.name, activeProgram.color, splitDays);
                     }
                   }
@@ -1937,12 +1939,13 @@ export default function WorkoutScreen() {
             updateExercises(prev => [...prev, newExercise]);
             if (activeProgram) {
               const splitDays = [...activeProgram.splitDays];
-              const day = splitDays[selectedDayIndex];
+              const splitIdx = getEffectiveSplitIndex(selectedDayIndex);
+              const day = splitDays[splitIdx];
               if (day?.type === 'training') {
                 const sessions = [...day.sessions];
                 const exs = [...sessions[selectedSessionIndex].exercises, { name, sets: 3 }];
                 sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
-                splitDays[selectedDayIndex] = { ...day, sessions };
+                splitDays[splitIdx] = { ...day, sessions };
                 updateProgram(activeProgram.id, activeProgram.name, activeProgram.color, splitDays);
               }
             }
@@ -1951,13 +1954,14 @@ export default function WorkoutScreen() {
             updateExercises(prev => prev.map((ex, ei) => ei !== idx ? ex : { ...ex, name }));
             if (activeProgram) {
               const splitDays = [...activeProgram.splitDays];
-              const day = splitDays[selectedDayIndex];
+              const splitIdx = getEffectiveSplitIndex(selectedDayIndex);
+              const day = splitDays[splitIdx];
               if (day?.type === 'training') {
                 const sessions = [...day.sessions];
                 const exs = [...sessions[selectedSessionIndex].exercises];
                 exs[idx] = { ...exs[idx], name };
                 sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
-                splitDays[selectedDayIndex] = { ...day, sessions };
+                splitDays[splitIdx] = { ...day, sessions };
                 updateProgram(activeProgram.id, activeProgram.name, activeProgram.color, splitDays);
               }
             }

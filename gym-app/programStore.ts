@@ -154,6 +154,7 @@ const ProgramContext = createContext<ProgramContextType | null>(null);
 
 const PROGRAMS_KEY = '@programs_v1';
 const ACTIVE_KEY = '@programs_activeId_v1';
+const SHARED_KEY = '@programs_shared_v1';
 let _nextId = 4;
 
 export function ProgramProvider({ children }: { children: React.ReactNode }) {
@@ -166,9 +167,10 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const [programsRaw, activeRaw] = await Promise.all([
+        const [programsRaw, activeRaw, sharedRaw] = await Promise.all([
           AsyncStorage.getItem(PROGRAMS_KEY),
           AsyncStorage.getItem(ACTIVE_KEY),
+          AsyncStorage.getItem(SHARED_KEY),
         ]);
         if (programsRaw) {
           const parsed: Program[] = JSON.parse(programsRaw);
@@ -177,6 +179,7 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
           _nextId = maxId + 1;
         }
         if (activeRaw) setActiveId(activeRaw);
+        if (sharedRaw) setSharedPrograms(JSON.parse(sharedRaw));
       } catch {}
       setLoaded(true);
     })();
@@ -194,6 +197,12 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(ACTIVE_KEY, activeId).catch(() => {});
   }, [activeId, loaded]);
 
+  // Persist shared programs
+  useEffect(() => {
+    if (!loaded) return;
+    AsyncStorage.setItem(SHARED_KEY, JSON.stringify(sharedPrograms)).catch(() => {});
+  }, [sharedPrograms, loaded]);
+
   const addProgram = useCallback((name: string, color: string, splitDays: SplitDay[]): string => {
     const id = String(_nextId++);
     setPrograms(prev => [...prev, { id, name, color, splitDays }]);
@@ -205,7 +214,7 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
     setActiveId(prev => {
       if (prev !== id) return prev;
       const remaining = programs.filter(p => p.id !== id && !p.archived);
-      return remaining[0]?.id ?? '1';
+      return remaining[0]?.id ?? programs.find(p => p.id !== id)?.id ?? '';
     });
   }, [programs]);
 
@@ -214,7 +223,7 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
     setActiveId(prev => {
       if (prev !== id) return prev;
       const remaining = programs.filter(p => p.id !== id && !p.archived);
-      return remaining[0]?.id ?? '1';
+      return remaining[0]?.id ?? programs.find(p => p.id !== id)?.id ?? '';
     });
   }, [programs]);
 
@@ -240,17 +249,20 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
   const saveSharedProgram = useCallback((id: string) => {
     setSharedPrograms(prev => {
       const shared = prev.find(p => p.id === id);
-      if (shared) {
-        const newId = String(_nextId++);
-        setPrograms(progs => {
-          const color = shared.color || PROGRAM_COLORS[progs.length % PROGRAM_COLORS.length];
-          return [...progs, { id: newId, name: shared.name, color, splitDays: shared.splitDays }];
-        });
-        return prev.filter(p => p.id !== id);
-      }
-      return prev;
+      if (!shared) return prev;
+      return prev.filter(p => p.id !== id);
     });
-  }, []);
+    setPrograms(prev => {
+      const shared = prev.find(p => p.id === id);
+      // Don't duplicate if somehow already in programs
+      if (shared) return prev;
+      const sharedItem = sharedPrograms.find(p => p.id === id);
+      if (!sharedItem) return prev;
+      const newId = String(_nextId++);
+      const color = sharedItem.color || PROGRAM_COLORS[prev.length % PROGRAM_COLORS.length];
+      return [...prev, { id: newId, name: sharedItem.name, color, splitDays: sharedItem.splitDays }];
+    });
+  }, [sharedPrograms]);
 
   const removeSharedProgram = useCallback((id: string) => {
     setSharedPrograms(prev => prev.filter(p => p.id !== id));

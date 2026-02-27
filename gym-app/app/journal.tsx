@@ -1078,7 +1078,7 @@ export default function JournalScreen() {
               {logState.step === 'program' ? (
                 <>
                   <Text style={[styles.logSheetHeading, { color: colors.primaryText }]}>Select program</Text>
-                  {programs.map(p => (
+                  {programs.filter(p => !p.archived).map(p => (
                     <TouchableOpacity
                       key={p.id}
                       style={[styles.logSheetRow, { borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.09)' }]}

@@ -752,11 +752,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  editButton: {
-    backgroundColor: 'rgba(71, 221, 255, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(71, 221, 255, 0.4)',
-  },
   startButtonText: {
     color: '#1C1C1E',
     fontSize: 16,

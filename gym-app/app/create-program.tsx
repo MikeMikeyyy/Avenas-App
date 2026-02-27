@@ -20,6 +20,19 @@ import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/ar
 import { useProgramStore, PROGRAM_COLORS, type Exercise, type SplitDay } from '../programStore';
 import { useTheme } from '../themeStore';
 import { ExercisePicker } from '../components/ExercisePicker';
+import { Image } from 'expo-image';
+import exerciseDbRaw from '../assets/data/exercises.json';
+
+type BundledExercise = { id: string; name: string; muscle: string; image: string };
+const exerciseDb = exerciseDbRaw as BundledExercise[];
+const EXERCISE_IMAGE_MAP = new Map(exerciseDb.map(e => [e.name, e.image]));
+const IMAGE_BASE = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
+
+function getExerciseImageUri(name: string): string | null {
+  const img = EXERCISE_IMAGE_MAP.get(name);
+  if (!img) return null;
+  return IMAGE_BASE + img.split('/').map(encodeURIComponent).join('/');
+}
 
 function BounceButton({ style, children, onPress, ...rest }: any) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -106,11 +119,6 @@ export default function CreateProgramScreen() {
       }
       return next;
     });
-  };
-
-  const addExerciseToSession = (_dayIndex: number, _sessionIndex: number) => {
-    // Replaced by ExercisePicker
-  };
   };
 
   const updateExercise = (dayIndex: number, sessionIndex: number, exIndex: number, field: 'name' | 'sets' | 'warmupSets', value: string | number) => {
@@ -299,29 +307,33 @@ export default function CreateProgramScreen() {
 
                   {/* Exercises for this session */}
                   <Text style={[styles.exercisesLabel, { color: colors.secondaryText, marginTop: 12 }]}>EXERCISES</Text>
-                  {session.exercises.map((ex, j) => (
+                  {session.exercises.map((ex, j) => {
+                    const exImageUri = getExerciseImageUri(ex.name);
+                    return (
                     <View key={j} style={styles.exerciseRow}>
-                      {/* Name row */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        <View style={[styles.exerciseInputWrap, { flex: 1, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255, 255, 255, 0.4)', borderColor: colors.cardBorder }]}>
-                          <TextInput
-                            style={[styles.exerciseInput, { color: colors.primaryText }]}
-                            placeholder={`Exercise ${j + 1}`}
-                            placeholderTextColor={colors.tertiaryText}
-                            value={ex.name}
-                            onChangeText={(v) => updateExercise(i, si, j, 'name', v)}
-                            returnKeyType="done"
-                            onSubmitEditing={Keyboard.dismiss}
-                          />
+                      {/* Name display row (read-only) */}
+                      <View style={[styles.exerciseDisplayRow, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.55)', borderColor: colors.cardBorder }]}>
+                        <View style={[styles.exThumbWrap, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)' }]}>
+                          {exImageUri ? (
+                            <Image
+                              source={{ uri: exImageUri }}
+                              style={styles.exThumb}
+                              contentFit="cover"
+                              transition={200}
+                            />
+                          ) : (
+                            <Ionicons name="barbell-outline" size={20} color={colors.tertiaryText} />
+                          )}
                         </View>
-                        {session.exercises.length > 1 && (
-                          <TouchableOpacity
-                            onPress={() => removeExercise(i, si, j)}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          >
-                            <Ionicons name="trash-outline" size={20} color="#e74c3c" />
-                          </TouchableOpacity>
-                        )}
+                        <Text style={[styles.exName, { color: colors.primaryText }]} numberOfLines={2}>
+                          {ex.name || `Exercise ${j + 1}`}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => removeExercise(i, si, j)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="trash-outline" size={20} color="#e74c3c" />
+                        </TouchableOpacity>
                       </View>
                       {/* Sets controls row */}
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20, marginTop: 8, paddingLeft: 4 }}>
@@ -364,7 +376,8 @@ export default function CreateProgramScreen() {
                         </Text>
                       )}
                     </View>
-                  ))}
+                  );
+                  })}
                   <BounceButton style={[styles.addExerciseBtn, { borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(90, 108, 125, 0.35)' }]} onPress={() => setPickerTarget({ dayIndex: i, sessionIndex: si })}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Ionicons name="add" size={20} color={colors.secondaryText} />
@@ -591,12 +604,6 @@ const styles = StyleSheet.create({
     height: 44,
   },
   // Exercises inside training day
-  exercisesContainer: {
-    marginTop: 14,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(90, 108, 125, 0.15)',
-  },
   exercisesLabel: {
     fontSize: 11,
     fontFamily: 'Arimo_700Bold',
@@ -609,20 +616,33 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     marginBottom: 10,
   },
-  exerciseInputWrap: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  exerciseDisplayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#ffffffcc',
-    paddingHorizontal: 14,
-    paddingVertical: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
-  exerciseInput: {
-    fontSize: 15,
-    fontFamily: 'Arimo_400Regular',
-    color: '#2c3e50',
+  exThumbWrap: {
+    width: 44,
     height: 44,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    flexShrink: 0,
+  },
+  exThumb: {
+    width: 44,
+    height: 44,
+  },
+  exName: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: 'Arimo_700Bold',
+    lineHeight: 18,
   },
   setsWrap: {
     flexDirection: 'row',

@@ -261,7 +261,7 @@ export const workoutState = {
     _notifyPrevChanged();
   },
   restorePrev(dayLabel: string) {
-    if (_prevDataBackup[dayLabel] !== undefined) {
+    if (Object.prototype.hasOwnProperty.call(_prevDataBackup, dayLabel)) {
       // A backup exists — restore to the state before savePrev was called
       if (_prevDataBackup[dayLabel]) {
         _prevData[dayLabel] = _prevDataBackup[dayLabel]!;

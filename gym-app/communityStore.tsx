@@ -62,7 +62,6 @@ export type Community = {
   ownerName: string;
   ownerId: string;
   color: string;
-  memberCount: number;
   createdAt: Date;
   members: Member[];
   sharedWorkouts: SharedWorkout[];
@@ -86,7 +85,6 @@ const defaultCommunities: Community[] = [
     ownerName: 'Coach Mike',
     ownerId: 'coach-mike',
     color: '#47DDFF',
-    memberCount: 24,
     createdAt: new Date('2024-01-15'),
     inviteCode: 'ELITE2024',
     members: [
@@ -168,7 +166,6 @@ const defaultOwnedCommunities: Community[] = [
     ownerName: 'You',
     ownerId: 'user-1',
     color: '#34D399',
-    memberCount: 8,
     createdAt: new Date('2024-03-01'),
     inviteCode: 'MYTRAIN4X',
     members: [
@@ -290,7 +287,6 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
       ownerName: CURRENT_USER.name,
       ownerId: CURRENT_USER.id,
       color: getRandomColor(),
-      memberCount: 1,
       createdAt: new Date(),
       inviteCode: generateInviteCode(name),
       members: [
@@ -322,7 +318,6 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
         ownerName: 'Coach',
         ownerId: 'coach-new',
         color: getRandomColor(),
-        memberCount: 5,
         createdAt: new Date(),
         inviteCode: inviteCode.toUpperCase(),
         members: [
@@ -471,7 +466,6 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
       return {
         ...c,
         members: c.members.filter(m => m.id !== memberId),
-        memberCount: c.memberCount - 1,
       };
     }));
   };

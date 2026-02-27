@@ -251,11 +251,6 @@ export default function CommunityScreen() {
       sendMessage(selectedCommunity.id, chatMessage.trim());
       setChatMessage('');
       Keyboard.dismiss();
-      // Refresh the selected community
-      const updated = isOwnerView
-        ? ownedCommunities.find(c => c.id === selectedCommunity.id)
-        : joinedCommunities.find(c => c.id === selectedCommunity.id);
-      if (updated) setSelectedCommunity(updated);
     }
   };
 
@@ -276,9 +271,7 @@ export default function CommunityScreen() {
         setSelectedMembers([]);
         setViewMode('detail');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        // Refresh
-        const updated = ownedCommunities.find(c => c.id === selectedCommunity.id);
-        if (updated) setSelectedCommunity(updated);
+        // useEffect will sync selectedCommunity from the updated store
       }
     }
   };
@@ -297,8 +290,6 @@ export default function CommunityScreen() {
         setSelectedProgramId(null);
         setViewMode('detail');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        const updated = joinedCommunities.find(c => c.id === selectedCommunity.id);
-        if (updated) setSelectedCommunity(updated);
       }
     }
   };
@@ -580,8 +571,6 @@ export default function CommunityScreen() {
                           sharedBy: workout.sharedBy,
                         });
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        const updated = joinedCommunities.find(c => c.id === selectedCommunity.id);
-                        if (updated) setSelectedCommunity(updated);
                       }}
                     >
                       <Ionicons name="checkmark" size={20} color="#fff" />
@@ -590,8 +579,6 @@ export default function CommunityScreen() {
                       style={styles.declineBtn}
                       onPress={() => {
                         declineWorkout(selectedCommunity.id, workout.id);
-                        const updated = joinedCommunities.find(c => c.id === selectedCommunity.id);
-                        if (updated) setSelectedCommunity(updated);
                       }}
                     >
                       <Ionicons name="close" size={20} color="#e74c3c" />
@@ -692,8 +679,6 @@ export default function CommunityScreen() {
                         onPress={() => {
                           respondToMemberShare(selectedCommunity.id, workout.id, true);
                           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                          const updated = ownedCommunities.find(c => c.id === selectedCommunity.id);
-                          if (updated) setSelectedCommunity(updated);
                         }}
                       >
                         <Ionicons name="checkmark" size={20} color="#fff" />
@@ -702,8 +687,6 @@ export default function CommunityScreen() {
                         style={styles.declineBtn}
                         onPress={() => {
                           respondToMemberShare(selectedCommunity.id, workout.id, false);
-                          const updated = ownedCommunities.find(c => c.id === selectedCommunity.id);
-                          if (updated) setSelectedCommunity(updated);
                         }}
                       >
                         <Ionicons name="close" size={20} color="#e74c3c" />
@@ -1297,7 +1280,7 @@ export default function CommunityScreen() {
       </Modal>
 
       {/* Options Menu Modal */}
-      <BottomSheetModal visible={showOptionsMenu} onDismiss={() => setShowOptionsMenu(false)} overlayColor={colors.overlayBg}>
+      <BottomSheetModal visible={showOptionsMenu} onDismiss={() => setShowOptionsMenu(false)} overlayColor={colors.overlayBg} sheetBackground={colors.modalBg}>
         <View style={[styles.optionsMenuContent, { backgroundColor: colors.modalBg }]}>
           <View style={[styles.optionsMenuHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : '#e0e0e0' }]} />
           {isOwnerView ? (
@@ -1309,7 +1292,7 @@ export default function CommunityScreen() {
                   if (selectedCommunity) {
                     setEditName(selectedCommunity.name);
                     setEditDesc(selectedCommunity.description);
-                    setShowEditModal(true);
+                    setTimeout(() => setShowEditModal(true), 230);
                   }
                 }}
               >
@@ -1353,7 +1336,20 @@ export default function CommunityScreen() {
       </BottomSheetModal>
 
       {/* Manage Members Modal */}
-      <BottomSheetModal visible={showManageMembersModal} onDismiss={() => setShowManageMembersModal(false)} overlayColor={colors.overlayBg}>
+      <BottomSheetModal
+        visible={showManageMembersModal}
+        onDismiss={() => setShowManageMembersModal(false)}
+        overlayColor={colors.overlayBg}
+        sheetBackground={colors.modalBg}
+        footer={
+          <BounceButton
+            style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
+            onPress={() => setShowManageMembersModal(false)}
+          >
+            <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>Cancel</Text>
+          </BounceButton>
+        }
+      >
         <TouchableOpacity activeOpacity={1} style={[styles.manageMembersContent, { backgroundColor: colors.modalBg }]}>
           <View style={[styles.optionsMenuHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : '#e0e0e0' }]} />
           <Text style={[styles.manageMembersTitle, { color: colors.primaryText }]}>Remove Members</Text>
@@ -1368,7 +1364,7 @@ export default function CommunityScreen() {
                   onPress={() => {
                     setMemberToRemove(member);
                     setShowManageMembersModal(false);
-                    setShowRemoveConfirmation(true);
+                    setTimeout(() => setShowRemoveConfirmation(true), 230);
                   }}
                 >
                   <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(member.id) }]}>
@@ -1384,12 +1380,6 @@ export default function CommunityScreen() {
                 </BounceButton>
               ))}
           </ScrollView>
-          <BounceButton
-            style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
-            onPress={() => setShowManageMembersModal(false)}
-          >
-            <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>Cancel</Text>
-          </BounceButton>
         </TouchableOpacity>
       </BottomSheetModal>
 
@@ -1423,8 +1413,10 @@ export default function CommunityScreen() {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   if (selectedCommunity && memberToRemove) {
                     removeMember(selectedCommunity.id, memberToRemove.id);
-                    const updated = ownedCommunities.find(c => c.id === selectedCommunity.id);
-                    if (updated) setSelectedCommunity(updated);
+                    setSelectedCommunity({
+                      ...selectedCommunity,
+                      members: selectedCommunity.members.filter(m => m.id !== memberToRemove.id),
+                    });
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                   }
                   setShowRemoveConfirmation(false);
@@ -1467,10 +1459,7 @@ export default function CommunityScreen() {
               onPress={() => {
                 if (selectedCommunity && editName.trim()) {
                   updateCommunity(selectedCommunity.id, editName.trim(), editDesc.trim());
-                  const updated = ownedCommunities.find(c => c.id === selectedCommunity.id);
-                  if (updated) {
-                    setSelectedCommunity({ ...updated, name: editName.trim(), description: editDesc.trim() });
-                  }
+                  setSelectedCommunity({ ...selectedCommunity, name: editName.trim(), description: editDesc.trim() });
                   setShowEditModal(false);
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 }
@@ -1496,20 +1485,35 @@ export default function CommunityScreen() {
       </Modal>
 
       {/* Manage Programs Modal */}
-      <BottomSheetModal visible={showManageProgramsModal} onDismiss={() => setShowManageProgramsModal(false)} overlayColor={colors.overlayBg}>
+      <BottomSheetModal
+        visible={showManageProgramsModal}
+        onDismiss={() => setShowManageProgramsModal(false)}
+        overlayColor={colors.overlayBg}
+        sheetBackground={colors.modalBg}
+        footer={
+          <BounceButton
+            style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
+            onPress={() => setShowManageProgramsModal(false)}
+          >
+            <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>Cancel</Text>
+          </BounceButton>
+        }
+      >
         <TouchableOpacity activeOpacity={1} style={[styles.manageMembersContent, { backgroundColor: colors.modalBg }]}>
           <View style={[styles.optionsMenuHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : '#e0e0e0' }]} />
           <Text style={[styles.manageMembersTitle, { color: colors.primaryText }]}>Remove Programs</Text>
           <Text style={[styles.manageMembersSubtitle, { color: colors.secondaryText }]}>Select a program to remove from the community</Text>
           <ScrollView style={styles.manageMembersList} showsVerticalScrollIndicator={false}>
-            {selectedCommunity?.sharedWorkouts.map(workout => (
+            {selectedCommunity?.sharedWorkouts.filter(w => w.direction !== 'toCoach').map(workout => (
               <BounceButton
                 key={workout.id}
                 style={[styles.manageMemberItem, { backgroundColor: colors.inputBg }]}
                 onPress={() => {
                   setProgramToRemove({ id: workout.id, name: workout.programName });
                   setShowManageProgramsModal(false);
-                  setShowRemoveProgramConfirmation(true);
+                  // Delay confirmation modal until BottomSheetModal fully closes (220ms)
+                  // to avoid two transparent modals stacking, which blocks touches after dismiss
+                  setTimeout(() => setShowRemoveProgramConfirmation(true), 230);
                 }}
               >
                 <View style={[styles.programColorDot, { backgroundColor: workout.color, marginRight: 12 }]} />
@@ -1521,12 +1525,6 @@ export default function CommunityScreen() {
               </BounceButton>
             ))}
           </ScrollView>
-          <BounceButton
-            style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
-            onPress={() => setShowManageProgramsModal(false)}
-          >
-            <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>Cancel</Text>
-          </BounceButton>
         </TouchableOpacity>
       </BottomSheetModal>
 
@@ -1560,8 +1558,10 @@ export default function CommunityScreen() {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   if (selectedCommunity && programToRemove) {
                     removeSharedWorkout(selectedCommunity.id, programToRemove.id);
-                    const updated = ownedCommunities.find(c => c.id === selectedCommunity.id);
-                    if (updated) setSelectedCommunity(updated);
+                    setSelectedCommunity({
+                      ...selectedCommunity,
+                      sharedWorkouts: selectedCommunity.sharedWorkouts.filter(w => w.id !== programToRemove.id),
+                    });
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                   }
                   setShowRemoveProgramConfirmation(false);
@@ -2220,7 +2220,7 @@ const styles = StyleSheet.create({
     color: '#5a6c7d',
     textAlign: 'center',
     marginTop: 4,
-    marginBottom: 20,
+    marginBottom: 12,
   },
   modalInput: {
     backgroundColor: '#f5f5f5',
@@ -2559,9 +2559,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 12,
-    paddingBottom: 34,
+    paddingBottom: 12,
     paddingHorizontal: 20,
-    maxHeight: '70%',
   },
   manageMembersTitle: {
     fontSize: 20,

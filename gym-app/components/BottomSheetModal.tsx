@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Modal, Animated, TouchableOpacity, StyleSheet } from 'react-native';
+import { Modal, Animated, TouchableOpacity, StyleSheet, View } from 'react-native';
 
 interface Props {
   visible: boolean;
   onDismiss: () => void;
   overlayColor?: string;
+  /** Background colour of the sheet — used to fill the gap below the content to the screen bottom */
+  sheetBackground?: string;
+  /** Rendered in the extension area below the sheet content — use for Cancel/action buttons so they sit at the physical screen bottom */
+  footer?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -17,6 +21,8 @@ export function BottomSheetModal({
   visible,
   onDismiss,
   overlayColor = 'rgba(0,0,0,0.45)',
+  sheetBackground = '#ffffff',
+  footer,
   children,
 }: Props) {
   const [showing, setShowing] = useState(false);
@@ -49,6 +55,11 @@ export function BottomSheetModal({
       <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onDismiss} />
       <Animated.View style={{ transform: [{ translateY: sheetOffset }] }}>
         {children}
+        {/* Extension area — fills the gap between sheet content and physical screen bottom.
+            When a footer is provided it renders here so buttons sit at the bottom. */}
+        <View style={{ backgroundColor: sheetBackground, paddingHorizontal: 20, paddingTop: footer ? 12 : 0, paddingBottom: 34 }}>
+          {footer}
+        </View>
       </Animated.View>
     </Modal>
   );

@@ -628,7 +628,7 @@ export default function ProgressScreen() {
           >
             <Text style={[styles.periodPillText, { color: colors.secondaryText }, selectedProgramId === null && { color: colors.primaryText }]}>All</Text>
           </TouchableOpacity>
-          {programs.map((p) => {
+          {programs.filter(p => !p.archived).map((p) => {
             const isActive = p.id === selectedProgramId;
             return (
               <TouchableOpacity
