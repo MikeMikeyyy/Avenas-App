@@ -1,7 +1,10 @@
 // Shared program state using React context
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from './firebase';
+import { useAuth } from './authStore';
 
 export type Exercise = { name: string; sets: number; warmupSets?: number; mode?: 'reps' | 'hold' };
 export type Session = { label: string; exercises: Exercise[] };
@@ -155,13 +158,15 @@ const ProgramContext = createContext<ProgramContextType | null>(null);
 const PROGRAMS_KEY = '@programs_v1';
 const ACTIVE_KEY = '@programs_activeId_v1';
 const SHARED_KEY = '@programs_shared_v1';
-let _nextId = 4;
+let _nextId = 1;
 
 export function ProgramProvider({ children }: { children: React.ReactNode }) {
-  const [programs, setPrograms] = useState<Program[]>(DEFAULT_PROGRAMS);
-  const [activeId, setActiveId] = useState('1');
-  const [sharedPrograms, setSharedPrograms] = useState<SharedProgram[]>(DEFAULT_SHARED);
+  const { user } = useAuth();
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [activeId, setActiveId] = useState('');
+  const [sharedPrograms, setSharedPrograms] = useState<SharedProgram[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const firestoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load persisted programs on mount
   useEffect(() => {
@@ -175,7 +180,7 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
         if (programsRaw) {
           const parsed: Program[] = JSON.parse(programsRaw);
           setPrograms(parsed);
-          const maxId = Math.max(...parsed.map(p => Number(p.id)).filter(n => !isNaN(n)), 3);
+          const maxId = Math.max(...parsed.map(p => Number(p.id)).filter(n => !isNaN(n)), 0);
           _nextId = maxId + 1;
         }
         if (activeRaw) setActiveId(activeRaw);
@@ -185,23 +190,83 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  // Persist programs whenever they change (after initial load)
+  // Clear state when user logs out so the next account starts fresh
+  useEffect(() => {
+    if (!user) {
+      setPrograms([]);
+      setActiveId('');
+      setSharedPrograms([]);
+      _nextId = 1;
+      AsyncStorage.multiRemove([PROGRAMS_KEY, ACTIVE_KEY, SHARED_KEY]).catch(() => {});
+    }
+  }, [user?.uid]);
+
+  // When a user logs in, fetch their programs from Firestore (cloud overrides local cache)
+  useEffect(() => {
+    if (!loaded || !user) return;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'users', user.uid, 'data', 'programs'));
+        if (snap.exists()) {
+          const data = snap.data();
+          const fsPrograms: Program[] = data.programs ?? [];
+          const fsActiveId: string = data.activeId ?? '';
+          setPrograms(fsPrograms);
+          if (fsPrograms.length > 0) {
+            const maxId = Math.max(...fsPrograms.map(p => Number(p.id)).filter(n => !isNaN(n)), 0);
+            _nextId = maxId + 1;
+          }
+          setActiveId(fsActiveId);
+          // Keep local cache in sync
+          AsyncStorage.setItem(PROGRAMS_KEY, JSON.stringify(fsPrograms)).catch(() => {});
+          AsyncStorage.setItem(ACTIVE_KEY, fsActiveId).catch(() => {});
+        } else {
+          // New user — clear any stale data from a previous account on this device
+          setPrograms([]);
+          setActiveId('');
+          setSharedPrograms([]);
+          _nextId = 1;
+          AsyncStorage.multiRemove([PROGRAMS_KEY, ACTIVE_KEY, SHARED_KEY]).catch(() => {});
+        }
+      } catch {}
+    })();
+  }, [loaded, user?.uid]);
+
+  // Persist programs to AsyncStorage whenever they change (after initial load)
   useEffect(() => {
     if (!loaded) return;
     AsyncStorage.setItem(PROGRAMS_KEY, JSON.stringify(programs)).catch(() => {});
   }, [programs, loaded]);
 
-  // Persist active id
+  // Persist active id to AsyncStorage
   useEffect(() => {
     if (!loaded) return;
     AsyncStorage.setItem(ACTIVE_KEY, activeId).catch(() => {});
   }, [activeId, loaded]);
 
-  // Persist shared programs
+  // Persist shared programs to AsyncStorage
   useEffect(() => {
     if (!loaded) return;
     AsyncStorage.setItem(SHARED_KEY, JSON.stringify(sharedPrograms)).catch(() => {});
   }, [sharedPrograms, loaded]);
+
+  // Sync programs + activeId to Firestore (debounced 1.5s) whenever they change
+  useEffect(() => {
+    if (!loaded || !user) return;
+    if (firestoreTimer.current) clearTimeout(firestoreTimer.current);
+    firestoreTimer.current = setTimeout(async () => {
+      try {
+        await setDoc(doc(db, 'users', user.uid, 'data', 'programs'), {
+          programs,
+          activeId,
+          updatedAt: serverTimestamp(),
+        });
+      } catch {}
+    }, 1500);
+    return () => {
+      if (firestoreTimer.current) clearTimeout(firestoreTimer.current);
+    };
+  }, [programs, activeId, loaded, user?.uid]);
 
   const addProgram = useCallback((name: string, color: string, splitDays: SplitDay[]): string => {
     const id = String(_nextId++);

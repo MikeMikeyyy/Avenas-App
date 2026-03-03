@@ -351,8 +351,8 @@ function JournalDetail({
                       activeOpacity={isEditing ? 1 : 0.55}
                     >
                       {/* Set label */}
-                      <View style={[styles.setLabelBox, { borderColor: isWarmup ? entryColor : (isDark ? colors.border : 'rgba(0,0,0,0.25)') }]}>
-                        <Text style={[styles.setLabelText, { color: isWarmup ? entryColor : colors.primaryText }]}>
+                      <View style={[styles.setLabelBox, { borderColor: isWarmup ? '#F5A623' : (isDark ? colors.border : 'rgba(0,0,0,0.25)') }]}>
+                        <Text style={[styles.setLabelText, { color: isWarmup ? '#F5A623' : colors.primaryText }]}>
                           {isWarmup ? 'W' : workingIdx}
                         </Text>
                       </View>

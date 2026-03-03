@@ -12,15 +12,17 @@ import {
   Modal,
   Keyboard,
   FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
-import { useCommunityStore, Community, CURRENT_USER, Member } from '../../communityStore';
+import { useCommunityStore, Community, Member } from '../../communityStore';
 import { useProgramStore } from '../../programStore';
 import { useTheme } from '../../themeStore';
+import { useAuth } from '../../authStore';
 import { BottomSheetModal } from '../../components/BottomSheetModal';
 
 function BounceButton({ style, children, onPress, disabled, ...rest }: any) {
@@ -96,6 +98,7 @@ export default function CommunityScreen() {
   const {
     joinedCommunities,
     ownedCommunities,
+    loading,
     createCommunity,
     joinCommunity,
     leaveCommunity,
@@ -114,6 +117,9 @@ export default function CommunityScreen() {
   } = useCommunityStore();
   const { programs, addSharedProgram } = useProgramStore();
   const { isDark, colors } = useTheme();
+  const { user } = useAuth();
+  const currentUserId = user?.uid ?? '';
+  const currentUserName = user?.displayName ?? user?.email ?? 'You';
 
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedCommunity, setSelectedCommunity] = useState<Community | null>(null);
@@ -181,19 +187,31 @@ export default function CommunityScreen() {
 
   // Helper to count unread group chat messages
   const getUnreadGroupCount = (community: Community): number => {
-    const otherMessages = community.chatMessages.filter(m => m.senderId !== CURRENT_USER.id).length;
+    const otherMessages = community.chatMessages.filter(m => m.senderId !== currentUserId).length;
     const readCount = readGroupChatCounts[community.id] || 0;
     return Math.max(0, otherMessages - readCount);
   };
 
-  // Helper to count unread private chat messages
+  // Helper to count unread private chat messages (owner checking a member's chat)
   const getUnreadPrivateCount = (communityId: string, memberId: string): number => {
     const community = ownedCommunities.find(c => c.id === communityId);
     if (!community) return 0;
     const chat = community.privateChats.find(pc => pc.memberId === memberId);
     if (!chat) return 0;
-    const otherMessages = chat.messages.filter(m => m.senderId !== CURRENT_USER.id).length;
+    const otherMessages = chat.messages.filter(m => m.senderId !== currentUserId).length;
     const key = `${communityId}-${memberId}`;
+    const readCount = readPrivateChatCounts[key] || 0;
+    return Math.max(0, otherMessages - readCount);
+  };
+
+  // Helper for member to count unread messages from coach (keyed by own uid)
+  const getMemberUnreadPrivateCount = (communityId: string): number => {
+    const community = joinedCommunities.find(c => c.id === communityId);
+    if (!community) return 0;
+    const chat = community.privateChats.find(pc => pc.memberId === currentUserId);
+    if (!chat) return 0;
+    const otherMessages = chat.messages.filter(m => m.senderId !== currentUserId).length;
+    const key = `${communityId}-${currentUserId}`;
     const readCount = readPrivateChatCounts[key] || 0;
     return Math.max(0, otherMessages - readCount);
   };
@@ -223,9 +241,9 @@ export default function CommunityScreen() {
     setViewMode('privateChat');
   };
 
-  const handleCreateCommunity = () => {
+  const handleCreateCommunity = async () => {
     if (newCommunityName.trim()) {
-      createCommunity(newCommunityName.trim(), newCommunityDesc.trim());
+      await createCommunity(newCommunityName.trim(), newCommunityDesc.trim());
       setNewCommunityName('');
       setNewCommunityDesc('');
       setShowCreateModal(false);
@@ -233,8 +251,8 @@ export default function CommunityScreen() {
     }
   };
 
-  const handleJoinCommunity = () => {
-    const success = joinCommunity(inviteCode.trim());
+  const handleJoinCommunity = async () => {
+    const success = await joinCommunity(inviteCode.trim());
     if (success) {
       setInviteCode('');
       setShowJoinModal(false);
@@ -261,7 +279,7 @@ export default function CommunityScreen() {
         shareWorkout(selectedCommunity.id, {
           programId: program.id,
           programName: program.name,
-          sharedBy: CURRENT_USER.name,
+          sharedBy: currentUserName,
           sharedWith: shareWith === 'everyone' ? 'everyone' : selectedMembers,
           color: program.color,
           splitDays: program.splitDays,
@@ -283,7 +301,7 @@ export default function CommunityScreen() {
         shareWithCoach(selectedCommunity.id, {
           programId: program.id,
           programName: program.name,
-          sharedBy: CURRENT_USER.name,
+          sharedBy: currentUserName,
           color: program.color,
           splitDays: program.splitDays,
         });
@@ -301,6 +319,9 @@ export default function CommunityScreen() {
         : [...prev, memberId]
     );
   };
+
+  const getInitials = (name: string) =>
+    name.trim().split(/\s+/).map(w => w[0]?.toUpperCase() ?? '').filter(Boolean).slice(0, 2).join('') || '?';
 
   const formatDate = (date: Date) => {
     const d = new Date(date);
@@ -324,6 +345,17 @@ export default function CommunityScreen() {
         </BounceButton>
       </View>
 
+      {loading ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 }}>
+          <ActivityIndicator size="large" color={colors.accent} />
+        </View>
+      ) : !user ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, paddingHorizontal: 32 }}>
+          <Ionicons name="people-outline" size={52} color={colors.tertiaryText} />
+          <Text style={{ color: colors.primaryText, fontSize: 18, fontWeight: '600', marginTop: 16, textAlign: 'center' }}>Sign in to access communities</Text>
+          <Text style={{ color: colors.secondaryText, fontSize: 14, marginTop: 8, textAlign: 'center' }}>Create and join communities to share workouts and chat with others.</Text>
+        </View>
+      ) : (
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.listScreenTitle}>Community</Text>
         {/* My Communities (Owner) */}
@@ -429,6 +461,7 @@ export default function CommunityScreen() {
           </View>
         )}
       </ScrollView>
+      )}
     </>
   );
 
@@ -469,7 +502,7 @@ export default function CommunityScreen() {
               <BounceButton
                 style={[styles.groupChatBtn, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
                 onPress={() => {
-                  const otherMsgCount = selectedCommunity.chatMessages.filter(m => m.senderId !== CURRENT_USER.id).length;
+                  const otherMsgCount = selectedCommunity.chatMessages.filter(m => m.senderId !== currentUserId).length;
                   setReadGroupChatCounts(prev => ({ ...prev, [selectedCommunity.id]: otherMsgCount }));
                   setViewMode('chat');
                 }}
@@ -492,27 +525,40 @@ export default function CommunityScreen() {
           })()}
 
           {/* Chat with Coach (Member View) - Private chat with owner */}
-          {!isOwnerView && (
-            <BounceButton
-              style={[styles.groupChatBtn, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
-              onPress={() => {
-                const owner = selectedCommunity.members.find(m => m.role === 'owner');
-                if (owner) {
-                  setPrivateChatMember(owner);
-                  setViewMode('privateChat');
-                }
-              }}
-            >
-              <View style={styles.groupChatBtnIcon}>
-                <Ionicons name="chatbubble" size={22} color={selectedCommunity.color} />
-              </View>
-              <View style={styles.groupChatBtnTextContainer}>
-                <Text style={[styles.groupChatBtnTitle, { color: colors.primaryText }]}>Chat with Coach</Text>
-                <Text style={[styles.groupChatBtnSubtitle, { color: colors.secondaryText }]}>Private message</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.secondaryText} />
-            </BounceButton>
-          )}
+          {!isOwnerView && (() => {
+            const unreadCoach = getMemberUnreadPrivateCount(selectedCommunity.id);
+            return (
+              <BounceButton
+                style={[styles.groupChatBtn, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
+                onPress={() => {
+                  const owner = selectedCommunity.members.find(m => m.role === 'owner');
+                  if (owner) {
+                    // Mark as read
+                    const key = `${selectedCommunity.id}-${currentUserId}`;
+                    const chat = selectedCommunity.privateChats.find(pc => pc.memberId === currentUserId);
+                    const otherCount = chat ? chat.messages.filter(m => m.senderId !== currentUserId).length : 0;
+                    setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherCount }));
+                    setPrivateChatMember(owner);
+                    setViewMode('privateChat');
+                  }
+                }}
+              >
+                <View style={styles.groupChatBtnIcon}>
+                  <Ionicons name="chatbubble" size={22} color={selectedCommunity.color} />
+                  {unreadCoach > 0 && (
+                    <View style={styles.chatNotifBadge}>
+                      <Text style={styles.chatNotifBadgeText}>{unreadCoach > 9 ? '9+' : unreadCoach}</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.groupChatBtnTextContainer}>
+                  <Text style={[styles.groupChatBtnTitle, { color: colors.primaryText }]}>Chat with Coach</Text>
+                  <Text style={[styles.groupChatBtnSubtitle, { color: colors.secondaryText }]}>Private message</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.secondaryText} />
+              </BounceButton>
+            );
+          })()}
 
           {/* Group Chat Button (Member View) */}
           {!isOwnerView && (() => {
@@ -521,7 +567,7 @@ export default function CommunityScreen() {
               <BounceButton
                 style={[styles.groupChatBtn, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
                 onPress={() => {
-                  const otherMsgCount = selectedCommunity.chatMessages.filter(m => m.senderId !== CURRENT_USER.id).length;
+                  const otherMsgCount = selectedCommunity.chatMessages.filter(m => m.senderId !== currentUserId).length;
                   setReadGroupChatCounts(prev => ({ ...prev, [selectedCommunity.id]: otherMsgCount }));
                   setViewMode('chat');
                 }}
@@ -768,7 +814,7 @@ export default function CommunityScreen() {
               <View key={member.id} style={[styles.memberCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
                 <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(member.id) }]}>
                   <Text style={styles.memberAvatarText}>
-                    {member.name.charAt(0).toUpperCase()}
+                    {getInitials(member.name)}
                   </Text>
                 </View>
                 <View style={styles.memberInfo}>
@@ -784,7 +830,7 @@ export default function CommunityScreen() {
                       style={styles.memberChatBtn}
                       onPress={() => {
                         const chat = selectedCommunity.privateChats.find(pc => pc.memberId === member.id);
-                        const otherCount = chat ? chat.messages.filter(m => m.senderId !== CURRENT_USER.id).length : 0;
+                        const otherCount = chat ? chat.messages.filter(m => m.senderId !== currentUserId).length : 0;
                         const key = `${selectedCommunity.id}-${member.id}`;
                         setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherCount }));
                         openPrivateChat(member);
@@ -879,13 +925,13 @@ export default function CommunityScreen() {
           contentContainerStyle={styles.chatContent}
           inverted={false}
           renderItem={({ item }) => {
-            const isMe = item.senderId === CURRENT_USER.id;
+            const isMe = item.senderId === currentUserId;
             return (
               <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
                 {!isMe && (
                   <View style={[styles.messageAvatar, { backgroundColor: getAvatarColor(item.senderId) }]}>
                     <Text style={styles.messageAvatarText}>
-                      {item.senderName.charAt(0).toUpperCase()}
+                      {getInitials(item.senderName)}
                     </Text>
                   </View>
                 )}
@@ -920,7 +966,7 @@ export default function CommunityScreen() {
   const renderShareView = () => {
     if (!selectedCommunity) return null;
 
-    const otherMembers = selectedCommunity.members.filter(m => m.id !== CURRENT_USER.id);
+    const otherMembers = selectedCommunity.members.filter(m => m.id !== currentUserId);
     const coach = selectedCommunity.members.find(m => m.role === 'owner');
 
     return (
@@ -1031,7 +1077,7 @@ export default function CommunityScreen() {
                     >
                       <View style={[styles.memberSelectAvatar, { backgroundColor: getAvatarColor(member.id) }]}>
                         <Text style={styles.memberSelectAvatarText}>
-                          {member.name.charAt(0).toUpperCase()}
+                          {getInitials(member.name)}
                         </Text>
                       </View>
                       <Text style={[styles.memberSelectName, { color: colors.primaryText }]}>{member.name}</Text>
@@ -1061,7 +1107,7 @@ export default function CommunityScreen() {
               {coach && (
                 <View style={[styles.shareCoachInfo, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
                   <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(coach.id), width: 36, height: 36, borderRadius: 18 }]}>
-                    <Text style={[styles.memberAvatarText, { fontSize: 14 }]}>{coach.name.charAt(0).toUpperCase()}</Text>
+                    <Text style={[styles.memberAvatarText, { fontSize: 14 }]}>{getInitials(coach.name)}</Text>
                   </View>
                   <View style={{ flex: 1, marginLeft: 12 }}>
                     <Text style={[styles.selectableCardMeta, { color: colors.secondaryText, marginTop: 0 }]}>Sharing with</Text>
@@ -1088,15 +1134,18 @@ export default function CommunityScreen() {
   const renderPrivateChatView = () => {
     if (!selectedCommunity || !privateChatMember) return null;
 
-    const privateChat = getPrivateChat(selectedCommunity.id, privateChatMember.id);
+    // Private chats are always keyed by the member's (non-owner) uid so both
+    // sides read/write the same Firestore path.
+    const privateChatKey = isOwnerView ? privateChatMember.id : currentUserId;
+    const privateChat = getPrivateChat(selectedCommunity.id, privateChatKey);
     const messages = privateChat?.messages || [];
 
     const handleSendPrivate = () => {
       if (privateMessage.trim()) {
         sendPrivateMessage(
           selectedCommunity.id,
-          privateChatMember.id,
-          privateChatMember.name,
+          privateChatKey,
+          isOwnerView ? privateChatMember.name : currentUserName,
           privateMessage.trim()
         );
         setPrivateMessage('');
@@ -1113,7 +1162,7 @@ export default function CommunityScreen() {
           <View style={styles.privateChatHeaderInfo}>
             <View style={[styles.privateChatHeaderAvatar, { backgroundColor: getAvatarColor(privateChatMember.id) }]}>
               <Text style={styles.privateChatHeaderAvatarText}>
-                {privateChatMember.name.charAt(0).toUpperCase()}
+                {getInitials(privateChatMember.name)}
               </Text>
             </View>
             <View style={styles.privateChatHeaderText}>
@@ -1137,13 +1186,13 @@ export default function CommunityScreen() {
             </View>
           }
           renderItem={({ item }) => {
-            const isMe = item.senderId === CURRENT_USER.id;
+            const isMe = item.senderId === currentUserId;
             return (
               <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
                 {!isMe && (
                   <View style={[styles.messageAvatar, { backgroundColor: getAvatarColor(item.senderId) }]}>
                     <Text style={styles.messageAvatarText}>
-                      {item.senderName.charAt(0).toUpperCase()}
+                      {getInitials(item.senderName)}
                     </Text>
                   </View>
                 )}
@@ -1369,7 +1418,7 @@ export default function CommunityScreen() {
                 >
                   <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(member.id) }]}>
                     <Text style={styles.memberAvatarText}>
-                      {member.name.charAt(0).toUpperCase()}
+                      {getInitials(member.name)}
                     </Text>
                   </View>
                   <View style={styles.memberInfo}>
@@ -2079,6 +2128,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Arimo_400Regular',
     color: '#2c3e50',
     maxHeight: 100,
+    letterSpacing: 0,
   },
   sendButton: {
     width: 44,
@@ -2229,6 +2279,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 16,
     fontFamily: 'Arimo_400Regular',
+    letterSpacing: 0,
     color: '#2c3e50',
     marginBottom: 12,
   },

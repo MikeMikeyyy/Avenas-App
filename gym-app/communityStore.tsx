@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import {
+  collection, doc, getDoc, setDoc, updateDoc, deleteDoc,
+  addDoc, getDocs, onSnapshot, query, where, orderBy,
+  arrayUnion, arrayRemove, serverTimestamp, Timestamp,
+} from 'firebase/firestore';
+import { db } from './firebase';
+import { useAuth } from './authStore';
 import { SplitDay } from './programStore';
 
 // Types
@@ -18,11 +25,11 @@ export type SharedWorkout = {
   programName: string;
   sharedBy: string;
   sharedAt: Date;
-  sharedWith: 'everyone' | string[]; // 'everyone' or array of member IDs
+  sharedWith: 'everyone' | string[];
   status: 'pending' | 'accepted' | 'declined';
   color: string;
   splitDays: SplitDay[];
-  direction?: 'toMembers' | 'toCoach'; // default toMembers
+  direction?: 'toMembers' | 'toCoach';
 };
 
 export type ChatMessage = {
@@ -40,7 +47,6 @@ export type PrivateMessage = {
   senderName: string;
   message: string;
   timestamp: Date;
-  // For shared workout messages
   sharedWorkout?: {
     programId: string;
     programName: string;
@@ -70,176 +76,13 @@ export type Community = {
   inviteCode: string;
 };
 
-// Current user mock (in real app, this would come from auth)
-export const CURRENT_USER = {
-  id: 'user-1',
-  name: 'You',
-};
-
-// Default communities for demo
-const defaultCommunities: Community[] = [
-  {
-    id: 'comm-1',
-    name: 'Elite Fitness Coaching',
-    description: 'Personal training community focused on strength and hypertrophy',
-    ownerName: 'Coach Mike',
-    ownerId: 'coach-mike',
-    color: '#47DDFF',
-    createdAt: new Date('2024-01-15'),
-    inviteCode: 'ELITE2024',
-    members: [
-      { id: 'coach-mike', name: 'Coach Mike', role: 'owner', joinedAt: new Date('2024-01-15') },
-      { id: 'user-1', name: 'You', role: 'member', joinedAt: new Date('2024-02-01') },
-      { id: 'user-2', name: 'Sarah J.', role: 'member', joinedAt: new Date('2024-02-10') },
-      { id: 'user-3', name: 'Tom K.', role: 'member', joinedAt: new Date('2024-02-15') },
-    ],
-    sharedWorkouts: [
-      {
-        id: 'sw-1',
-        programId: 'prog-1',
-        programName: '12-Week Strength Program',
-        sharedBy: 'Coach Mike',
-        sharedAt: new Date('2024-02-20'),
-        sharedWith: 'everyone',
-        status: 'pending',
-        color: '#47DDFF',
-        splitDays: [
-          { type: 'training', sessions: [{ label: 'Squat', exercises: [{ name: 'Squats', sets: 5 }, { name: 'Romanian Deadlift', sets: 3 }, { name: 'Leg Press', sets: 3 }] }] },
-          { type: 'training', sessions: [{ label: 'Bench', exercises: [{ name: 'Bench Press', sets: 5 }, { name: 'Incline Press', sets: 3 }, { name: 'Tricep Pushdown', sets: 3 }] }] },
-          { type: 'rest' },
-          { type: 'training', sessions: [{ label: 'Deadlift', exercises: [{ name: 'Deadlift', sets: 5 }, { name: 'Overhead Press', sets: 4 }, { name: 'Pull Ups', sets: 3 }] }] },
-        ],
-      },
-      {
-        id: 'sw-2',
-        programId: 'prog-2',
-        programName: 'Hypertrophy Block',
-        sharedBy: 'Coach Mike',
-        sharedAt: new Date('2024-02-18'),
-        sharedWith: ['user-1'],
-        status: 'accepted',
-        color: '#A78BFA',
-        splitDays: [
-          { type: 'training', sessions: [{ label: 'Chest/Triceps', exercises: [{ name: 'Bench Press', sets: 4 }, { name: 'Incline Flyes', sets: 3 }, { name: 'Skull Crushers', sets: 3 }] }] },
-          { type: 'training', sessions: [{ label: 'Back/Biceps', exercises: [{ name: 'Pull Ups', sets: 4 }, { name: 'Barbell Row', sets: 4 }, { name: 'Bicep Curls', sets: 3 }] }] },
-          { type: 'training', sessions: [{ label: 'Legs', exercises: [{ name: 'Squats', sets: 4 }, { name: 'Leg Press', sets: 3 }, { name: 'Leg Curls', sets: 3 }] }] },
-          { type: 'training', sessions: [{ label: 'Shoulders', exercises: [{ name: 'Overhead Press', sets: 4 }, { name: 'Lateral Raises', sets: 4 }, { name: 'Face Pulls', sets: 3 }] }] },
-          { type: 'rest' },
-        ],
-      },
-    ],
-    chatMessages: [
-      {
-        id: 'msg-1',
-        senderId: 'coach-mike',
-        senderName: 'Coach Mike',
-        message: 'Welcome to Elite Fitness! Let me know if you have any questions about your program.',
-        timestamp: new Date('2024-02-01T10:00:00'),
-        isOwner: true,
-      },
-      {
-        id: 'msg-2',
-        senderId: 'user-1',
-        senderName: 'You',
-        message: 'Thanks Coach! Quick question - should I increase weight each week on the compound lifts?',
-        timestamp: new Date('2024-02-01T10:30:00'),
-        isOwner: false,
-      },
-      {
-        id: 'msg-3',
-        senderId: 'coach-mike',
-        senderName: 'Coach Mike',
-        message: 'Great question! Yes, aim for progressive overload. Add 2.5-5lbs when you hit all your reps with good form.',
-        timestamp: new Date('2024-02-01T11:00:00'),
-        isOwner: true,
-      },
-    ],
-    privateChats: [],
-  },
-];
-
-const defaultOwnedCommunities: Community[] = [
-  {
-    id: 'comm-owned-1',
-    name: 'My Training Group',
-    description: 'A community for my personal training clients',
-    ownerName: 'You',
-    ownerId: 'user-1',
-    color: '#34D399',
-    createdAt: new Date('2024-03-01'),
-    inviteCode: 'MYTRAIN4X',
-    members: [
-      { id: 'user-1', name: 'You', role: 'owner', joinedAt: new Date('2024-03-01') },
-      { id: 'client-1', name: 'Alex M.', role: 'member', joinedAt: new Date('2024-03-05') },
-      { id: 'client-2', name: 'Jordan P.', role: 'member', joinedAt: new Date('2024-03-08') },
-      { id: 'client-3', name: 'Riley S.', role: 'member', joinedAt: new Date('2024-03-10') },
-    ],
-    sharedWorkouts: [
-      {
-        id: 'sw-3',
-        programId: 'prog-3',
-        programName: 'Beginner Full Body',
-        sharedBy: 'You',
-        sharedAt: new Date('2024-03-12'),
-        sharedWith: 'everyone',
-        status: 'accepted',
-        color: '#34D399',
-        splitDays: [
-          { type: 'training', sessions: [{ label: 'Full Body', exercises: [{ name: 'Squats', sets: 3 }, { name: 'Bench Press', sets: 3 }, { name: 'Barbell Row', sets: 3 }] }] },
-          { type: 'rest' },
-          { type: 'training', sessions: [{ label: 'Full Body', exercises: [{ name: 'Deadlift', sets: 3 }, { name: 'Overhead Press', sets: 3 }, { name: 'Pull Ups', sets: 3 }] }] },
-        ],
-      },
-    ],
-    chatMessages: [
-      {
-        id: 'msg-4',
-        senderId: 'client-1',
-        senderName: 'Alex M.',
-        message: 'Hey! Just finished week 1 of the program. Feeling great!',
-        timestamp: new Date('2024-03-15T14:00:00'),
-        isOwner: false,
-      },
-      {
-        id: 'msg-5',
-        senderId: 'user-1',
-        senderName: 'You',
-        message: 'Awesome work Alex! Keep pushing and let me know if you need any modifications.',
-        timestamp: new Date('2024-03-15T14:30:00'),
-        isOwner: true,
-      },
-    ],
-    privateChats: [
-      {
-        memberId: 'client-1',
-        memberName: 'Alex M.',
-        messages: [
-          {
-            id: 'pm-1',
-            senderId: 'user-1',
-            senderName: 'You',
-            message: 'Hey Alex, how are you finding the program so far?',
-            timestamp: new Date('2024-03-10T09:00:00'),
-          },
-          {
-            id: 'pm-2',
-            senderId: 'client-1',
-            senderName: 'Alex M.',
-            message: 'It\'s great! The exercises are challenging but manageable.',
-            timestamp: new Date('2024-03-10T09:30:00'),
-          },
-        ],
-      },
-    ],
-  },
-];
-
 // Context types
 type CommunityStoreState = {
   joinedCommunities: Community[];
   ownedCommunities: Community[];
-  createCommunity: (name: string, description: string) => void;
-  joinCommunity: (inviteCode: string) => boolean;
+  loading: boolean;
+  createCommunity: (name: string, description: string) => Promise<void>;
+  joinCommunity: (inviteCode: string) => Promise<boolean>;
   leaveCommunity: (communityId: string) => void;
   deleteCommunity: (communityId: string) => void;
   acceptWorkout: (communityId: string, workoutId: string) => void;
@@ -258,14 +101,11 @@ type CommunityStoreState = {
 
 const CommunityStoreContext = createContext<CommunityStoreState | null>(null);
 
-// Generate random color from palette
 const COLORS = ['#47DDFF', '#FF6B6B', '#A78BFA', '#34D399', '#FBBF24', '#F472B6'];
 const getRandomColor = () => COLORS[Math.floor(Math.random() * COLORS.length)];
 
-// Generate random invite code including community name prefix
 const generateInviteCode = (name: string) => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  // Take up to 6 uppercase letters from the name (letters only)
   const prefix = name.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 6);
   const suffixLen = Math.max(2, 8 - prefix.length);
   let suffix = '';
@@ -275,124 +115,277 @@ const generateInviteCode = (name: string) => {
   return prefix + suffix;
 };
 
-export function CommunityProvider({ children }: { children: ReactNode }) {
-  const [joinedCommunities, setJoinedCommunities] = useState<Community[]>(defaultCommunities);
-  const [ownedCommunities, setOwnedCommunities] = useState<Community[]>(defaultOwnedCommunities);
+// Convert Firestore Timestamp or date-like value to JS Date
+function tsToDate(ts: any): Date {
+  if (!ts) return new Date();
+  if (ts instanceof Timestamp) return ts.toDate();
+  if (ts?.seconds !== undefined) return new Date(ts.seconds * 1000);
+  if (ts instanceof Date) return ts;
+  return new Date(ts);
+}
 
-  const createCommunity = (name: string, description: string) => {
-    const newCommunity: Community = {
-      id: `comm-${Date.now()}`,
-      name,
-      description,
-      ownerName: CURRENT_USER.name,
-      ownerId: CURRENT_USER.id,
+// Convert Firestore document snapshot data to Community shape
+function firestoreToCommunity(id: string, data: any): Community {
+  return {
+    id,
+    name: data.name ?? '',
+    description: data.description ?? '',
+    ownerName: data.ownerName ?? '',
+    ownerId: data.ownerId ?? '',
+    color: data.color ?? '#47DDFF',
+    createdAt: tsToDate(data.createdAt),
+    inviteCode: data.inviteCode ?? '',
+    chatMessages: [], // populated separately by messages subcollection listener
+    members: (data.members ?? []).map((m: any) => ({
+      id: m.id ?? '',
+      name: m.name ?? '',
+      avatar: m.avatar,
+      role: m.role ?? 'member',
+      joinedAt: tsToDate(m.joinedAt),
+    })),
+    sharedWorkouts: (data.sharedWorkouts ?? []).map((w: any) => ({
+      id: w.id ?? '',
+      programId: w.programId ?? '',
+      programName: w.programName ?? '',
+      sharedBy: w.sharedBy ?? '',
+      sharedAt: tsToDate(w.sharedAt),
+      sharedWith: w.sharedWith ?? 'everyone',
+      status: w.status ?? 'pending',
+      color: w.color ?? '#47DDFF',
+      splitDays: w.splitDays ?? [],
+      direction: w.direction,
+    })),
+    privateChats: (data.privateChats ?? []).map((pc: any) => ({
+      memberId: pc.memberId ?? '',
+      memberName: pc.memberName ?? '',
+      messages: (pc.messages ?? []).map((msg: any) => ({
+        id: msg.id ?? '',
+        senderId: msg.senderId ?? '',
+        senderName: msg.senderName ?? '',
+        message: msg.message ?? '',
+        timestamp: tsToDate(msg.timestamp),
+        sharedWorkout: msg.sharedWorkout,
+      })),
+    })),
+  };
+}
+
+export function CommunityProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const [joinedCommunities, setJoinedCommunities] = useState<Community[]>([]);
+  const [ownedCommunities, setOwnedCommunities] = useState<Community[]>([]);
+  const [loading, setLoading] = useState(true);
+  const docUnsubs = useRef<Record<string, () => void>>({});
+  const msgUnsubs = useRef<Record<string, () => void>>({});
+
+  // Set up real-time listeners for a community (doc + messages subcollection)
+  const subscribeToCommunity = useCallback((id: string, side: 'owned' | 'joined') => {
+    docUnsubs.current[id]?.();
+    msgUnsubs.current[id]?.();
+
+    const setter = side === 'owned' ? setOwnedCommunities : setJoinedCommunities;
+
+    // Listener 1: community document (members, sharedWorkouts, privateChats)
+    docUnsubs.current[id] = onSnapshot(doc(db, 'communities', id), snap => {
+      if (!snap.exists()) return;
+      const community = firestoreToCommunity(snap.id, snap.data());
+      setter(prev => {
+        const idx = prev.findIndex(c => c.id === id);
+        if (idx >= 0) {
+          const next = [...prev];
+          // Preserve chatMessages — managed by the messages subcollection listener
+          next[idx] = { ...community, chatMessages: next[idx].chatMessages };
+          return next;
+        }
+        return [...prev, community];
+      });
+    });
+
+    // Listener 2: messages subcollection (real-time chat)
+    msgUnsubs.current[id] = onSnapshot(
+      query(collection(db, 'communities', id, 'messages'), orderBy('timestamp', 'asc')),
+      snap => {
+        const msgs: ChatMessage[] = snap.docs.map(d => ({
+          id: d.id,
+          senderId: d.data().senderId ?? '',
+          senderName: d.data().senderName ?? '',
+          message: d.data().message ?? '',
+          timestamp: tsToDate(d.data().timestamp),
+          isOwner: d.data().isOwner ?? false,
+        }));
+        setter(prev => prev.map(c => c.id === id ? { ...c, chatMessages: msgs } : c));
+      }
+    );
+  }, []);
+
+  // Load communities when user auth state changes
+  useEffect(() => {
+    if (!user) {
+      Object.values(docUnsubs.current).forEach(u => u());
+      Object.values(msgUnsubs.current).forEach(u => u());
+      docUnsubs.current = {};
+      msgUnsubs.current = {};
+      setOwnedCommunities([]);
+      setJoinedCommunities([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'users', user.uid, 'data', 'communityMemberships'));
+        const data = snap.exists() ? snap.data() : {};
+        const ownedIds: string[] = data.ownedIds ?? [];
+        const joinedIds: string[] = data.joinedIds ?? [];
+        for (const id of ownedIds) subscribeToCommunity(id, 'owned');
+        for (const id of joinedIds) subscribeToCommunity(id, 'joined');
+      } catch {}
+      setLoading(false);
+    })();
+  }, [user?.uid, subscribeToCommunity]);
+
+  const createCommunity = useCallback(async (name: string, description: string): Promise<void> => {
+    if (!user) return;
+    const id = `comm-${Date.now()}`;
+    const userName = user.displayName ?? user.email ?? 'You';
+    const community = {
+      id, name, description,
+      ownerName: userName,
+      ownerId: user.uid,
       color: getRandomColor(),
       createdAt: new Date(),
       inviteCode: generateInviteCode(name),
-      members: [
-        { id: CURRENT_USER.id, name: CURRENT_USER.name, role: 'owner', joinedAt: new Date() },
-      ],
+      memberIds: [user.uid],
+      members: [{ id: user.uid, name: userName, role: 'owner', joinedAt: new Date() }],
       sharedWorkouts: [],
-      chatMessages: [],
       privateChats: [],
     };
-    setOwnedCommunities(prev => [...prev, newCommunity]);
-  };
+    try {
+      await setDoc(doc(db, 'communities', id), community);
+      await setDoc(
+        doc(db, 'users', user.uid, 'data', 'communityMemberships'),
+        { ownedIds: arrayUnion(id) },
+        { merge: true }
+      );
+      subscribeToCommunity(id, 'owned');
+    } catch (e) { console.error('[createCommunity]', e); }
+  }, [user, subscribeToCommunity]);
 
-  const joinCommunity = (inviteCode: string): boolean => {
-    // Check owned communities
-    const ownedMatch = ownedCommunities.find(c => c.inviteCode.toUpperCase() === inviteCode.toUpperCase());
-    if (ownedMatch) return false; // Can't join your own community
-
-    // Check if already joined
-    const alreadyJoined = joinedCommunities.find(c => c.inviteCode.toUpperCase() === inviteCode.toUpperCase());
-    if (alreadyJoined) return false;
-
-    // Mock: In real app, this would validate against a backend
-    // For demo, we'll create a mock community if code matches pattern
-    if (inviteCode.length >= 4) {
-      const mockCommunity: Community = {
-        id: `comm-${Date.now()}`,
-        name: `Community ${inviteCode}`,
-        description: 'A training community',
-        ownerName: 'Coach',
-        ownerId: 'coach-new',
-        color: getRandomColor(),
-        createdAt: new Date(),
-        inviteCode: inviteCode.toUpperCase(),
-        members: [
-          { id: 'coach-new', name: 'Coach', role: 'owner', joinedAt: new Date() },
-          { id: CURRENT_USER.id, name: CURRENT_USER.name, role: 'member', joinedAt: new Date() },
-        ],
-        sharedWorkouts: [],
-        chatMessages: [
-          {
-            id: `msg-${Date.now()}`,
-            senderId: 'coach-new',
-            senderName: 'Coach',
-            message: 'Welcome to the community!',
-            timestamp: new Date(),
-            isOwner: true,
-          },
-        ],
-        privateChats: [],
+  const joinCommunity = useCallback(async (inviteCode: string): Promise<boolean> => {
+    if (!user) { console.log('[joinCommunity] no user'); return false; }
+    const code = inviteCode.toUpperCase();
+    console.log('[joinCommunity] searching for code:', code);
+    try {
+      const q = query(
+        collection(db, 'communities'),
+        where('inviteCode', '==', code)
+      );
+      const snap = await getDocs(q);
+      console.log('[joinCommunity] query results:', snap.size);
+      if (snap.empty) { console.log('[joinCommunity] no community found'); return false; }
+      const commDoc = snap.docs[0];
+      const data = commDoc.data();
+      console.log('[joinCommunity] found community:', data.name, 'ownerId:', data.ownerId, 'members:', data.members?.length);
+      if (data.ownerId === user.uid) { console.log('[joinCommunity] user is owner'); return false; }
+      const alreadyMember = (data.members ?? []).some((m: any) => m.id === user.uid);
+      if (alreadyMember) { console.log('[joinCommunity] already a member'); return false; }
+      const newMember = {
+        id: user.uid,
+        name: user.displayName ?? user.email ?? 'You',
+        role: 'member',
+        joinedAt: new Date(),
       };
-      setJoinedCommunities(prev => [...prev, mockCommunity]);
+      console.log('[joinCommunity] adding member:', newMember.name);
+      await updateDoc(commDoc.ref, { members: arrayUnion(newMember), memberIds: arrayUnion(user.uid) });
+      await setDoc(
+        doc(db, 'users', user.uid, 'data', 'communityMemberships'),
+        { joinedIds: arrayUnion(commDoc.id) },
+        { merge: true }
+      );
+      subscribeToCommunity(commDoc.id, 'joined');
+      console.log('[joinCommunity] success');
       return true;
+    } catch (e) {
+      console.error('[joinCommunity] error:', e);
+      return false;
     }
-    return false;
-  };
+  }, [user, subscribeToCommunity]);
 
-  const leaveCommunity = (communityId: string) => {
-    setJoinedCommunities(prev => prev.filter(c => c.id !== communityId));
-  };
+  const leaveCommunity = useCallback(async (communityId: string) => {
+    if (!user) return;
+    try {
+      const snap = await getDoc(doc(db, 'communities', communityId));
+      if (!snap.exists()) return;
+      const members = (snap.data().members ?? []).filter((m: any) => m.id !== user.uid);
+      await updateDoc(doc(db, 'communities', communityId), { members, memberIds: arrayRemove(user.uid) });
+      await setDoc(
+        doc(db, 'users', user.uid, 'data', 'communityMemberships'),
+        { joinedIds: arrayRemove(communityId) },
+        { merge: true }
+      );
+      docUnsubs.current[communityId]?.();
+      msgUnsubs.current[communityId]?.();
+      delete docUnsubs.current[communityId];
+      delete msgUnsubs.current[communityId];
+      setJoinedCommunities(prev => prev.filter(c => c.id !== communityId));
+    } catch {}
+  }, [user]);
 
-  const deleteCommunity = (communityId: string) => {
-    setOwnedCommunities(prev => prev.filter(c => c.id !== communityId));
-  };
+  const deleteCommunity = useCallback(async (communityId: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'communities', communityId));
+      await setDoc(
+        doc(db, 'users', user.uid, 'data', 'communityMemberships'),
+        { ownedIds: arrayRemove(communityId) },
+        { merge: true }
+      );
+      docUnsubs.current[communityId]?.();
+      msgUnsubs.current[communityId]?.();
+      delete docUnsubs.current[communityId];
+      delete msgUnsubs.current[communityId];
+      setOwnedCommunities(prev => prev.filter(c => c.id !== communityId));
+    } catch {}
+  }, [user]);
 
-  const acceptWorkout = (communityId: string, workoutId: string) => {
-    setJoinedCommunities(prev => prev.map(c => {
-      if (c.id !== communityId) return c;
-      return {
-        ...c,
-        sharedWorkouts: c.sharedWorkouts.map(w =>
-          w.id === workoutId ? { ...w, status: 'accepted' as const } : w
-        ),
-      };
-    }));
-  };
+  const acceptWorkout = useCallback(async (communityId: string, workoutId: string) => {
+    try {
+      const snap = await getDoc(doc(db, 'communities', communityId));
+      if (!snap.exists()) return;
+      const sharedWorkouts = (snap.data().sharedWorkouts ?? []).map((w: any) =>
+        w.id === workoutId ? { ...w, status: 'accepted' } : w
+      );
+      await updateDoc(doc(db, 'communities', communityId), { sharedWorkouts });
+    } catch {}
+  }, []);
 
-  const declineWorkout = (communityId: string, workoutId: string) => {
-    setJoinedCommunities(prev => prev.map(c => {
-      if (c.id !== communityId) return c;
-      return {
-        ...c,
-        sharedWorkouts: c.sharedWorkouts.map(w =>
-          w.id === workoutId ? { ...w, status: 'declined' as const } : w
-        ),
-      };
-    }));
-  };
+  const declineWorkout = useCallback(async (communityId: string, workoutId: string) => {
+    try {
+      const snap = await getDoc(doc(db, 'communities', communityId));
+      if (!snap.exists()) return;
+      const sharedWorkouts = (snap.data().sharedWorkouts ?? []).map((w: any) =>
+        w.id === workoutId ? { ...w, status: 'declined' } : w
+      );
+      await updateDoc(doc(db, 'communities', communityId), { sharedWorkouts });
+    } catch {}
+  }, []);
 
-  const shareWorkout = (communityId: string, workout: Omit<SharedWorkout, 'id' | 'sharedAt' | 'status'>) => {
-    const newWorkout: SharedWorkout = {
+  const shareWorkout = useCallback(async (communityId: string, workout: Omit<SharedWorkout, 'id' | 'sharedAt' | 'status'>) => {
+    const newWorkout = {
       ...workout,
       id: `sw-${Date.now()}`,
       sharedAt: new Date(),
       status: 'pending',
     };
-    setOwnedCommunities(prev => prev.map(c => {
-      if (c.id !== communityId) return c;
-      return {
-        ...c,
-        sharedWorkouts: [...c.sharedWorkouts, newWorkout],
-      };
-    }));
-  };
+    try {
+      await updateDoc(doc(db, 'communities', communityId), {
+        sharedWorkouts: arrayUnion(newWorkout),
+      });
+    } catch {}
+  }, []);
 
-  const shareWithCoach = (communityId: string, workout: Omit<SharedWorkout, 'id' | 'sharedAt' | 'status' | 'sharedWith' | 'direction'>) => {
-    const newWorkout: SharedWorkout = {
+  const shareWithCoach = useCallback(async (communityId: string, workout: Omit<SharedWorkout, 'id' | 'sharedAt' | 'status' | 'sharedWith' | 'direction'>) => {
+    const newWorkout = {
       ...workout,
       id: `sw-${Date.now()}`,
       sharedAt: new Date(),
@@ -400,200 +393,136 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
       sharedWith: 'everyone',
       direction: 'toCoach',
     };
-    // Add to joinedCommunities so member can see their share
-    setJoinedCommunities(prev => prev.map(c => {
-      if (c.id !== communityId) return c;
-      return { ...c, sharedWorkouts: [...c.sharedWorkouts, newWorkout] };
-    }));
-    // Also add to ownedCommunities so coach can see it
-    // Find matching owned community by invite code (same community, different perspective)
-    const joinedComm = joinedCommunities.find(c => c.id === communityId);
-    if (joinedComm) {
-      setOwnedCommunities(prev => prev.map(c => {
-        // Match by invite code since IDs may differ between joined/owned views
-        if (c.inviteCode !== joinedComm.inviteCode) return c;
-        return { ...c, sharedWorkouts: [...c.sharedWorkouts, newWorkout] };
-      }));
-    }
-  };
+    try {
+      await updateDoc(doc(db, 'communities', communityId), {
+        sharedWorkouts: arrayUnion(newWorkout),
+      });
+    } catch {}
+  }, []);
 
-  const respondToMemberShare = (communityId: string, workoutId: string, accept: boolean) => {
-    const newStatus = accept ? 'accepted' as const : 'declined' as const;
-    setOwnedCommunities(prev => prev.map(c => {
-      if (c.id !== communityId) return c;
-      return {
-        ...c,
-        sharedWorkouts: c.sharedWorkouts.map(w =>
-          w.id === workoutId ? { ...w, status: newStatus } : w
-        ),
-      };
-    }));
-  };
+  const respondToMemberShare = useCallback(async (communityId: string, workoutId: string, accept: boolean) => {
+    try {
+      const snap = await getDoc(doc(db, 'communities', communityId));
+      if (!snap.exists()) return;
+      const sharedWorkouts = (snap.data().sharedWorkouts ?? []).map((w: any) =>
+        w.id === workoutId ? { ...w, status: accept ? 'accepted' : 'declined' } : w
+      );
+      await updateDoc(doc(db, 'communities', communityId), { sharedWorkouts });
+    } catch {}
+  }, []);
 
-  const sendMessage = (communityId: string, message: string) => {
-    const newMessage: ChatMessage = {
-      id: `msg-${Date.now()}`,
-      senderId: CURRENT_USER.id,
-      senderName: CURRENT_USER.name,
-      message,
-      timestamp: new Date(),
-      isOwner: ownedCommunities.some(c => c.id === communityId),
-    };
+  const sendMessage = useCallback(async (communityId: string, message: string) => {
+    if (!user) return;
+    const isOwner = ownedCommunities.some(c => c.id === communityId);
+    try {
+      await addDoc(collection(db, 'communities', communityId, 'messages'), {
+        senderId: user.uid,
+        senderName: user.displayName ?? user.email ?? 'You',
+        message,
+        isOwner,
+        timestamp: serverTimestamp(),
+      });
+    } catch {}
+  }, [user, ownedCommunities]);
 
-    // Check if it's owned or joined
-    if (ownedCommunities.some(c => c.id === communityId)) {
-      setOwnedCommunities(prev => prev.map(c => {
-        if (c.id !== communityId) return c;
-        return {
-          ...c,
-          chatMessages: [...c.chatMessages, newMessage],
-        };
-      }));
-    } else {
-      setJoinedCommunities(prev => prev.map(c => {
-        if (c.id !== communityId) return c;
-        return {
-          ...c,
-          chatMessages: [...c.chatMessages, newMessage],
-        };
-      }));
-    }
-  };
+  const removeMember = useCallback(async (communityId: string, memberId: string) => {
+    try {
+      const snap = await getDoc(doc(db, 'communities', communityId));
+      if (!snap.exists()) return;
+      const members = (snap.data().members ?? []).filter((m: any) => m.id !== memberId);
+      await updateDoc(doc(db, 'communities', communityId), { members, memberIds: arrayRemove(memberId) });
+    } catch {}
+  }, []);
 
-  const removeMember = (communityId: string, memberId: string) => {
-    setOwnedCommunities(prev => prev.map(c => {
-      if (c.id !== communityId) return c;
-      return {
-        ...c,
-        members: c.members.filter(m => m.id !== memberId),
-      };
-    }));
-  };
+  const updateCommunity = useCallback(async (communityId: string, name: string, description: string) => {
+    try {
+      await updateDoc(doc(db, 'communities', communityId), { name, description });
+    } catch {}
+  }, []);
 
-  const updateCommunity = (communityId: string, name: string, description: string) => {
-    setOwnedCommunities(prev => prev.map(c => {
-      if (c.id !== communityId) return c;
-      return {
-        ...c,
-        name,
-        description,
-      };
-    }));
-  };
+  const removeSharedWorkout = useCallback(async (communityId: string, workoutId: string) => {
+    try {
+      const snap = await getDoc(doc(db, 'communities', communityId));
+      if (!snap.exists()) return;
+      const sharedWorkouts = (snap.data().sharedWorkouts ?? []).filter((w: any) => w.id !== workoutId);
+      await updateDoc(doc(db, 'communities', communityId), { sharedWorkouts });
+    } catch {}
+  }, []);
 
-  const removeSharedWorkout = (communityId: string, workoutId: string) => {
-    setOwnedCommunities(prev => prev.map(c => {
-      if (c.id !== communityId) return c;
-      return {
-        ...c,
-        sharedWorkouts: c.sharedWorkouts.filter(w => w.id !== workoutId),
-      };
-    }));
-  };
-
-  const getPrivateChat = (communityId: string, memberId: string): PrivateChat | undefined => {
-    const owned = ownedCommunities.find(c => c.id === communityId);
-    if (owned) return owned.privateChats.find(pc => pc.memberId === memberId);
-    const joined = joinedCommunities.find(c => c.id === communityId);
-    if (joined) return joined.privateChats.find(pc => pc.memberId === memberId);
-    return undefined;
-  };
-
-  const sendPrivateMessage = (communityId: string, memberId: string, memberName: string, message: string) => {
-    const newMessage: PrivateMessage = {
+  const sendPrivateMessage = useCallback(async (communityId: string, memberId: string, memberName: string, message: string) => {
+    if (!user) return;
+    const newMsg = {
       id: `pm-${Date.now()}`,
-      senderId: CURRENT_USER.id,
-      senderName: CURRENT_USER.name,
+      senderId: user.uid,
+      senderName: user.displayName ?? user.email ?? 'You',
       message,
       timestamp: new Date(),
     };
-
-    const addMessageToCommunity = (c: Community): Community => {
-      if (c.id !== communityId) return c;
-      const existingChatIndex = c.privateChats.findIndex(pc => pc.memberId === memberId);
-      if (existingChatIndex >= 0) {
-        const updatedChats = [...c.privateChats];
-        updatedChats[existingChatIndex] = {
-          ...updatedChats[existingChatIndex],
-          messages: [...updatedChats[existingChatIndex].messages, newMessage],
+    try {
+      const snap = await getDoc(doc(db, 'communities', communityId));
+      if (!snap.exists()) return;
+      const privateChats: any[] = snap.data().privateChats ?? [];
+      const chatIdx = privateChats.findIndex(pc => pc.memberId === memberId);
+      if (chatIdx >= 0) {
+        privateChats[chatIdx] = {
+          ...privateChats[chatIdx],
+          messages: [...(privateChats[chatIdx].messages ?? []), newMsg],
         };
-        return { ...c, privateChats: updatedChats };
       } else {
-        const newChat: PrivateChat = {
-          memberId,
-          memberName,
-          messages: [newMessage],
-        };
-        return { ...c, privateChats: [...c.privateChats, newChat] };
+        privateChats.push({ memberId, memberName, messages: [newMsg] });
       }
-    };
+      await updateDoc(doc(db, 'communities', communityId), { privateChats });
+    } catch {}
+  }, [user]);
 
-    if (ownedCommunities.some(c => c.id === communityId)) {
-      setOwnedCommunities(prev => prev.map(addMessageToCommunity));
-    } else {
-      setJoinedCommunities(prev => prev.map(addMessageToCommunity));
-    }
-  };
-
-  const shareWorkoutPrivately = (
+  const shareWorkoutPrivately = useCallback(async (
     communityId: string,
     memberId: string,
     memberName: string,
     workout: { programId: string; programName: string; color: string; splitDays: number }
   ) => {
-    const newMessage: PrivateMessage = {
+    if (!user) return;
+    const newMsg = {
       id: `pm-${Date.now()}`,
-      senderId: CURRENT_USER.id,
-      senderName: CURRENT_USER.name,
+      senderId: user.uid,
+      senderName: user.displayName ?? user.email ?? 'You',
       message: `Shared a program: ${workout.programName}`,
       timestamp: new Date(),
       sharedWorkout: workout,
     };
-
-    setOwnedCommunities(prev => prev.map(c => {
-      if (c.id !== communityId) return c;
-
-      const existingChatIndex = c.privateChats.findIndex(pc => pc.memberId === memberId);
-
-      if (existingChatIndex >= 0) {
-        const updatedChats = [...c.privateChats];
-        updatedChats[existingChatIndex] = {
-          ...updatedChats[existingChatIndex],
-          messages: [...updatedChats[existingChatIndex].messages, newMessage],
+    try {
+      const snap = await getDoc(doc(db, 'communities', communityId));
+      if (!snap.exists()) return;
+      const privateChats: any[] = snap.data().privateChats ?? [];
+      const chatIdx = privateChats.findIndex(pc => pc.memberId === memberId);
+      if (chatIdx >= 0) {
+        privateChats[chatIdx] = {
+          ...privateChats[chatIdx],
+          messages: [...(privateChats[chatIdx].messages ?? []), newMsg],
         };
-        return { ...c, privateChats: updatedChats };
       } else {
-        const newChat: PrivateChat = {
-          memberId,
-          memberName,
-          messages: [newMessage],
-        };
-        return { ...c, privateChats: [...c.privateChats, newChat] };
+        privateChats.push({ memberId, memberName, messages: [newMsg] });
       }
-    }));
-  };
+      await updateDoc(doc(db, 'communities', communityId), { privateChats });
+    } catch {}
+  }, [user]);
+
+  const getPrivateChat = useCallback((communityId: string, memberId: string): PrivateChat | undefined => {
+    const owned = ownedCommunities.find(c => c.id === communityId);
+    if (owned) return owned.privateChats.find(pc => pc.memberId === memberId);
+    const joined = joinedCommunities.find(c => c.id === communityId);
+    if (joined) return joined.privateChats.find(pc => pc.memberId === memberId);
+    return undefined;
+  }, [ownedCommunities, joinedCommunities]);
 
   return (
     <CommunityStoreContext.Provider
       value={{
-        joinedCommunities,
-        ownedCommunities,
-        createCommunity,
-        joinCommunity,
-        leaveCommunity,
-        deleteCommunity,
-        acceptWorkout,
-        declineWorkout,
-        shareWorkout,
-        shareWithCoach,
-        respondToMemberShare,
-        sendMessage,
-        removeMember,
-        updateCommunity,
-        removeSharedWorkout,
-        sendPrivateMessage,
-        shareWorkoutPrivately,
-        getPrivateChat,
+        joinedCommunities, ownedCommunities, loading,
+        createCommunity, joinCommunity, leaveCommunity, deleteCommunity,
+        acceptWorkout, declineWorkout, shareWorkout, shareWithCoach,
+        respondToMemberShare, sendMessage, removeMember, updateCommunity,
+        removeSharedWorkout, sendPrivateMessage, shareWorkoutPrivately, getPrivateChat,
       }}
     >
       {children}

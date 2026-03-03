@@ -21,6 +21,7 @@ import { useProgramStore, getDayLabel, getDayExerciseCount, isMultiSession } fro
 import { useTheme } from '../../themeStore';
 import { useUnits } from '../../unitsStore';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
+import { useAuth } from '../../authStore';
 import { Nunito_700Bold } from '@expo-google-fonts/nunito';
 
 const STREAK_KEY = 'appStreak';
@@ -252,6 +253,10 @@ export default function HomeScreen() {
   const { programs, activeId } = useProgramStore();
   const { isDark, colors } = useTheme();
   const { unit } = useUnits();
+  const { user } = useAuth();
+  const profileInitials = user?.displayName
+    ? user.displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join('')
+    : '?';
   const activeProgram = programs.find(p => p.id === activeId);
   const accentColor = activeProgram?.color || '#47DDFF';
   const todayDayIndex = 0; // today is always index 0 in the calendar
@@ -381,7 +386,7 @@ export default function HomeScreen() {
 
       {/* Fixed Profile - Top Right */}
       <BounceButton style={[styles.fixedProfile, { backgroundColor: '#FFFFFF' }]} onPress={() => router.push('/settings')}>
-        <Text style={[styles.profileInitials, { color: '#2c3e50' }]}>MB</Text>
+        <Text style={[styles.profileInitials, { color: '#2c3e50' }]}>{profileInitials}</Text>
       </BounceButton>
 
       <ScrollView
@@ -421,6 +426,7 @@ export default function HomeScreen() {
 
         {/* Today's Workout Card */}
         {(() => {
+          const hasPrograms = programs.filter(p => !p.archived).length > 0;
           const todaySplit = activeProgram?.splitDays[0];
           const isRestDay = !todaySplit || todaySplit.type === 'rest';
           const dayLabel = isRestDay ? 'Rest Day' : getDayLabel(todaySplit);
@@ -458,17 +464,18 @@ export default function HomeScreen() {
                 </View>
               )}
               <BounceButton
-                style={[styles.startButton, { backgroundColor: accentColor }, workoutDone && { backgroundColor: `${accentColor}25`, borderWidth: 1, borderColor: `${accentColor}66` }]}
+                style={[styles.startButton, { backgroundColor: hasPrograms ? accentColor : '#47DDFF' }, workoutDone && hasPrograms && { backgroundColor: `${accentColor}25`, borderWidth: 1, borderColor: `${accentColor}66` }]}
                 onPress={() => {
+                  if (!hasPrograms) { router.navigate('/create-program'); return; }
                   if (!isRestDay && !workoutDone) workoutState.startTimer(todayDayIndex);
                   router.navigate('/(tabs)/workout');
                 }}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={[styles.startButtonText, workoutDone && { color: isDark ? '#FFFFFF' : '#1C1C1E' }]}>
-                    {workoutDone ? 'Edit Workout' : isRestDay ? 'View Schedule' : timerActive ? 'Continue Workout' : 'Start Workout'}
+                  <Text style={[styles.startButtonText, workoutDone && hasPrograms && { color: isDark ? '#FFFFFF' : '#1C1C1E' }]}>
+                    {!hasPrograms ? 'Create a Program' : workoutDone ? 'Edit Workout' : isRestDay ? 'View Schedule' : timerActive ? 'Continue Workout' : 'Start Workout'}
                   </Text>
-                  {timerActive && !workoutDone ? (
+                  {timerActive && !workoutDone && hasPrograms ? (
                     <>
                       <View style={{ width: 1, height: 16, backgroundColor: '#1C1C1E30' }} />
                       <Ionicons name="time-outline" size={16} color="#1C1C1E" />
@@ -479,7 +486,7 @@ export default function HomeScreen() {
                       </Text>
                     </>
                   ) : (
-                    <Ionicons name="arrow-forward" size={20} color={workoutDone ? (isDark ? '#FFFFFF' : '#1C1C1E') : '#1C1C1E'} />
+                    <Ionicons name="arrow-forward" size={20} color={workoutDone && hasPrograms ? (isDark ? '#FFFFFF' : '#1C1C1E') : '#1C1C1E'} />
                   )}
                 </View>
               </BounceButton>

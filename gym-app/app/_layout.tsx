@@ -8,6 +8,7 @@ import { ProgramProvider } from '../programStore';
 import { CommunityProvider } from '../communityStore';
 import { ThemeProvider, useTheme } from '../themeStore';
 import { UnitsProvider } from '../unitsStore';
+import { AuthProvider } from '../authStore';
 import { workoutState } from '../workoutState';
 
 export const unstable_settings = {
@@ -25,6 +26,7 @@ function InnerLayout() {
     <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen name="index" options={{ headerShown: false, gestureEnabled: false }} />
+        <Stack.Screen name="auth" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="programs" options={{ headerShown: false }} />
         <Stack.Screen name="create-program" options={{ headerShown: false }} />
@@ -44,11 +46,13 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <UnitsProvider>
-        <CommunityProvider>
-          <ProgramProvider>
-            <InnerLayout />
-          </ProgramProvider>
-        </CommunityProvider>
+        <AuthProvider>
+          <CommunityProvider>
+            <ProgramProvider>
+              <InnerLayout />
+            </ProgramProvider>
+          </CommunityProvider>
+        </AuthProvider>
       </UnitsProvider>
     </ThemeProvider>
   );

@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
-import { useProgramStore, PROGRAM_COLORS, type Exercise, type SplitDay } from '../programStore';
+import { useProgramStore, PROGRAM_COLORS, type SplitDay } from '../programStore';
 import { useTheme } from '../themeStore';
 import { ExercisePicker } from '../components/ExercisePicker';
 import { Image } from 'expo-image';
@@ -75,18 +75,23 @@ export default function CreateProgramScreen() {
   const [programName, setProgramName] = useState(editingProgram?.name || '');
   const [selectedColor, setSelectedColor] = useState(editingProgram?.color || PROGRAM_COLORS[0]);
   const [splitDays, setSplitDays] = useState<SplitDay[]>(editingProgram?.splitDays || []);
-  const [pickerTarget, setPickerTarget] = useState<{ dayIndex: number; sessionIndex: number } | null>(null);
+  const [pickerTarget, setPickerTarget] = useState<{ dayIndex: number; sessionIndex: number; exerciseIndex?: number } | null>(null);
 
   if (!fontsLoaded) return null;
 
   const handleExerciseSelected = (name: string) => {
     if (!pickerTarget) return;
-    const { dayIndex, sessionIndex } = pickerTarget;
+    const { dayIndex, sessionIndex, exerciseIndex } = pickerTarget;
     setSplitDays(prev => {
       const next = JSON.parse(JSON.stringify(prev)) as SplitDay[];
       const day = next[dayIndex];
       if (day.type === 'training') {
-        day.sessions[sessionIndex].exercises.push({ name, sets: 3 });
+        if (exerciseIndex !== undefined) {
+          // Replace existing exercise name, preserve sets/warmup
+          day.sessions[sessionIndex].exercises[exerciseIndex].name = name;
+        } else {
+          day.sessions[sessionIndex].exercises.push({ name, sets: 3 });
+        }
       }
       return next;
     });
@@ -95,7 +100,7 @@ export default function CreateProgramScreen() {
 
   const addTrainingDay = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setSplitDays(prev => [...prev, { type: 'training', sessions: [{ label: '', exercises: [{ name: '', sets: 3 }] }] }]);
+    setSplitDays(prev => [...prev, { type: 'training', sessions: [{ label: '', exercises: [] }] }]);
   };
 
   const addRestDay = () => {
@@ -162,7 +167,7 @@ export default function CreateProgramScreen() {
       const next = [...prev];
       const day = next[dayIndex];
       if (day.type === 'training') {
-        next[dayIndex] = { ...day, sessions: [...day.sessions, { label: '', exercises: [{ name: '', sets: 3 }] }] };
+        next[dayIndex] = { ...day, sessions: [...day.sessions, { label: '', exercises: [] }] };
       }
       return next;
     });
@@ -176,6 +181,32 @@ export default function CreateProgramScreen() {
       if (day.type === 'training' && day.sessions.length > 1) {
         next[dayIndex] = { ...day, sessions: day.sessions.filter((_, i) => i !== sessionIndex) };
       }
+      return next;
+    });
+  };
+
+  const moveExercise = (dayIndex: number, sessionIndex: number, exIndex: number, direction: 'up' | 'down') => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSplitDays(prev => {
+      const next = JSON.parse(JSON.stringify(prev)) as SplitDay[];
+      const day = next[dayIndex];
+      if (day.type === 'training') {
+        const exercises = day.sessions[sessionIndex].exercises;
+        const target = direction === 'up' ? exIndex - 1 : exIndex + 1;
+        if (target < 0 || target >= exercises.length) return prev;
+        [exercises[exIndex], exercises[target]] = [exercises[target], exercises[exIndex]];
+      }
+      return next;
+    });
+  };
+
+  const moveSplitDay = (index: number, direction: 'up' | 'down') => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSplitDays(prev => {
+      const next = [...prev];
+      const target = direction === 'up' ? index - 1 : index + 1;
+      if (target < 0 || target >= next.length) return prev;
+      [next[index], next[target]] = [next[target], next[index]];
       return next;
     });
   };
@@ -249,10 +280,13 @@ export default function CreateProgramScreen() {
                 <View style={[styles.splitRestChip, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(90, 108, 125, 0.1)' }]}>
                   <Text style={[styles.splitRestText, { color: colors.secondaryText }]}>Rest</Text>
                 </View>
-                <TouchableOpacity
-                  onPress={() => removeSplitDay(i)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
+                <TouchableOpacity onPress={() => moveSplitDay(i, 'up')} disabled={i === 0} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="chevron-up" size={22} color={i === 0 ? colors.tertiaryText : colors.secondaryText} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => moveSplitDay(i, 'down')} disabled={i === splitDays.length - 1} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="chevron-down" size={22} color={i === splitDays.length - 1 ? colors.tertiaryText : colors.secondaryText} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => removeSplitDay(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Ionicons name="close-circle" size={26} color="#FF3B30" />
                 </TouchableOpacity>
               </View>
@@ -268,10 +302,13 @@ export default function CreateProgramScreen() {
               <View style={styles.trainingDayHeader}>
                 <Text style={[styles.splitDayIndex, { color: colors.secondaryText }]}>{i + 1}</Text>
                 <Text style={[styles.trainingDayTitle, { color: colors.primaryText }]}>Training Day {dayNum}</Text>
-                <TouchableOpacity
-                  onPress={() => removeSplitDay(i)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
+                <TouchableOpacity onPress={() => moveSplitDay(i, 'up')} disabled={i === 0} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="chevron-up" size={22} color={i === 0 ? colors.tertiaryText : colors.secondaryText} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => moveSplitDay(i, 'down')} disabled={i === splitDays.length - 1} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="chevron-down" size={22} color={i === splitDays.length - 1 ? colors.tertiaryText : colors.secondaryText} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => removeSplitDay(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Ionicons name="close-circle" size={26} color="#FF3B30" />
                 </TouchableOpacity>
               </View>
@@ -310,73 +347,78 @@ export default function CreateProgramScreen() {
                   {session.exercises.map((ex, j) => {
                     const exImageUri = getExerciseImageUri(ex.name);
                     return (
-                    <View key={j} style={styles.exerciseRow}>
-                      {/* Name display row (read-only) */}
-                      <View style={[styles.exerciseDisplayRow, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.55)', borderColor: colors.cardBorder }]}>
-                        <View style={[styles.exThumbWrap, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)' }]}>
-                          {exImageUri ? (
-                            <Image
-                              source={{ uri: exImageUri }}
-                              style={styles.exThumb}
-                              contentFit="cover"
-                              transition={200}
-                            />
-                          ) : (
-                            <Ionicons name="barbell-outline" size={20} color={colors.tertiaryText} />
-                          )}
-                        </View>
-                        <Text style={[styles.exName, { color: colors.primaryText }]} numberOfLines={2}>
-                          {ex.name || `Exercise ${j + 1}`}
-                        </Text>
-                        <TouchableOpacity
-                          onPress={() => removeExercise(i, si, j)}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                          <Ionicons name="trash-outline" size={20} color="#e74c3c" />
-                        </TouchableOpacity>
-                      </View>
-                      {/* Sets controls row */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20, marginTop: 8, paddingLeft: 4 }}>
-                        <View style={styles.setsWrap}>
+                      <View key={`${i}-${si}-${j}`} style={styles.exerciseRow}>
+                        {/* Name display row */}
+                        <View style={[styles.exerciseDisplayRow, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.55)', borderColor: colors.cardBorder }]}>
+                          {/* Up/Down arrows */}
+                          <View style={{ alignItems: 'center', justifyContent: 'center', gap: 0, width: 22 }}>
+                            {j > 0 ? (
+                              <TouchableOpacity onPress={() => moveExercise(i, si, j, 'up')} hitSlop={{ top: 6, bottom: 4, left: 8, right: 8 }}>
+                                <Ionicons name="chevron-up" size={18} color={colors.secondaryText} />
+                              </TouchableOpacity>
+                            ) : (
+                              <View style={{ height: 18 }} />
+                            )}
+                            {j < session.exercises.length - 1 ? (
+                              <TouchableOpacity onPress={() => moveExercise(i, si, j, 'down')} hitSlop={{ top: 4, bottom: 6, left: 8, right: 8 }}>
+                                <Ionicons name="chevron-down" size={18} color={colors.secondaryText} />
+                              </TouchableOpacity>
+                            ) : (
+                              <View style={{ height: 18 }} />
+                            )}
+                          </View>
+                          {/* Thumbnail + name — tap to change */}
                           <TouchableOpacity
-                            onPress={() => updateExercise(i, si, j, 'sets', Math.max(1, ex.sets - 1))}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                            activeOpacity={0.7}
+                            onPress={() => setPickerTarget({ dayIndex: i, sessionIndex: si, exerciseIndex: j })}
                           >
-                            <Ionicons name="remove-circle-outline" size={22} color={colors.secondaryText} />
+                            <View style={[styles.exThumbWrap, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)' }]}>
+                              {exImageUri ? (
+                                <Image source={{ uri: exImageUri }} style={styles.exThumb} contentFit="cover" transition={200} />
+                              ) : (
+                                <Ionicons name="barbell-outline" size={20} color={colors.tertiaryText} />
+                              )}
+                            </View>
+                            <Text style={[styles.exName, { color: colors.primaryText }]} numberOfLines={2}>
+                              {ex.name || `Exercise ${j + 1}`}
+                            </Text>
                           </TouchableOpacity>
-                          <Text style={[styles.setsText, { color: colors.primaryText }]}>{ex.sets} sets</Text>
-                          <TouchableOpacity
-                            onPress={() => updateExercise(i, si, j, 'sets', ex.sets + 1)}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          >
-                            <Ionicons name="add-circle-outline" size={22} color={colors.secondaryText} />
+                          {/* Trash */}
+                          <TouchableOpacity onPress={() => removeExercise(i, si, j)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                            <Ionicons name="trash-outline" size={20} color="#e74c3c" />
                           </TouchableOpacity>
                         </View>
-                        {ex.sets > 1 && (
+                        {/* Sets controls row */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20, marginTop: 8, paddingLeft: 4 }}>
                           <View style={styles.setsWrap}>
-                            <TouchableOpacity
-                              onPress={() => updateExercise(i, si, j, 'warmupSets', Math.max(0, (ex.warmupSets ?? 0) - 1))}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            >
+                            <TouchableOpacity onPress={() => updateExercise(i, si, j, 'sets', Math.max(1, ex.sets - 1))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                               <Ionicons name="remove-circle-outline" size={22} color={colors.secondaryText} />
                             </TouchableOpacity>
-                            <Text style={[styles.setsText, { color: colors.tertiaryText }]}>{ex.warmupSets ?? 0} warmup</Text>
-                            <TouchableOpacity
-                              onPress={() => updateExercise(i, si, j, 'warmupSets', Math.min(ex.sets - 1, (ex.warmupSets ?? 0) + 1))}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            >
+                            <Text style={[styles.setsText, { color: colors.primaryText }]}>{ex.sets} sets</Text>
+                            <TouchableOpacity onPress={() => updateExercise(i, si, j, 'sets', ex.sets + 1)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                               <Ionicons name="add-circle-outline" size={22} color={colors.secondaryText} />
                             </TouchableOpacity>
                           </View>
+                          {ex.sets > 1 && (
+                            <View style={styles.setsWrap}>
+                              <TouchableOpacity onPress={() => updateExercise(i, si, j, 'warmupSets', Math.max(0, (ex.warmupSets ?? 0) - 1))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                <Ionicons name="remove-circle-outline" size={22} color={colors.secondaryText} />
+                              </TouchableOpacity>
+                              <Text style={[styles.setsText, { color: colors.tertiaryText }]}>{ex.warmupSets ?? 0} warmup</Text>
+                              <TouchableOpacity onPress={() => updateExercise(i, si, j, 'warmupSets', Math.min(ex.sets - 1, (ex.warmupSets ?? 0) + 1))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                <Ionicons name="add-circle-outline" size={22} color={colors.secondaryText} />
+                              </TouchableOpacity>
+                            </View>
+                          )}
+                        </View>
+                        {(ex.warmupSets ?? 0) > 0 && (
+                          <Text style={[styles.setsBreakdown, { color: colors.tertiaryText }]}>
+                            {ex.warmupSets} warmup sets + {ex.sets - (ex.warmupSets ?? 0)} working sets
+                          </Text>
                         )}
                       </View>
-                      {(ex.warmupSets ?? 0) > 0 && (
-                        <Text style={[styles.setsBreakdown, { color: colors.tertiaryText }]}>
-                          {ex.warmupSets} warmup sets + {ex.sets - (ex.warmupSets ?? 0)} working sets
-                        </Text>
-                      )}
-                    </View>
-                  );
+                    );
                   })}
                   <BounceButton style={[styles.addExerciseBtn, { borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(90, 108, 125, 0.35)' }]} onPress={() => setPickerTarget({ dayIndex: i, sessionIndex: si })}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>

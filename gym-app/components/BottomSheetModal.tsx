@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Modal, Animated, TouchableOpacity, StyleSheet, View } from 'react-native';
+import { Modal, Animated, TouchableOpacity, StyleSheet, View, KeyboardAvoidingView, Platform } from 'react-native';
 
 interface Props {
   visible: boolean;
@@ -48,19 +48,24 @@ export function BottomSheetModal({
 
   return (
     <Modal visible={showing} transparent animationType="none" onRequestClose={onDismiss}>
-      <Animated.View
-        style={[StyleSheet.absoluteFill, { backgroundColor: overlayColor, opacity: overlayOpacity }]}
-        pointerEvents="none"
-      />
-      <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onDismiss} />
-      <Animated.View style={{ transform: [{ translateY: sheetOffset }] }}>
-        {children}
-        {/* Extension area — fills the gap between sheet content and physical screen bottom.
-            When a footer is provided it renders here so buttons sit at the bottom. */}
-        <View style={{ backgroundColor: sheetBackground, paddingHorizontal: 20, paddingTop: footer ? 12 : 0, paddingBottom: 34 }}>
-          {footer}
-        </View>
-      </Animated.View>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <Animated.View
+          style={[StyleSheet.absoluteFill, { backgroundColor: overlayColor, opacity: overlayOpacity }]}
+          pointerEvents="none"
+        />
+        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onDismiss} />
+        <Animated.View style={{ transform: [{ translateY: sheetOffset }], backgroundColor: sheetBackground }}>
+          {children}
+          {/* Extension area — fills the gap between sheet content and physical screen bottom.
+              When a footer is provided it renders here so buttons sit at the bottom. */}
+          <View style={{ backgroundColor: sheetBackground, paddingHorizontal: 20, paddingTop: footer ? 12 : 0, paddingBottom: 34 }}>
+            {footer}
+          </View>
+        </Animated.View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

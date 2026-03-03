@@ -12,6 +12,7 @@ import {
   Alert,
 } from 'react-native';
 import { workoutState } from '../workoutState';
+import { BottomSheetModal } from '../components/BottomSheetModal';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -37,12 +38,21 @@ function BounceButton({ style, children, onPress, ...rest }: any) {
   );
 }
 
+function isLightColor(hex: string): boolean {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return 0.299 * r + 0.587 * g + 0.114 * b > 140;
+}
+
 export default function ProgramsScreen() {
   const router = useRouter();
   const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold });
   const { programs, activeId, setActive, deleteProgram: removeProgram, archiveProgram, restoreProgram, sharedPrograms, saveSharedProgram, removeSharedProgram } = useProgramStore();
   const { isDark, colors } = useTheme();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showDayPicker, setShowDayPicker] = useState(false);
+  const [pendingOffset, setPendingOffset] = useState(0);
 
   if (!fontsLoaded) return null;
 
@@ -56,20 +66,17 @@ export default function ProgramsScreen() {
     setExpandedId(null);
   };
 
-  const handleRestartCycle = () => {
+  const handleOpenDayPicker = async () => {
     if (!activeProgram) return;
-    const firstDayLabel = getDayLabel(activeProgram.splitDays[0]);
-    Alert.alert(
-      'Restart Program Cycle',
-      `Today will reset to Day 1 (${firstDayLabel}). The cycle will advance each day from here.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Restart', style: 'default', onPress: () => {
-          workoutState.resetCycleOffset(activeId);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        }},
-      ]
-    );
+    const offset = await workoutState.getCycleOffset(activeId, activeProgram.splitDays.length);
+    setPendingOffset(offset);
+    setShowDayPicker(true);
+  };
+
+  const handleSaveDayPicker = () => {
+    workoutState.setCycleOffset(activeId, pendingOffset);
+    setShowDayPicker(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const handleArchive = (id: string) => {
@@ -148,11 +155,11 @@ export default function ProgramsScreen() {
               <View style={[styles.actionsRow, { borderTopColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(90, 108, 125, 0.15)' }]}>
                 <BounceButton
                   style={[styles.actionBtnActive, { backgroundColor: 'rgba(0, 235, 172, 0.2)', borderColor: isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.25)' }]}
-                  onPress={handleRestartCycle}
+                  onPress={handleOpenDayPicker}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="refresh-outline" size={18} color={colors.primaryText} />
-                    <Text style={[styles.actionBtnActiveText, { color: colors.primaryText }]}>Restart Cycle</Text>
+                    <Ionicons name="today-outline" size={18} color={colors.primaryText} />
+                    <Text style={[styles.actionBtnActiveText, { color: colors.primaryText }]}>Set Workout</Text>
                   </View>
                 </BounceButton>
                 <BounceButton
@@ -237,7 +244,7 @@ export default function ProgramsScreen() {
                             <Text style={[styles.actionBtnEditText, { color: colors.primaryText }]}>Edit</Text>
                           </View>
                         </BounceButton>
-                        <BounceButton style={[styles.actionBtnArchive, { borderColor: isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.25)' }]} onPress={() => handleArchive(program.id)}>
+                        <BounceButton style={styles.actionBtnArchive} onPress={() => handleArchive(program.id)}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                             <Ionicons name="archive-outline" size={18} color={colors.primaryText} />
                             <Text style={[styles.actionBtnArchiveText, { color: colors.primaryText }]}>Archive</Text>
@@ -371,6 +378,48 @@ export default function ProgramsScreen() {
       >
         <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
       </TouchableOpacity>
+
+      {/* Day picker bottom sheet */}
+      <BottomSheetModal
+        visible={showDayPicker}
+        onDismiss={() => setShowDayPicker(false)}
+        sheetBackground={colors.modalBg}
+        footer={
+          <TouchableOpacity
+            style={[styles.saveChangesBtn, { backgroundColor: activeProgram?.color ?? '#47DDFF' }]}
+            onPress={handleSaveDayPicker}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.saveChangesBtnText, { color: isLightColor(activeProgram?.color ?? '#47DDFF') ? '#1C1C1E' : '#fff' }]}>Save Changes</Text>
+          </TouchableOpacity>
+        }
+      >
+        <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 }}>
+          <Text style={[styles.sheetTitle, { color: colors.primaryText }]}>Which day is today?</Text>
+          <Text style={[styles.sheetSubtitle, { color: colors.secondaryText }]}>Pick where you are in your {activeProgram?.name} cycle</Text>
+          <View style={[styles.sheetDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(90,108,125,0.15)' }]} />
+          {activeProgram?.splitDays.map((day, i) => {
+            const isSelected = pendingOffset === i;
+            return (
+              <TouchableOpacity
+                key={i}
+                style={[styles.dayPickerRow, isSelected && { backgroundColor: `${activeProgram.color}18` }]}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setPendingOffset(i); }}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.dayPickerBadge, { backgroundColor: isSelected ? `${activeProgram.color}30` : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)') }]}>
+                  <Text style={[styles.dayPickerBadgeText, { color: isSelected ? activeProgram.color : colors.secondaryText }]}>{i + 1}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.dayPickerLabel, { color: colors.primaryText }]}>{getDayLabel(day)}</Text>
+                  <Text style={[styles.dayPickerSub, { color: colors.tertiaryText }]}>{day.type === 'rest' ? 'Rest day' : 'Training'}</Text>
+                </View>
+                {isSelected && <Ionicons name="checkmark-circle" size={22} color={activeProgram.color} />}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </BottomSheetModal>
     </LinearGradient>
   );
 }
@@ -586,5 +635,60 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: 'Arimo_700Bold',
     letterSpacing: 0.2,
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontFamily: 'Arimo_700Bold',
+    marginBottom: 4,
+  },
+  sheetSubtitle: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    marginBottom: 16,
+  },
+  sheetDivider: {
+    height: 1,
+    backgroundColor: 'rgba(90, 108, 125, 0.15)',
+    marginBottom: 8,
+  },
+  dayPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    marginBottom: 4,
+  },
+  dayPickerBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayPickerBadgeText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
+  },
+  dayPickerLabel: {
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
+  },
+  dayPickerSub: {
+    fontSize: 12,
+    fontFamily: 'Arimo_400Regular',
+    marginTop: 1,
+  },
+  saveChangesBtn: {
+    borderRadius: 14,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveChangesBtnText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
+    letterSpacing: 0.3,
   },
 });

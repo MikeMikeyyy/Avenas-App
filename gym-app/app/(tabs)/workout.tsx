@@ -272,12 +272,12 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onToggleWarmup(si); }}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <View style={{ borderWidth: 1.5, borderColor: isWarmup ? accentColor : colors.border, borderRadius: 6, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={[styles.setText, { color: isWarmup ? accentColor : colors.primaryText }]}>{isWarmup ? 'W' : workingIndex}</Text>
+                <View style={{ borderWidth: 1.5, borderColor: isWarmup ? '#F5A623' : colors.border, borderRadius: 6, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={[styles.setText, { color: isWarmup ? '#F5A623' : colors.primaryText }]}>{isWarmup ? 'W' : workingIndex}</Text>
                 </View>
               </TouchableOpacity>
             ) : (
-              <Text style={[styles.setText, styles.setCol, { color: isWarmup ? accentColor : colors.primaryText }]}>{isWarmup ? 'W' : workingIndex}</Text>
+              <Text style={[styles.setText, styles.setCol, { color: isWarmup ? '#F5A623' : colors.primaryText }]}>{isWarmup ? 'W' : workingIndex}</Text>
             )}
             <View style={styles.prevCol}>
               <Text style={[styles.prevValue, { color: colors.tertiaryText }]}>
@@ -994,15 +994,20 @@ export default function WorkoutScreen() {
   if (!fontsLoaded) return <View style={{ flex: 1, backgroundColor: isDark ? colors.gradientStart : '#c3ced6' }} />;
 
   if (!activeProgram) {
+    const hasPrograms = programs.filter(p => !p.archived).length > 0;
     return (
       <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={styles.container} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}>
         <StatusBar barStyle={colors.statusBar} backgroundColor={colors.gradientStart} />
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 }}>
           <Ionicons name="barbell-outline" size={48} color={colors.secondaryText} />
-          <Text style={{ fontSize: 18, fontFamily: 'Arimo_700Bold', color: colors.primaryText, marginTop: 16, textAlign: 'center' }}>No Active Program</Text>
-          <Text style={{ fontSize: 14, fontFamily: 'Arimo_400Regular', color: colors.secondaryText, marginTop: 8, textAlign: 'center' }}>Select a program to get started</Text>
-          <BounceButton style={{ backgroundColor: '#47DDFF', borderRadius: 16, height: 48, paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center', marginTop: 20 }} onPress={() => router.push('/programs')}>
-            <Text style={{ fontSize: 16, fontFamily: 'Arimo_700Bold', color: '#1C1C1E' }}>Go to Programs</Text>
+          <Text style={{ fontSize: 18, fontFamily: 'Arimo_700Bold', color: colors.primaryText, marginTop: 16, textAlign: 'center' }}>
+            {hasPrograms ? 'No Active Program' : 'No Programs Yet'}
+          </Text>
+          <Text style={{ fontSize: 14, fontFamily: 'Arimo_400Regular', color: colors.secondaryText, marginTop: 8, textAlign: 'center' }}>
+            {hasPrograms ? 'Select a program to get started' : 'Create a program to start logging workouts'}
+          </Text>
+          <BounceButton style={{ backgroundColor: '#47DDFF', borderRadius: 16, height: 48, paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center', marginTop: 20 }} onPress={() => router.push(hasPrograms ? '/programs' : '/create-program')}>
+            <Text style={{ fontSize: 16, fontFamily: 'Arimo_700Bold', color: '#1C1C1E' }}>{hasPrograms ? 'Go to Programs' : 'Create a Program'}</Text>
           </BounceButton>
         </View>
       </LinearGradient>

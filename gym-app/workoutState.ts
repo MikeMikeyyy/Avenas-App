@@ -524,6 +524,14 @@ export const workoutState = {
     } catch {}
   },
 
+  // Set today to a specific split day index (0-based)
+  async setCycleOffset(programId: string, offset: number): Promise<void> {
+    const key = `@cycle_${programId}`;
+    try {
+      await AsyncStorage.setItem(key, JSON.stringify({ offset, date: _getTodayStr() }));
+    } catch {}
+  },
+
   // Remove exercise history entries recorded on a given calendar day
   deleteHistoryForDate(date: Date) {
     const dateStr = date.toDateString();
