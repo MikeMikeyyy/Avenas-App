@@ -161,8 +161,8 @@ function JournalDetail({
 
   const startEdit = (si: number, ei: number, setI: number, set: any, mode: 'reps' | 'hold') => {
     setEditTarget({ si, ei, setI, mode });
-    setEditVal1(mode === 'hold' ? (set.hold > 0 ? String(set.hold) : '') : (set.reps > 0 ? String(set.reps) : ''));
-    setEditVal2(set.weight != null ? fmtW(set.weight) : '');
+    setEditVal1(set.weight != null ? fmtW(set.weight) : '');
+    setEditVal2(mode === 'hold' ? (set.hold > 0 ? String(set.hold) : '') : (set.reps > 0 ? String(set.reps) : ''));
   };
 
   const commitNotes = (si: number, ei: number) => {
@@ -234,13 +234,13 @@ function JournalDetail({
     const { si, ei, setI, mode } = editTarget;
     const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
     const s = newEntry.sessions[si].exercises[ei].sets[setI];
-    if (mode === 'hold') {
-      s.hold = parseFloat(editVal1) || 0;
-    } else {
-      s.reps = parseInt(editVal1) || 0;
-    }
-    const w = editVal2 === '' ? null : parseFloat(editVal2);
+    const w = editVal1 === '' ? null : parseFloat(editVal1);
     s.weight = (w === null || isNaN(w)) ? null : toKg(w);
+    if (mode === 'hold') {
+      s.hold = parseFloat(editVal2) || 0;
+    } else {
+      s.reps = parseInt(editVal2) || 0;
+    }
     onUpdateEntry(newEntry);
     setEditTarget(null);
     Keyboard.dismiss();
@@ -366,14 +366,12 @@ function JournalDetail({
                               keyboardType="decimal-pad"
                               returnKeyType="done"
                               onSubmitEditing={commitEdit}
-                              placeholder={exercise.mode === 'hold' ? '0' : '0'}
+                              placeholder="0"
                               placeholderTextColor={colors.tertiaryText}
                               selectTextOnFocus
                               autoFocus
                             />
-                            <Text style={{ color: colors.tertiaryText, fontSize: 12, fontFamily: 'Arimo_400Regular' }}>
-                              {exercise.mode === 'hold' ? 's' : 'reps'}
-                            </Text>
+                            <Text style={{ color: colors.tertiaryText, fontSize: 12, fontFamily: 'Arimo_400Regular' }}>{unit}</Text>
                             <TextInput
                               style={[styles.editInput, { color: colors.primaryText, borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', backgroundColor: colors.inputBg }]}
                               value={editVal2}
@@ -385,7 +383,9 @@ function JournalDetail({
                               placeholderTextColor={colors.tertiaryText}
                               selectTextOnFocus
                             />
-                            <Text style={{ color: colors.tertiaryText, fontSize: 12, fontFamily: 'Arimo_400Regular' }}>{unit}</Text>
+                            <Text style={{ color: colors.tertiaryText, fontSize: 12, fontFamily: 'Arimo_400Regular' }}>
+                              {exercise.mode === 'hold' ? 's' : 'reps'}
+                            </Text>
                           </View>
                           <TouchableOpacity
                             onPress={commitEdit}
@@ -400,11 +400,11 @@ function JournalDetail({
                           {hasData ? (
                             exercise.mode === 'hold' ? (
                               <Text style={[styles.setValue, { color: colors.primaryText, flex: 1, marginLeft: 6 }]}>
-                                {set.hold}s{set.weight != null ? `  ·  ${fmtW(set.weight)} ${unit}` : ''}
+                                {set.weight != null ? `${fmtW(set.weight)} ${unit}  ×  ` : ''}{set.hold}s
                               </Text>
                             ) : (
                               <Text style={[styles.setValue, { color: colors.primaryText, flex: 1, marginLeft: 6 }]}>
-                                {set.reps} reps{set.weight != null ? `  ·  ${fmtW(set.weight)} ${unit}` : ''}
+                                {set.weight != null ? `${fmtW(set.weight)} ${unit}  ×  ` : ''}{set.reps} reps
                               </Text>
                             )
                           ) : (

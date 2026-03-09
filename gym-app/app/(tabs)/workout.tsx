@@ -19,8 +19,21 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
+import exerciseDbRaw from '../../assets/data/exercises.json';
+
+const IMAGE_BASE = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
+const exerciseImageMap: Record<string, string> = {};
+(exerciseDbRaw as { name: string; image: string }[]).forEach(e => {
+  if (e.name && e.image) exerciseImageMap[e.name] = e.image;
+});
+function getExerciseImageUrl(name: string): string | null {
+  const path = exerciseImageMap[name];
+  if (!path) return null;
+  return IMAGE_BASE + path.split('/').map(encodeURIComponent).join('/');
+}
 import * as Haptics from 'expo-haptics';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
@@ -30,6 +43,7 @@ import { useTheme } from '../../themeStore';
 import { useUnits } from '../../unitsStore';
 import { BottomSheetModal } from '../../components/BottomSheetModal';
 import { FadeBackdrop } from '../../components/FadeBackdrop';
+import { ExercisePicker } from '../../components/ExercisePicker';
 
 type SetData = { set: number; reps: number; weight: number | null; hold?: number; prevReps?: number; prevWeight?: number; prevHold?: number; isWarmup?: boolean; fillKey?: number };
 type Exercise = { name: string; sets: SetData[]; mode?: 'reps' | 'hold' };
@@ -54,14 +68,6 @@ function BookOpenIcon({ size = 24, color = '#000' }: { size?: number; color?: st
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const EXERCISE_LIST: { category: string; exercises: string[] }[] = [
-  { category: 'Chest', exercises: ['Bench Press', 'Incline Bench Press', 'Dumbbell Bench Press', 'Incline Dumbbell Press', 'Cable Fly', 'Chest Dip', 'Push Up', 'Machine Chest Press'] },
-  { category: 'Back', exercises: ['Deadlift', 'Barbell Row', 'Pull Up', 'Lat Pulldown', 'Seated Cable Row', 'T-Bar Row', 'Dumbbell Row', 'Face Pull'] },
-  { category: 'Shoulders', exercises: ['Overhead Press', 'Dumbbell Shoulder Press', 'Lateral Raise', 'Front Raise', 'Rear Delt Fly', 'Arnold Press', 'Upright Row', 'Shrugs'] },
-  { category: 'Legs', exercises: ['Squat', 'Leg Press', 'Romanian Deadlift', 'Leg Curl', 'Leg Extension', 'Calf Raise', 'Bulgarian Split Squat', 'Lunge', 'Hip Thrust', 'Hack Squat'] },
-  { category: 'Arms', exercises: ['Bicep Curl', 'Hammer Curl', 'Preacher Curl', 'Tricep Pushdown', 'Skull Crusher', 'Overhead Tricep Extension', 'Cable Curl', 'Dips'] },
-  { category: 'Core', exercises: ['Plank', 'Hanging Leg Raise', 'Cable Crunch', 'Ab Rollout', 'Russian Twist', 'Dead Bug', 'Side Plank'] },
-];
 
 // --- Components ---
 
@@ -232,7 +238,15 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
         <View style={[styles.exerciseNumberBadge, { backgroundColor: `${accentColor}25`, borderColor: `${accentColor}4D` }]}>
           <Text style={[styles.exerciseNumberText, { color: colors.primaryText }]}>{index + 1}</Text>
         </View>
-        <Text style={[styles.exerciseName, { color: colors.primaryText }]}>{exercise.name}</Text>
+        {(() => {
+          const imgUrl = getExerciseImageUrl(exercise.name);
+          return imgUrl ? (
+            <View style={[styles.exerciseThumb, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+              <Image source={{ uri: imgUrl }} style={styles.exerciseThumbImg} contentFit="cover" />
+            </View>
+          ) : null;
+        })()}
+        <Text style={[styles.exerciseName, { color: colors.primaryText, flex: 1 }]}>{exercise.name}</Text>
         {!readOnly && (
           <TouchableOpacity
             onPress={() => {
@@ -250,9 +264,8 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
       <View style={styles.setRow}>
         <Text style={[styles.setHeaderText, styles.setCol, { color: colors.secondaryText }]}>SET</Text>
         <View style={styles.prevCol}><Text style={[styles.prevColHeader, { color: colors.tertiaryText }]}>PREV</Text></View>
+        <View style={styles.inputHeaderCol}><Text style={[styles.setHeaderText, { color: colors.secondaryText, letterSpacing: 0.5 }]} numberOfLines={1} adjustsFontSizeToFit>WEIGHT ({unit.toUpperCase()})</Text></View>
         <View style={styles.inputHeaderCol}><Text style={[styles.setHeaderText, { color: colors.secondaryText }]}>{isHold ? 'HOLD' : 'REPS'}</Text></View>
-        <View style={styles.prevCol}><Text style={[styles.prevColHeader, { color: colors.tertiaryText }]}>PREV</Text></View>
-        <View style={styles.inputHeaderCol}><Text style={[styles.setHeaderText, { color: colors.secondaryText, letterSpacing: 0 }]} numberOfLines={1}>WEIGHT ({unit.toUpperCase()})</Text></View>
         <View style={styles.checkCol} />
       </View>
 
@@ -280,30 +293,11 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
               <Text style={[styles.setText, styles.setCol, { color: isWarmup ? '#F5A623' : colors.primaryText }]}>{isWarmup ? 'W' : workingIndex}</Text>
             )}
             <View style={styles.prevCol}>
-              <Text style={[styles.prevValue, { color: colors.tertiaryText }]}>
-                {isHold ? (s.prevHold != null ? `${s.prevHold}s` : '—') : (s.prevReps ?? '—')}
+              <Text style={[styles.prevValue, { color: colors.tertiaryText }]} numberOfLines={1}>
+                {isHold
+                  ? (s.prevHold != null && s.prevHold > 0 ? `${s.prevWeight != null ? fmtW(s.prevWeight) : '0'}${unit} × ${s.prevHold}s` : '—')
+                  : (s.prevReps != null && s.prevReps > 0 ? `${s.prevWeight != null ? fmtW(s.prevWeight) : '0'}${unit} × ${s.prevReps}` : '—')}
               </Text>
-            </View>
-            <View style={styles.inputCell}>
-              <View style={[styles.inputBox, { backgroundColor: isDark ? colors.inputBg : '#FFFFFF', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)' }]}>
-                <TextInput
-                  key={`r-${s.set}-${s.fillKey ?? 0}`}
-                  style={[styles.inputBoxText, { color: colors.primaryText }]}
-                  keyboardType="decimal-pad"
-                  returnKeyType="done"
-                  onSubmitEditing={Keyboard.dismiss}
-                  defaultValue={isHold ? ((s.hold ?? 0) > 0 ? String(s.hold) : '') : (s.reps > 0 ? String(s.reps) : '')}
-                  placeholder={isHold ? '0s' : '—'}
-                  placeholderTextColor={colors.tertiaryText}
-                  onChangeText={(v) => onUpdateSet(si, isHold ? 'hold' : 'reps', v)}
-                  caretHidden={false}
-                  selectTextOnFocus
-                  editable={!readOnly}
-                />
-              </View>
-            </View>
-            <View style={styles.prevCol}>
-              <Text style={[styles.prevValue, { color: colors.tertiaryText }]}>{s.prevWeight != null ? fmtW(s.prevWeight) : '—'}</Text>
             </View>
             <View style={styles.inputCell}>
               <View style={[styles.inputBox, { backgroundColor: isDark ? colors.inputBg : '#FFFFFF', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)' }]}>
@@ -323,6 +317,24 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
                     }
                     onUpdateSet(si, 'weight', v);
                   }}
+                  caretHidden={false}
+                  selectTextOnFocus
+                  editable={!readOnly}
+                />
+              </View>
+            </View>
+            <View style={styles.inputCell}>
+              <View style={[styles.inputBox, { backgroundColor: isDark ? colors.inputBg : '#FFFFFF', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)' }]}>
+                <TextInput
+                  key={`r-${s.set}-${s.fillKey ?? 0}`}
+                  style={[styles.inputBoxText, { color: colors.primaryText }]}
+                  keyboardType="decimal-pad"
+                  returnKeyType="done"
+                  onSubmitEditing={Keyboard.dismiss}
+                  defaultValue={isHold ? ((s.hold ?? 0) > 0 ? String(s.hold) : '') : (s.reps > 0 ? String(s.reps) : '')}
+                  placeholder={isHold ? '0s' : '—'}
+                  placeholderTextColor={colors.tertiaryText}
+                  onChangeText={(v) => onUpdateSet(si, isHold ? 'hold' : 'reps', v)}
                   caretHidden={false}
                   selectTextOnFocus
                   editable={!readOnly}
@@ -521,7 +533,6 @@ export default function WorkoutScreen() {
   const [workoutFinished, setWorkoutFinished] = useState(workoutState.finished);
   const [changeExerciseIndex, setChangeExerciseIndex] = useState<number | null>(null);
   const [addingExercise, setAddingExercise] = useState(false);
-  const [customExerciseName, setCustomExerciseName] = useState('');
   const [selectedSessionByDay, setSelectedSessionByDay] = useState<Record<number, number>>({});
   const selectedSessionIndex = selectedSessionByDay[selectedDayIndex] ?? 0;
   const setSelectedSessionIndex = (idx: number) =>
@@ -1520,7 +1531,7 @@ export default function WorkoutScreen() {
                     }
                   }
                 }}
-                onShowExerciseList={() => { setCustomExerciseName(''); setChangeExerciseIndex(i); }}
+                onShowExerciseList={() => { setChangeExerciseIndex(i); }}
                 onRemoveExercise={() => {
                   LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                   updateExercises(prev => prev.filter((_, ei) => ei !== i));
@@ -1646,7 +1657,6 @@ export default function WorkoutScreen() {
                 style={[styles.addExerciseBtn, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)' }]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setCustomExerciseName('');
                   setAddingExercise(true);
                 }}
                 activeOpacity={0.7}
@@ -1933,10 +1943,11 @@ export default function WorkoutScreen() {
         ) : null}
       </ScrollView>
 
-      {/* Change / Add Exercise Overlay */}
-      {(changeExerciseIndex !== null || addingExercise) && (() => {
-        const closeOverlay = () => { setChangeExerciseIndex(null); setAddingExercise(false); setCustomExerciseName(''); };
-        const selectExercise = (name: string) => {
+      {/* Change / Add Exercise Picker */}
+      <ExercisePicker
+        visible={changeExerciseIndex !== null || addingExercise}
+        onDismiss={() => { setChangeExerciseIndex(null); setAddingExercise(false); }}
+        onSelect={(name: string) => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           if (addingExercise) {
             const newExercise: Exercise = {
@@ -1974,83 +1985,10 @@ export default function WorkoutScreen() {
               }
             }
           }
-          closeOverlay();
-        };
-        const query = customExerciseName.trim().toLowerCase();
-        const filteredList = query.length > 0
-          ? EXERCISE_LIST.map(g => ({ ...g, exercises: g.exercises.filter(e => e.toLowerCase().includes(query)) })).filter(g => g.exercises.length > 0)
-          : EXERCISE_LIST;
-        const exactMatch = EXERCISE_LIST.some(g => g.exercises.some(e => e.toLowerCase() === query));
-
-        return (
-          <View style={styles.completeOverlay}>
-            <FadeBackdrop onPress={closeOverlay} color="rgba(0,0,0,0.5)" />
-            <View style={[styles.exerciseListCard, { backgroundColor: colors.modalBg }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <Text style={{ fontSize: 18, fontFamily: 'Arimo_700Bold', color: colors.primaryText }}>{addingExercise ? 'Add Exercise' : 'Change Exercise'}</Text>
-                <TouchableOpacity onPress={closeOverlay} hitSlop={12}>
-                  <Ionicons name="close" size={24} color={colors.secondaryText} />
-                </TouchableOpacity>
-              </View>
-
-              <View style={[styles.customExerciseRow, { backgroundColor: colors.inputBg }]}>
-                <TextInput
-                  style={[styles.customExerciseInput, { color: colors.primaryText }]}
-                  placeholder="Search or add custom exercise..."
-                  placeholderTextColor={colors.tertiaryText}
-                  value={customExerciseName}
-                  onChangeText={setCustomExerciseName}
-                  returnKeyType="done"
-                  onSubmitEditing={() => {
-                    const trimmed = customExerciseName.trim();
-                    if (trimmed.length > 0) {
-                      Keyboard.dismiss();
-                      selectExercise(trimmed);
-                    }
-                  }}
-                />
-                {customExerciseName.trim().length > 0 && !exactMatch && (
-                  <TouchableOpacity
-                    onPress={() => {
-                      Keyboard.dismiss();
-                      selectExercise(customExerciseName.trim());
-                    }}
-                    style={[styles.customExerciseConfirm, { backgroundColor: accentColor }]}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="add" size={18} color="#1C1C1E" />
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                {filteredList.map((group) => (
-                  <View key={group.category} style={{ marginBottom: 12 }}>
-                    <Text style={[styles.exerciseListCategory, { color: colors.secondaryText }]}>{group.category}</Text>
-                    {group.exercises.map((name) => {
-                      const currentName = changeExerciseIndex !== null ? exercises[changeExerciseIndex]?.name : null;
-                      return (
-                        <TouchableOpacity
-                          key={name}
-                          style={[styles.exerciseListItem, { backgroundColor: name === currentName ? `${accentColor}15` : 'transparent' }]}
-                          onPress={() => selectExercise(name)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[styles.exerciseListItemText, { color: colors.primaryText }, name === currentName && { color: accentColor }]}>{name}</Text>
-                          {name === currentName && <Ionicons name="checkmark" size={18} color={accentColor} />}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                ))}
-                {filteredList.length === 0 && query.length > 0 && (
-                  <Text style={{ textAlign: 'center', color: colors.tertiaryText, fontFamily: 'Arimo_400Regular', fontSize: 14, marginTop: 20 }}>No matches — press Enter or tap + to add "{customExerciseName.trim()}"</Text>
-                )}
-              </ScrollView>
-            </View>
-          </View>
-        );
-      })()}
+          setChangeExerciseIndex(null);
+          setAddingExercise(false);
+        }}
+      />
 
       {/* Rest Timer / Stopwatch Overlay */}
       {showRestTimer && (
@@ -2811,6 +2749,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 10,
   },
+  exerciseThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginRight: 10,
+  },
+  exerciseThumbImg: {
+    width: 44,
+    height: 44,
+  },
   exerciseNumberText: {
     fontSize: 13,
     fontFamily: 'Arimo_700Bold',
@@ -2875,7 +2824,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   prevCol: {
-    width: 40,
+    width: 72,
     alignItems: 'center',
     justifyContent: 'center',
   },

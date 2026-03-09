@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
@@ -20,7 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { getDoc, doc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import type { WorkoutJournalEntry } from '../../workoutState';
@@ -53,7 +53,7 @@ function BounceButton({ style, children, onPress, disabled, ...rest }: any) {
 
 type ViewMode = 'list' | 'detail' | 'chat' | 'share' | 'privateChat' | 'memberProgress';
 
-// 20 avatar colors for members
+// 50 avatar colors for members
 const AVATAR_COLORS = [
   '#FF6B6B', // Coral Red
   '#4ECDC4', // Teal
@@ -75,6 +75,36 @@ const AVATAR_COLORS = [
   '#F39C12', // Orange
   '#2ECC71', // Green
   '#E91E63', // Pink
+  '#6C5CE7', // Indigo
+  '#FD79A8', // Rose
+  '#00B894', // Seafoam
+  '#FDCB6E', // Marigold
+  '#A29BFE', // Periwinkle
+  '#55EFC4', // Aquamarine
+  '#FF9FF3', // Lilac
+  '#54A0FF', // Cornflower Blue
+  '#5F27CD', // Deep Purple
+  '#01CBC6', // Cyan
+  '#FF6348', // Orange Red
+  '#7BED9F', // Light Green
+  '#70A1FF', // Soft Blue
+  '#EF5777', // Raspberry
+  '#B8E994', // Pistachio
+  '#F19066', // Peach
+  '#778CA3', // Steel Blue
+  '#FDA7DF', // Bubblegum
+  '#D980FA', // Orchid
+  '#9AECDB', // Pale Teal
+  '#FFC312', // Sunflower
+  '#C4E538', // Lime
+  '#ED4C67', // Crimson
+  '#12CBC4', // Turquoise
+  '#A3CB38', // Olive Green
+  '#1289A7', // Ocean Blue
+  '#D980FA', // Violet
+  '#B53471', // Berry
+  '#EE5A24', // Burnt Orange
+  '#009432', // Forest Green
 ];
 
 // Get consistent color based on member ID
@@ -138,6 +168,24 @@ export default function CommunityScreen() {
   const [isOwnerView, setIsOwnerView] = useState(false);
   const [expandedSharedWorkoutId, setExpandedSharedWorkoutId] = useState<string | null>(null);
   const [confirmRemoveWorkoutId, setConfirmRemoveWorkoutId] = useState<string | null>(null);
+
+  // Build a per-community color map so no two members share a color (up to 50 members)
+  const memberColorMap = useMemo(() => {
+    const members = selectedCommunity?.members ?? [];
+    const sorted = [...members].sort((a, b) => a.id.localeCompare(b.id));
+    const map: Record<string, string> = {};
+    sorted.forEach((m, i) => { map[m.id] = AVATAR_COLORS[i % AVATAR_COLORS.length]; });
+    return map;
+  }, [selectedCommunity?.members]);
+  const getMemberColor = (id: string) => memberColorMap[id] ?? getAvatarColor(id);
+
+  // Reset expanded/confirm state when leaving the tab
+  useFocusEffect(React.useCallback(() => {
+    return () => {
+      setExpandedSharedWorkoutId(null);
+      setConfirmRemoveWorkoutId(null);
+    };
+  }, []));
 
   // Keep selectedCommunity in sync with store updates
   useEffect(() => {
@@ -589,9 +637,9 @@ export default function CommunityScreen() {
             style={styles.heroBanner}
           >
             <View style={[styles.heroBannerContent, { alignItems: 'center', paddingTop: 16, paddingBottom: 16 }]}>
-              <Text style={styles.heroBannerName} numberOfLines={2}>{selectedCommunity.name}</Text>
+              <Text style={styles.heroBannerName} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{selectedCommunity.name}</Text>
               {selectedCommunity.description ? (
-                <Text style={[styles.heroBannerDesc, { textAlign: 'center', marginTop: 6 }]} numberOfLines={1}>{selectedCommunity.description}</Text>
+                <Text style={[styles.heroBannerDesc, { textAlign: 'center', marginTop: 6 }]} numberOfLines={4}>{selectedCommunity.description}</Text>
               ) : null}
               <Text style={styles.heroBannerMeta}>
                 {selectedCommunity.members.length} member{selectedCommunity.members.length !== 1 ? 's' : ''}{' · '}{isOwnerView ? 'Owner' : `by ${selectedCommunity.ownerName ?? 'Coach'}`}
@@ -1025,7 +1073,7 @@ export default function CommunityScreen() {
             </View>
             {selectedCommunity.members.map(member => (
               <View key={member.id} style={[styles.memberCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
-                <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(member.id) }]}>
+                <View style={[styles.memberAvatar, { backgroundColor: getMemberColor(member.id) }]}>
                   <Text style={styles.memberAvatarText}>
                     {getInitials(member.name)}
                   </Text>
@@ -1150,7 +1198,7 @@ export default function CommunityScreen() {
             return (
               <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
                 {!isMe && (
-                  <View style={[styles.messageAvatar, { backgroundColor: getAvatarColor(item.senderId) }]}>
+                  <View style={[styles.messageAvatar, { backgroundColor: getMemberColor(item.senderId) }]}>
                     <Text style={styles.messageAvatarText}>
                       {getInitials(item.senderName)}
                     </Text>
@@ -1296,7 +1344,7 @@ export default function CommunityScreen() {
                       ]}
                       onPress={() => toggleMemberSelection(member.id)}
                     >
-                      <View style={[styles.memberSelectAvatar, { backgroundColor: getAvatarColor(member.id) }]}>
+                      <View style={[styles.memberSelectAvatar, { backgroundColor: getMemberColor(member.id) }]}>
                         <Text style={styles.memberSelectAvatarText}>
                           {getInitials(member.name)}
                         </Text>
@@ -1327,7 +1375,7 @@ export default function CommunityScreen() {
             <>
               {coach && (
                 <View style={[styles.shareCoachInfo, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
-                  <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(coach.id), width: 36, height: 36, borderRadius: 18 }]}>
+                  <View style={[styles.memberAvatar, { backgroundColor: getMemberColor(coach.id), width: 36, height: 36, borderRadius: 18 }]}>
                     <Text style={[styles.memberAvatarText, { fontSize: 14 }]}>{getInitials(coach.name)}</Text>
                   </View>
                   <View style={{ flex: 1, marginLeft: 12 }}>
@@ -1380,7 +1428,7 @@ export default function CommunityScreen() {
             <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
           </TouchableOpacity>
           <View style={styles.privateChatHeaderInfo}>
-            <View style={[styles.privateChatHeaderAvatar, { backgroundColor: getAvatarColor(privateChatMember.id) }]}>
+            <View style={[styles.privateChatHeaderAvatar, { backgroundColor: getMemberColor(privateChatMember.id) }]}>
               <Text style={styles.privateChatHeaderAvatarText}>
                 {getInitials(privateChatMember.name)}
               </Text>
@@ -1410,7 +1458,7 @@ export default function CommunityScreen() {
             return (
               <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
                 {!isMe && (
-                  <View style={[styles.messageAvatar, { backgroundColor: getAvatarColor(item.senderId) }]}>
+                  <View style={[styles.messageAvatar, { backgroundColor: getMemberColor(item.senderId) }]}>
                     <Text style={styles.messageAvatarText}>
                       {getInitials(item.senderName)}
                     </Text>
@@ -1453,7 +1501,7 @@ export default function CommunityScreen() {
             <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
           </TouchableOpacity>
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginHorizontal: 8 }}>
-            <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(progressMember.id) }]}>
+            <View style={[styles.memberAvatar, { backgroundColor: getMemberColor(progressMember.id) }]}>
               <Text style={styles.memberAvatarText}>{getInitials(progressMember.name)}</Text>
             </View>
             <View style={{ marginLeft: 10 }}>
@@ -1509,6 +1557,7 @@ export default function CommunityScreen() {
               placeholderTextColor={colors.tertiaryText}
               value={newCommunityName}
               onChangeText={setNewCommunityName}
+              maxLength={30}
             />
             <TextInput
               style={[styles.modalInput, styles.modalInputMulti, { backgroundColor: colors.inputBg, color: colors.primaryText }]}
@@ -1517,7 +1566,8 @@ export default function CommunityScreen() {
               value={newCommunityDesc}
               onChangeText={setNewCommunityDesc}
               multiline
-              numberOfLines={3}
+              numberOfLines={4}
+              maxLength={150}
             />
 
             <BounceButton
@@ -1675,7 +1725,7 @@ export default function CommunityScreen() {
                     setTimeout(() => setShowRemoveConfirmation(true), 230);
                   }}
                 >
-                  <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(member.id) }]}>
+                  <View style={[styles.memberAvatar, { backgroundColor: getMemberColor(member.id) }]}>
                     <Text style={styles.memberAvatarText}>
                       {getInitials(member.name)}
                     </Text>
@@ -1751,6 +1801,7 @@ export default function CommunityScreen() {
               placeholderTextColor={colors.tertiaryText}
               value={editName}
               onChangeText={setEditName}
+              maxLength={30}
             />
             <TextInput
               style={[styles.modalInput, styles.modalInputMulti, { backgroundColor: colors.inputBg, color: colors.primaryText }]}
@@ -1759,7 +1810,8 @@ export default function CommunityScreen() {
               value={editDesc}
               onChangeText={setEditDesc}
               multiline
-              numberOfLines={3}
+              numberOfLines={4}
+              maxLength={150}
             />
 
             <BounceButton
@@ -2007,7 +2059,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Arimo_700Bold',
     color: '#FFFFFF',
     lineHeight: 36,
-    textAlign: 'center',
+    textAlign: 'left',
     textShadowColor: '#00000080',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -2559,7 +2611,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   modalInputMulti: {
-    minHeight: 80,
+    minHeight: 100,
     textAlignVertical: 'top',
   },
   inviteCodeInput: {

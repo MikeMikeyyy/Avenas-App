@@ -80,6 +80,16 @@ function _syncToFirestore() {
     } catch {}
   }, 2000);
 }
+// Immediate sync — used for high-importance writes like completing a workout
+function _syncToFirestoreNow() {
+  if (!_currentUserId) return;
+  if (_fsTimer) { clearTimeout(_fsTimer); _fsTimer = null; }
+  setDoc(doc(db, 'users', _currentUserId, 'data', 'workout'), {
+    journal: _journalLog,
+    prev: _prevData,
+    updatedAt: serverTimestamp(),
+  }).catch(() => {});
+}
 
 // Internal helper — updates prev data for a label only if the new date is >= stored date
 function _savePrevInternal(dayLabel: string, exercises: PrevExerciseData[], date: number) {
@@ -108,9 +118,9 @@ function _persistPrev() {
 }
 
 // Persist journal to AsyncStorage and Firestore
-function _persistJournal() {
+function _persistJournal(immediate = false) {
   AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(_journalLog)).catch(() => {});
-  _syncToFirestore();
+  if (immediate) _syncToFirestoreNow(); else _syncToFirestore();
 }
 
 // Persist history to AsyncStorage
@@ -423,7 +433,7 @@ export const workoutState = {
     _persistHistory();
     _persistPrev();
     _notifyPrevChanged();
-    _persistJournal();
+    _persistJournal(true); // immediate Firestore sync — don't risk losing it if app closes
   },
   updateJournalEntry(entry: WorkoutJournalEntry) {
     // Recalculate totalVolume from actual set data
@@ -606,13 +616,21 @@ export const workoutState = {
         AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(_journalLog)).catch(() => {});
         AsyncStorage.setItem(PREV_KEY, JSON.stringify(_prevData)).catch(() => {});
       } else {
-        // New user — clear any stale data from a previous account on this device
-        _journalLog.length = 0;
-        for (const k of Object.keys(_prevData)) delete _prevData[k];
-        for (const k of Object.keys(_exerciseHistory)) delete _exerciseHistory[k];
-        _workoutFinished = false;
-        _listeners.forEach(fn => fn(false));
-        AsyncStorage.multiRemove([JOURNAL_KEY, HISTORY_KEY, PREV_KEY]).catch(() => {});
+        // Firestore has no workout document yet.
+        // This happens when the Firestore sync didn't complete before the app closed
+        // (the 2-second debounce was still pending). Local AsyncStorage data is the
+        // source of truth — do NOT wipe it. Upload it so Firestore catches up.
+        if (_journalLog.length > 0 || Object.keys(_prevData).length > 0) {
+          _syncToFirestoreNow();
+        }
+        // Rebuild finished flag from local journal (already set by initStorage, but re-derive to be safe)
+        const todayStr = _getTodayStr();
+        const loggedToday = _journalLog.some(e => {
+          const d = new Date(e.date);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === todayStr;
+        });
+        _workoutFinished = loggedToday;
+        _listeners.forEach(fn => fn(loggedToday));
         _notifyPrevChanged();
       }
     } catch {}
