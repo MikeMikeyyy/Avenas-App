@@ -464,7 +464,7 @@ export default function HomeScreen() {
                 </View>
               )}
               <BounceButton
-                style={[styles.startButton, { backgroundColor: hasPrograms ? accentColor : '#47DDFF' }, workoutDone && hasPrograms && { backgroundColor: `${accentColor}25`, borderWidth: 1, borderColor: `${accentColor}66` }]}
+                style={[styles.startButton, { backgroundColor: hasPrograms ? accentColor : '#47DDFF' }, workoutDone && hasPrograms && { backgroundColor: `${accentColor}25`, borderWidth: 2, borderColor: `${accentColor}CC` }]}
                 onPress={() => {
                   if (!hasPrograms) { router.navigate('/create-program'); return; }
                   if (!isRestDay && !workoutDone) workoutState.startTimer(todayDayIndex);

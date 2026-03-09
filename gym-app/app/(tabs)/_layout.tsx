@@ -81,9 +81,7 @@ function TabItem({ route, focused, onPress }: { route: any; focused: boolean; on
 }
 
 const BAR_HEIGHT = 72;
-const PILL_INSET = 4; // equal gap on all sides between pill and bar edge
-const PILL_HEIGHT = BAR_HEIGHT - PILL_INSET * 2; // 68
-const PILL_WIDTH = 86;
+const PILL_INSET = 3;
 
 function AnimatedTabBar({
   state,
@@ -97,8 +95,7 @@ function AnimatedTabBar({
   const [tabWidth, setTabWidth] = useState(0);
   const { width: screenWidth } = useWindowDimensions();
   const barWidth = screenWidth - 40; // left:20 + right:20
-  const barPadding = 8;
-  const computedTabWidth = (barWidth - barPadding * 2) / state.routes.length;
+  const computedTabWidth = barWidth / state.routes.length;
   const isFirstRender = useRef(true);
 
   useEffect(() => {
@@ -109,8 +106,7 @@ function AnimatedTabBar({
 
   useEffect(() => {
     if (tabWidth > 0) {
-      const toValue =
-        state.index * tabWidth + tabWidth / 2 - PILL_WIDTH / 2;
+      const toValue = state.index * tabWidth + PILL_INSET;
 
       if (isFirstRender.current) {
         translateX.setValue(toValue);
@@ -151,7 +147,7 @@ function AnimatedTabBar({
             style={[
               styles.activePill,
               {
-                width: PILL_WIDTH,
+                width: tabWidth - PILL_INSET * 2,
                 transform: [{ translateX }, { scale: pillScale }],
               },
             ]}
@@ -207,7 +203,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(28, 28, 30, 0.75)",
     height: BAR_HEIGHT,
     alignItems: "center",
-    paddingHorizontal: 8,
     borderRadius: 100,
     borderWidth: 0.5,
     borderColor: "rgba(255,255,255,0.12)",
@@ -221,13 +216,13 @@ const styles = StyleSheet.create({
   },
   activePill: {
     position: "absolute",
-    left: 8,
-    height: PILL_HEIGHT,
-    borderRadius: PILL_HEIGHT / 2,
+    left: 0,
+    top: PILL_INSET - 0.5,
+    height: BAR_HEIGHT - PILL_INSET * 2,
+    borderRadius: (BAR_HEIGHT - PILL_INSET * 2) / 2,
     backgroundColor: "rgba(255,255,255,0.1)",
     borderWidth: 0.5,
     borderColor: "rgba(255,255,255,0.08)",
-    top: (BAR_HEIGHT - PILL_HEIGHT) / 2 - 0.5,
     zIndex: 1,
   },
   iconContent: {
