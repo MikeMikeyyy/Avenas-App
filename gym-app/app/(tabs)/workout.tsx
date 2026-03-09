@@ -942,11 +942,13 @@ export default function WorkoutScreen() {
       if (lockedToday && lockedToday.programId === activeId) {
         setLockedToday(null);
       }
-      if (calendarIndex !== PAST_DAYS) {
-        setCalendarIndex(PAST_DAYS);
-        setSelectedSessionByDay({});
-        return; // will re-run with calendarIndex = PAST_DAYS
-      }
+      setCalendarIndex(PAST_DAYS);
+      setSelectedSessionByDay({});
+      // Fall through to the exercise-loading section below. The label-change check
+      // (prevWorkoutLabelRef.current === null after a program switch) ensures any stale
+      // cache is cleared and exercises are loaded from the fresh workout.
+      // Do NOT return early: if the new program's cycleOffset is the same value already
+      // in state, getCycleOffset resolves as a no-op and the effect would never re-run.
     }
 
     const cacheKey = `${selectedDayIndex}-${selectedSessionIndex}`;
@@ -954,8 +956,9 @@ export default function WorkoutScreen() {
 
     // If the workout label changed (cycleOffset loaded async after initial render),
     // the cached exercises belong to a different day — clear them so we reload correctly.
+    // Also handles the null→label transition after a program switch.
     const currentLabel = workout?.dayLabel ?? null;
-    if (currentLabel !== prevWorkoutLabelRef.current && prevWorkoutLabelRef.current !== null) {
+    if (currentLabel !== prevWorkoutLabelRef.current) {
       Object.keys(exerciseCache)
         .filter(k => k.startsWith(`${selectedDayIndex}-`))
         .forEach(k => delete exerciseCache[k]);

@@ -2,9 +2,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users can only read/write their own data
+    // Users can read/write their own data.
+    // Any authenticated user can read user data — UIDs are never publicly discoverable,
+    // so only users connected through a community will ever attempt a read.
+    // Writes remain restricted to the owning user only.
     match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == uid;
     }
 
     // Community documents

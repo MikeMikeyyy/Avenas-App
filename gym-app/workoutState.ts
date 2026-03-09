@@ -1,5 +1,7 @@
 // Simple shared state between tabs — no route params needed
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { db } from './firebase';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 function _getTodayStr(): string {
   const d = new Date();
@@ -61,6 +63,24 @@ const JOURNAL_KEY = '@journal_v1';
 const HISTORY_KEY = '@history_v1';
 const PREV_KEY = '@prev_v2';
 
+// Firestore sync
+let _currentUserId: string | null = null;
+let _fsTimer: ReturnType<typeof setTimeout> | null = null;
+function _syncToFirestore() {
+  if (!_currentUserId) return;
+  if (_fsTimer) clearTimeout(_fsTimer);
+  _fsTimer = setTimeout(async () => {
+    if (!_currentUserId) return;
+    try {
+      await setDoc(doc(db, 'users', _currentUserId, 'data', 'workout'), {
+        journal: _journalLog,
+        prev: _prevData,
+        updatedAt: serverTimestamp(),
+      });
+    } catch {}
+  }, 2000);
+}
+
 // Internal helper — updates prev data for a label only if the new date is >= stored date
 function _savePrevInternal(dayLabel: string, exercises: PrevExerciseData[], date: number) {
   const current = _prevData[dayLabel];
@@ -81,14 +101,16 @@ function _notifyJournalUpdate(entry: WorkoutJournalEntry) {
   _journalUpdateListeners.forEach(fn => fn(entry));
 }
 
-// Persist all prev data to AsyncStorage
+// Persist all prev data to AsyncStorage and Firestore
 function _persistPrev() {
   AsyncStorage.setItem(PREV_KEY, JSON.stringify(_prevData)).catch(() => {});
+  _syncToFirestore();
 }
 
-// Persist journal to AsyncStorage
+// Persist journal to AsyncStorage and Firestore
 function _persistJournal() {
   AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(_journalLog)).catch(() => {});
+  _syncToFirestore();
 }
 
 // Persist history to AsyncStorage
@@ -541,5 +563,58 @@ export const workoutState = {
       );
     }
     _persistHistory();
+  },
+
+  // Set current user — pass null on logout to clear all in-memory state
+  setUser(uid: string | null) {
+    _currentUserId = uid;
+    if (!uid) {
+      if (_fsTimer) { clearTimeout(_fsTimer); _fsTimer = null; }
+      _journalLog.length = 0;
+      for (const k of Object.keys(_prevData)) delete _prevData[k];
+      for (const k of Object.keys(_exerciseHistory)) delete _exerciseHistory[k];
+      _workoutFinished = false;
+      _listeners.forEach(fn => fn(false));
+      AsyncStorage.multiRemove([JOURNAL_KEY, HISTORY_KEY, PREV_KEY]).catch(() => {});
+      _notifyPrevChanged();
+    }
+  },
+
+  // Load workout data for a logged-in user from Firestore (overrides local cache)
+  async loadForUser(uid: string): Promise<void> {
+    _currentUserId = uid;
+    try {
+      const snap = await getDoc(doc(db, 'users', uid, 'data', 'workout'));
+      if (snap.exists()) {
+        const data = snap.data();
+        const fsJournal: WorkoutJournalEntry[] = data.journal ?? [];
+        const fsPrev: Record<string, PrevEntry> = data.prev ?? {};
+        _journalLog.length = 0;
+        _journalLog.push(...fsJournal);
+        for (const k of Object.keys(_prevData)) delete _prevData[k];
+        for (const [k, v] of Object.entries(fsPrev)) _prevData[k] = v;
+        // Rebuild finished flag
+        const todayStr = _getTodayStr();
+        const loggedToday = _journalLog.some(e => {
+          const d = new Date(e.date);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === todayStr;
+        });
+        _workoutFinished = loggedToday;
+        _listeners.forEach(fn => fn(loggedToday));
+        _notifyPrevChanged();
+        // Keep AsyncStorage in sync for offline use
+        AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(_journalLog)).catch(() => {});
+        AsyncStorage.setItem(PREV_KEY, JSON.stringify(_prevData)).catch(() => {});
+      } else {
+        // New user — clear any stale data from a previous account on this device
+        _journalLog.length = 0;
+        for (const k of Object.keys(_prevData)) delete _prevData[k];
+        for (const k of Object.keys(_exerciseHistory)) delete _exerciseHistory[k];
+        _workoutFinished = false;
+        _listeners.forEach(fn => fn(false));
+        AsyncStorage.multiRemove([JOURNAL_KEY, HISTORY_KEY, PREV_KEY]).catch(() => {});
+        _notifyPrevChanged();
+      }
+    } catch {}
   },
 };

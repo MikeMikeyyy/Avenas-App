@@ -134,12 +134,11 @@ export default function ProgramsScreen() {
             <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>ACTIVE PROGRAM</Text>
             <View style={[styles.programCard, styles.activeCard, { borderColor: activeProgram.color, backgroundColor: `${activeProgram.color}14` }]}>
               <View style={styles.programCardHeader}>
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text style={[styles.programName, { color: colors.primaryText }]}>{activeProgram.name}</Text>
-                  <Text style={[styles.programFullName, { color: colors.secondaryText }]}>{activeProgram.splitDays.filter(d => d.type === 'training').length} training days · {activeProgram.splitDays.length} day cycle</Text>
-                </View>
-                <View style={[styles.activeBadge, { backgroundColor: `${activeProgram.color}40`, borderColor: `${activeProgram.color}80` }]}>
-                  <Text style={[styles.activeBadgeText, { color: colors.primaryText }]}>Active</Text>
+                  <Text style={[styles.programFullName, { color: colors.secondaryText }]}>
+                    {activeProgram.sharedBy ? `From ${activeProgram.sharedBy} · ` : ''}{activeProgram.splitDays.filter(d => d.type === 'training').length} training days · {activeProgram.splitDays.length} day cycle
+                  </Text>
                 </View>
               </View>
               <View style={styles.daysRow}>
@@ -210,9 +209,11 @@ export default function ProgramsScreen() {
                 <View key={program.id}>
                   <BounceButton style={[styles.programCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]} onPress={() => toggleExpand(program.id)}>
                     <View style={styles.programCardHeader}>
-                      <View>
+                      <View style={{ flex: 1 }}>
                         <Text style={[styles.programName, { color: colors.primaryText }]}>{program.name}</Text>
-                        <Text style={[styles.programFullName, { color: colors.secondaryText }]}>{program.splitDays.filter(d => d.type === 'training').length} training days · {program.splitDays.length} day cycle</Text>
+                        <Text style={[styles.programFullName, { color: colors.secondaryText }]}>
+                          {program.sharedBy ? `From ${program.sharedBy} · ` : ''}{program.splitDays.filter(d => d.type === 'training').length} training days · {program.splitDays.length} day cycle
+                        </Text>
                       </View>
                       <Ionicons
                         name={isExpanded ? 'chevron-down' : 'chevron-forward'}
@@ -325,9 +326,11 @@ export default function ProgramsScreen() {
                 <View key={program.id}>
                   <BounceButton style={[styles.programCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]} onPress={() => toggleExpand(program.id)}>
                     <View style={[styles.programCardHeader, { opacity: 0.6 }]}>
-                      <View>
+                      <View style={{ flex: 1 }}>
                         <Text style={[styles.programName, { color: colors.primaryText }]}>{program.name}</Text>
-                        <Text style={[styles.programFullName, { color: colors.secondaryText }]}>{program.splitDays.filter(d => d.type === 'training').length} training days · {program.splitDays.length} day cycle</Text>
+                        <Text style={[styles.programFullName, { color: colors.secondaryText }]}>
+                          {program.sharedBy ? `From ${program.sharedBy} · ` : ''}{program.splitDays.filter(d => d.type === 'training').length} training days · {program.splitDays.length} day cycle
+                        </Text>
                       </View>
                       <Ionicons
                         name={isExpanded ? 'chevron-down' : 'chevron-forward'}

@@ -8,7 +8,7 @@ import { ProgramProvider } from '../programStore';
 import { CommunityProvider } from '../communityStore';
 import { ThemeProvider, useTheme } from '../themeStore';
 import { UnitsProvider } from '../unitsStore';
-import { AuthProvider } from '../authStore';
+import { AuthProvider, useAuth } from '../authStore';
 import { workoutState } from '../workoutState';
 
 export const unstable_settings = {
@@ -17,10 +17,19 @@ export const unstable_settings = {
 
 function InnerLayout() {
   const { isDark } = useTheme();
+  const { user } = useAuth();
 
   useEffect(() => {
     workoutState.initStorage();
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      workoutState.loadForUser(user.uid);
+    } else {
+      workoutState.setUser(null);
+    }
+  }, [user?.uid]);
 
   return (
     <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>

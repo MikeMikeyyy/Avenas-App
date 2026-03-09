@@ -60,6 +60,7 @@ export type Program = {
   color: string;
   splitDays: SplitDay[];
   archived?: boolean;
+  sharedBy?: string; // set when the program was saved from a community share
 };
 
 export type SharedProgram = Program & {
@@ -211,15 +212,18 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
           const data = snap.data();
           const fsPrograms: Program[] = data.programs ?? [];
           const fsActiveId: string = data.activeId ?? '';
+          const fsShared: SharedProgram[] = data.sharedPrograms ?? [];
           setPrograms(fsPrograms);
           if (fsPrograms.length > 0) {
             const maxId = Math.max(...fsPrograms.map(p => Number(p.id)).filter(n => !isNaN(n)), 0);
             _nextId = maxId + 1;
           }
           setActiveId(fsActiveId);
+          setSharedPrograms(fsShared);
           // Keep local cache in sync
           AsyncStorage.setItem(PROGRAMS_KEY, JSON.stringify(fsPrograms)).catch(() => {});
           AsyncStorage.setItem(ACTIVE_KEY, fsActiveId).catch(() => {});
+          AsyncStorage.setItem(SHARED_KEY, JSON.stringify(fsShared)).catch(() => {});
         } else {
           // New user — clear any stale data from a previous account on this device
           setPrograms([]);
@@ -259,6 +263,7 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
         await setDoc(doc(db, 'users', user.uid, 'data', 'programs'), {
           programs,
           activeId,
+          sharedPrograms,
           updatedAt: serverTimestamp(),
         });
       } catch {}
@@ -266,7 +271,7 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
     return () => {
       if (firestoreTimer.current) clearTimeout(firestoreTimer.current);
     };
-  }, [programs, activeId, loaded, user?.uid]);
+  }, [programs, activeId, sharedPrograms, loaded, user?.uid]);
 
   const addProgram = useCallback((name: string, color: string, splitDays: SplitDay[]): string => {
     const id = String(_nextId++);
@@ -325,7 +330,7 @@ export function ProgramProvider({ children }: { children: React.ReactNode }) {
       if (!sharedItem) return prev;
       const newId = String(_nextId++);
       const color = sharedItem.color || PROGRAM_COLORS[prev.length % PROGRAM_COLORS.length];
-      return [...prev, { id: newId, name: sharedItem.name, color, splitDays: sharedItem.splitDays }];
+      return [...prev, { id: newId, name: sharedItem.name, color, splitDays: sharedItem.splitDays, sharedBy: sharedItem.sharedBy }];
     });
   }, [sharedPrograms]);
 

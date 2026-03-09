@@ -29,7 +29,10 @@ export type SharedWorkout = {
   status: 'pending' | 'accepted' | 'declined';
   color: string;
   splitDays: SplitDay[];
-  direction?: 'toMembers' | 'toCoach';
+  direction?: 'toMembers' | 'toCoach' | 'returnedToMember';
+  recipientMemberId?: string; // uid of the non-owner member involved
+  returnedBy?: string;        // coach name when direction === 'returnedToMember'
+  removedByMemberIds?: string[]; // members who dismissed this 'everyone' share
 };
 
 export type ChatMessage = {
@@ -88,12 +91,14 @@ type CommunityStoreState = {
   acceptWorkout: (communityId: string, workoutId: string) => void;
   declineWorkout: (communityId: string, workoutId: string) => void;
   shareWorkout: (communityId: string, workout: Omit<SharedWorkout, 'id' | 'sharedAt' | 'status'>) => void;
-  shareWithCoach: (communityId: string, workout: Omit<SharedWorkout, 'id' | 'sharedAt' | 'status' | 'sharedWith' | 'direction'>) => void;
+  shareWithCoach: (communityId: string, workout: Omit<SharedWorkout, 'id' | 'sharedAt' | 'status' | 'sharedWith' | 'direction' | 'recipientMemberId'>) => void;
   respondToMemberShare: (communityId: string, workoutId: string, accept: boolean) => void;
+  returnWorkoutToMember: (communityId: string, originalWorkoutId: string, updatedWorkout: { programName: string; color: string; splitDays: SplitDay[] }) => Promise<void>;
   sendMessage: (communityId: string, message: string) => void;
   removeMember: (communityId: string, memberId: string) => void;
   updateCommunity: (communityId: string, name: string, description: string) => void;
   removeSharedWorkout: (communityId: string, workoutId: string) => void;
+  dismissSharedWorkout: (communityId: string, workoutId: string) => void;
   sendPrivateMessage: (communityId: string, memberId: string, memberName: string, message: string) => void;
   shareWorkoutPrivately: (communityId: string, memberId: string, memberName: string, workout: { programId: string; programName: string; color: string; splitDays: number }) => void;
   getPrivateChat: (communityId: string, memberId: string) => PrivateChat | undefined;
@@ -154,6 +159,9 @@ function firestoreToCommunity(id: string, data: any): Community {
       color: w.color ?? '#47DDFF',
       splitDays: w.splitDays ?? [],
       direction: w.direction,
+      recipientMemberId: w.recipientMemberId,
+      returnedBy: w.returnedBy,
+      removedByMemberIds: w.removedByMemberIds ?? [],
     })),
     privateChats: (data.privateChats ?? []).map((pc: any) => ({
       memberId: pc.memberId ?? '',
@@ -238,7 +246,29 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         const ownedIds: string[] = data.ownedIds ?? [];
         const joinedIds: string[] = data.joinedIds ?? [];
         for (const id of ownedIds) subscribeToCommunity(id, 'owned');
-        for (const id of joinedIds) subscribeToCommunity(id, 'joined');
+        const currentOwnerIds: string[] = data.ownerIds ?? [];
+        for (const id of joinedIds) {
+          subscribeToCommunity(id, 'joined');
+          // Backfill memberIds (community doc) and ownerIds (membership doc) for communities that predate these fields.
+          // memberIds ensures security rules pass for member writes (shareWithCoach etc).
+          // ownerIds grants the coach read access to the member's workout/progress data.
+          getDoc(doc(db, 'communities', id)).then(commSnap => {
+            if (!commSnap.exists()) return;
+            const commData = commSnap.data();
+            const memberIds: string[] = commData.memberIds ?? [];
+            if (!memberIds.includes(user.uid)) {
+              updateDoc(commSnap.ref, { memberIds: arrayUnion(user.uid) }).catch(() => {});
+            }
+            const ownerId: string = commData.ownerId ?? '';
+            if (ownerId && !currentOwnerIds.includes(ownerId)) {
+              setDoc(
+                doc(db, 'users', user.uid, 'data', 'communityMemberships'),
+                { ownerIds: arrayUnion(ownerId) },
+                { merge: true }
+              ).catch(() => {});
+            }
+          }).catch(() => {});
+        }
       } catch {}
       setLoading(false);
     })();
@@ -299,7 +329,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
       await updateDoc(commDoc.ref, { members: arrayUnion(newMember), memberIds: arrayUnion(user.uid) });
       await setDoc(
         doc(db, 'users', user.uid, 'data', 'communityMemberships'),
-        { joinedIds: arrayUnion(commDoc.id) },
+        { joinedIds: arrayUnion(commDoc.id), ownerIds: arrayUnion(data.ownerId) },
         { merge: true }
       );
       subscribeToCommunity(commDoc.id, 'joined');
@@ -316,11 +346,12 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
     try {
       const snap = await getDoc(doc(db, 'communities', communityId));
       if (!snap.exists()) return;
+      const ownerId: string = snap.data().ownerId;
       const members = (snap.data().members ?? []).filter((m: any) => m.id !== user.uid);
       await updateDoc(doc(db, 'communities', communityId), { members, memberIds: arrayRemove(user.uid) });
       await setDoc(
         doc(db, 'users', user.uid, 'data', 'communityMemberships'),
-        { joinedIds: arrayRemove(communityId) },
+        { joinedIds: arrayRemove(communityId), ownerIds: arrayRemove(ownerId) },
         { merge: true }
       );
       docUnsubs.current[communityId]?.();
@@ -384,9 +415,11 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }, []);
 
-  const shareWithCoach = useCallback(async (communityId: string, workout: Omit<SharedWorkout, 'id' | 'sharedAt' | 'status' | 'sharedWith' | 'direction'>) => {
+  const shareWithCoach = useCallback(async (communityId: string, workout: Omit<SharedWorkout, 'id' | 'sharedAt' | 'status' | 'sharedWith' | 'direction' | 'recipientMemberId'>) => {
+    if (!user) return;
     const newWorkout = {
       ...workout,
+      recipientMemberId: user.uid,
       id: `sw-${Date.now()}`,
       sharedAt: new Date(),
       status: 'pending',
@@ -397,8 +430,8 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
       await updateDoc(doc(db, 'communities', communityId), {
         sharedWorkouts: arrayUnion(newWorkout),
       });
-    } catch {}
-  }, []);
+    } catch (e) { console.error('[shareWithCoach]', e); }
+  }, [user]);
 
   const respondToMemberShare = useCallback(async (communityId: string, workoutId: string, accept: boolean) => {
     try {
@@ -410,6 +443,34 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
       await updateDoc(doc(db, 'communities', communityId), { sharedWorkouts });
     } catch {}
   }, []);
+
+  const returnWorkoutToMember = useCallback(async (
+    communityId: string,
+    originalWorkoutId: string,
+    updatedWorkout: { programName: string; color: string; splitDays: SplitDay[] }
+  ) => {
+    if (!user) return;
+    try {
+      const snap = await getDoc(doc(db, 'communities', communityId));
+      if (!snap.exists()) return;
+      const existing: any[] = snap.data().sharedWorkouts ?? [];
+      const original = existing.find(w => w.id === originalWorkoutId);
+      if (!original) return;
+      const withoutOriginal = existing.filter(w => w.id !== originalWorkoutId);
+      const returnedWorkout = {
+        ...original,
+        ...updatedWorkout,
+        id: `sw-${Date.now()}`,
+        sharedAt: new Date(),
+        status: 'pending',
+        direction: 'returnedToMember',
+        returnedBy: user.displayName ?? user.email ?? 'Coach',
+      };
+      await updateDoc(doc(db, 'communities', communityId), {
+        sharedWorkouts: [...withoutOriginal, returnedWorkout],
+      });
+    } catch {}
+  }, [user]);
 
   const sendMessage = useCallback(async (communityId: string, message: string) => {
     if (!user) return;
@@ -426,13 +487,20 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
   }, [user, ownedCommunities]);
 
   const removeMember = useCallback(async (communityId: string, memberId: string) => {
+    if (!user) return;
     try {
       const snap = await getDoc(doc(db, 'communities', communityId));
       if (!snap.exists()) return;
       const members = (snap.data().members ?? []).filter((m: any) => m.id !== memberId);
       await updateDoc(doc(db, 'communities', communityId), { members, memberIds: arrayRemove(memberId) });
+      // Revoke owner's read access to the removed member's data
+      await setDoc(
+        doc(db, 'users', memberId, 'data', 'communityMemberships'),
+        { joinedIds: arrayRemove(communityId), ownerIds: arrayRemove(user.uid) },
+        { merge: true }
+      );
     } catch {}
-  }, []);
+  }, [user]);
 
   const updateCommunity = useCallback(async (communityId: string, name: string, description: string) => {
     try {
@@ -448,6 +516,22 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
       await updateDoc(doc(db, 'communities', communityId), { sharedWorkouts });
     } catch {}
   }, []);
+
+  // For 'everyone' shared workouts: marks the current member as having dismissed it
+  // without removing the workout from the community (coach still sees it).
+  const dismissSharedWorkout = useCallback(async (communityId: string, workoutId: string) => {
+    if (!user) return;
+    try {
+      const snap = await getDoc(doc(db, 'communities', communityId));
+      if (!snap.exists()) return;
+      const sharedWorkouts = (snap.data().sharedWorkouts ?? []).map((w: any) =>
+        w.id === workoutId
+          ? { ...w, removedByMemberIds: [...new Set([...(w.removedByMemberIds ?? []), user.uid])] }
+          : w
+      );
+      await updateDoc(doc(db, 'communities', communityId), { sharedWorkouts });
+    } catch {}
+  }, [user]);
 
   const sendPrivateMessage = useCallback(async (communityId: string, memberId: string, memberName: string, message: string) => {
     if (!user) return;
@@ -521,8 +605,8 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         joinedCommunities, ownedCommunities, loading,
         createCommunity, joinCommunity, leaveCommunity, deleteCommunity,
         acceptWorkout, declineWorkout, shareWorkout, shareWithCoach,
-        respondToMemberShare, sendMessage, removeMember, updateCommunity,
-        removeSharedWorkout, sendPrivateMessage, shareWorkoutPrivately, getPrivateChat,
+        respondToMemberShare, returnWorkoutToMember, sendMessage, removeMember, updateCommunity,
+        removeSharedWorkout, dismissSharedWorkout, sendPrivateMessage, shareWorkoutPrivately, getPrivateChat,
       }}
     >
       {children}

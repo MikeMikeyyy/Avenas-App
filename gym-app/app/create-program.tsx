@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,8 +16,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { useProgramStore, PROGRAM_COLORS, type SplitDay } from '../programStore';
+import { useCommunityStore } from '../communityStore';
 import { useTheme } from '../themeStore';
 import { ExercisePicker } from '../components/ExercisePicker';
 import { Image } from 'expo-image';
@@ -68,14 +70,39 @@ function hexAlpha(hex: string, alpha: number): string {
 export default function CreateProgramScreen() {
   const router = useRouter();
   const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold });
-  const { editId } = useLocalSearchParams<{ editId?: string }>();
+  const { editId, mode } = useLocalSearchParams<{ editId?: string; mode?: string }>();
+  const isReturnMode = mode === 'returnToMember';
   const { programs, addProgram, updateProgram, setActive } = useProgramStore();
+  const { returnWorkoutToMember } = useCommunityStore();
   const { isDark, colors } = useTheme();
   const editingProgram = editId ? programs.find(p => p.id === editId) : undefined;
   const [programName, setProgramName] = useState(editingProgram?.name || '');
   const [selectedColor, setSelectedColor] = useState(editingProgram?.color || PROGRAM_COLORS[0]);
   const [splitDays, setSplitDays] = useState<SplitDay[]>(editingProgram?.splitDays || []);
   const [pickerTarget, setPickerTarget] = useState<{ dayIndex: number; sessionIndex: number; exerciseIndex?: number } | null>(null);
+  const [returnData, setReturnData] = useState<{
+    communityId: string; workoutId: string; memberName: string;
+    originalProgramName: string; originalColor: string; originalSplitDays: SplitDay[];
+  } | null>(null);
+
+  useEffect(() => {
+    if (!isReturnMode) return;
+    AsyncStorage.getItem('@coachEditReturn').then(raw => {
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      const name = data.programName || '';
+      const color = data.color || PROGRAM_COLORS[0];
+      const days = data.splitDays || [];
+      setProgramName(name);
+      setSelectedColor(color);
+      setSplitDays(days);
+      setReturnData({
+        communityId: data.communityId, workoutId: data.workoutId, memberName: data.memberName,
+        originalProgramName: name, originalColor: color, originalSplitDays: days,
+      });
+      AsyncStorage.removeItem('@coachEditReturn');
+    });
+  }, [isReturnMode]);
 
   if (!fontsLoaded) return null;
 
@@ -227,7 +254,7 @@ export default function CreateProgramScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.screenTitle}>{editId ? 'Edit Program' : 'Create Program'}</Text>
+        <Text style={styles.screenTitle}>{isReturnMode ? 'Edit & Return' : editId ? 'Edit Program' : 'Create Program'}</Text>
 
         {/* Program Name */}
         <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>PROGRAM NAME</Text>
@@ -455,34 +482,87 @@ export default function CreateProgramScreen() {
           </BounceButton>
         </View>
 
-        {/* Save Button */}
-        <BounceButton
-          style={[styles.saveButton, { backgroundColor: selectedColor }]}
-          onPress={() => {
-            const name = programName || 'Untitled Program';
-            if (editId) {
-              updateProgram(editId, name, selectedColor, splitDays);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              router.back();
-            } else {
-              const newId = addProgram(name, selectedColor, splitDays);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              Alert.alert(
-                'Make Active Program?',
-                `Would you like to make "${name}" your active program?`,
-                [
-                  { text: 'No', onPress: () => router.back() },
-                  { text: 'Yes', style: 'default', onPress: () => { setActive(newId); router.back(); } },
-                ]
-              );
-            }
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={[styles.saveButtonText, { color: isLightColor(selectedColor) ? '#1C1C1E' : '#ffffff' }]}>Save Program</Text>
-            <Ionicons name="checkmark" size={22} color={isLightColor(selectedColor) ? '#1C1C1E' : '#ffffff'} />
+        {/* Save Button(s) */}
+        {isReturnMode ? (
+          <View style={{ gap: 12, marginTop: 32 }}>
+            {returnData && (
+              <BounceButton
+                style={[styles.saveButton, { backgroundColor: 'rgba(90, 108, 125, 0.12)', borderWidth: 1.5, borderColor: 'rgba(90, 108, 125, 0.4)', marginTop: 0 }]}
+                onPress={() => {
+                  setProgramName(returnData.originalProgramName);
+                  setSelectedColor(returnData.originalColor);
+                  setSplitDays(returnData.originalSplitDays);
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="refresh-outline" size={20} color={colors.secondaryText} />
+                  <Text style={[styles.saveButtonText, { color: colors.secondaryText }]}>Revert to Original</Text>
+                </View>
+              </BounceButton>
+            )}
+            <BounceButton
+              style={[styles.saveButton, { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: selectedColor, marginTop: 0 }]}
+              onPress={() => {
+                const name = programName || 'Untitled Program';
+                addProgram(name, selectedColor, splitDays);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                router.back();
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={[styles.saveButtonText, { color: selectedColor }]}>Save to My Programs</Text>
+                <Ionicons name="bookmark-outline" size={20} color={selectedColor} />
+              </View>
+            </BounceButton>
+            <BounceButton
+              style={[styles.saveButton, { backgroundColor: selectedColor, marginTop: 0 }]}
+              onPress={async () => {
+                if (!returnData) return;
+                const name = programName || 'Untitled Program';
+                await returnWorkoutToMember(returnData.communityId, returnData.workoutId, {
+                  programName: name, color: selectedColor, splitDays,
+                });
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                router.back();
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={[styles.saveButtonText, { color: isLightColor(selectedColor) ? '#1C1C1E' : '#ffffff' }]}>
+                  Send Back to {returnData?.memberName ?? 'Member'}
+                </Text>
+                <Ionicons name="paper-plane" size={20} color={isLightColor(selectedColor) ? '#1C1C1E' : '#ffffff'} />
+              </View>
+            </BounceButton>
           </View>
-        </BounceButton>
+        ) : (
+          <BounceButton
+            style={[styles.saveButton, { backgroundColor: selectedColor }]}
+            onPress={() => {
+              const name = programName || 'Untitled Program';
+              if (editId) {
+                updateProgram(editId, name, selectedColor, splitDays);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                router.back();
+              } else {
+                const newId = addProgram(name, selectedColor, splitDays);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                Alert.alert(
+                  'Make Active Program?',
+                  `Would you like to make "${name}" your active program?`,
+                  [
+                    { text: 'No', onPress: () => router.back() },
+                    { text: 'Yes', style: 'default', onPress: () => { setActive(newId); router.back(); } },
+                  ]
+                );
+              }
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={[styles.saveButtonText, { color: isLightColor(selectedColor) ? '#1C1C1E' : '#ffffff' }]}>Save Program</Text>
+              <Ionicons name="checkmark" size={22} color={isLightColor(selectedColor) ? '#1C1C1E' : '#ffffff'} />
+            </View>
+          </BounceButton>
+        )}
       </ScrollView>
 
       <ExercisePicker
@@ -494,7 +574,16 @@ export default function CreateProgramScreen() {
       {/* Floating back button — rendered after ScrollView so it sits on top */}
       <TouchableOpacity
         style={[styles.backButton, { backgroundColor: colors.backButtonBg }]}
-        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.back(); }}
+        onPress={async () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          if (isReturnMode && returnData) {
+            const name = programName || 'Untitled Program';
+            await returnWorkoutToMember(returnData.communityId, returnData.workoutId, {
+              programName: name, color: selectedColor, splitDays,
+            });
+          }
+          router.back();
+        }}
         activeOpacity={0.7}
       >
         <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
@@ -517,6 +606,7 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
     marginBottom: 20,
+    paddingHorizontal: 60,
   },
   backButton: {
     position: 'absolute',

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
@@ -19,11 +20,18 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
+import { useRouter } from 'expo-router';
+import { getDoc, doc } from 'firebase/firestore';
+import { db } from '../../firebase';
+import type { WorkoutJournalEntry } from '../../workoutState';
 import { useCommunityStore, Community, Member } from '../../communityStore';
 import { useProgramStore } from '../../programStore';
 import { useTheme } from '../../themeStore';
 import { useAuth } from '../../authStore';
 import { BottomSheetModal } from '../../components/BottomSheetModal';
+import { FadeBackdrop } from '../../components/FadeBackdrop';
+import { ProgressView } from '../../components/ProgressView';
+import { useUnits } from '../../unitsStore';
 
 function BounceButton({ style, children, onPress, disabled, ...rest }: any) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -43,7 +51,7 @@ function BounceButton({ style, children, onPress, disabled, ...rest }: any) {
   );
 }
 
-type ViewMode = 'list' | 'detail' | 'chat' | 'share' | 'privateChat';
+type ViewMode = 'list' | 'detail' | 'chat' | 'share' | 'privateChat' | 'memberProgress';
 
 // 20 avatar colors for members
 const AVATAR_COLORS = [
@@ -94,6 +102,7 @@ const getColorScheme = (color: string) => {
 };
 
 export default function CommunityScreen() {
+  const router = useRouter();
   const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold });
   const {
     joinedCommunities,
@@ -108,15 +117,18 @@ export default function CommunityScreen() {
     shareWorkout,
     shareWithCoach,
     respondToMemberShare,
+    returnWorkoutToMember,
     sendMessage,
     removeMember,
     updateCommunity,
     removeSharedWorkout,
+    dismissSharedWorkout,
     sendPrivateMessage,
     getPrivateChat,
   } = useCommunityStore();
-  const { programs, addSharedProgram } = useProgramStore();
+  const { programs, addProgram, addSharedProgram } = useProgramStore();
   const { isDark, colors } = useTheme();
+  const { unit, toDisplay } = useUnits();
   const { user } = useAuth();
   const currentUserId = user?.uid ?? '';
   const currentUserName = user?.displayName ?? user?.email ?? 'You';
@@ -124,6 +136,8 @@ export default function CommunityScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedCommunity, setSelectedCommunity] = useState<Community | null>(null);
   const [isOwnerView, setIsOwnerView] = useState(false);
+  const [expandedSharedWorkoutId, setExpandedSharedWorkoutId] = useState<string | null>(null);
+  const [confirmRemoveWorkoutId, setConfirmRemoveWorkoutId] = useState<string | null>(null);
 
   // Keep selectedCommunity in sync with store updates
   useEffect(() => {
@@ -168,6 +182,11 @@ export default function CommunityScreen() {
   const [privateChatMember, setPrivateChatMember] = useState<Member | null>(null);
   const [privateMessage, setPrivateMessage] = useState('');
 
+  // Member progress state (owner viewing a member's workout history)
+  const [progressMember, setProgressMember] = useState<Member | null>(null);
+  const [memberJournalData, setMemberJournalData] = useState<WorkoutJournalEntry[] | null>(null);
+  const [memberProgressLoading, setMemberProgressLoading] = useState(false);
+
   // Keyboard height for chat input positioning
   const [chatKeyboardHeight, setChatKeyboardHeight] = useState(0);
   useEffect(() => {
@@ -184,6 +203,57 @@ export default function CommunityScreen() {
   // Unread message tracking: stores count of messages already seen
   const [readGroupChatCounts, setReadGroupChatCounts] = useState<Record<string, number>>({});
   const [readPrivateChatCounts, setReadPrivateChatCounts] = useState<Record<string, number>>({});
+  const [countsLoaded, setCountsLoaded] = useState(false);
+
+  // Load persisted read counts for the current user, clear on logout
+  useEffect(() => {
+    setCountsLoaded(false);
+    if (!currentUserId) {
+      setReadGroupChatCounts({});
+      setReadPrivateChatCounts({});
+      return;
+    }
+    (async () => {
+      try {
+        const [groupRaw, privateRaw] = await Promise.all([
+          AsyncStorage.getItem(`@readGroupCounts_${currentUserId}`),
+          AsyncStorage.getItem(`@readPrivateCounts_${currentUserId}`),
+        ]);
+        setReadGroupChatCounts(groupRaw ? JSON.parse(groupRaw) : {});
+        setReadPrivateChatCounts(privateRaw ? JSON.parse(privateRaw) : {});
+      } catch {}
+      setCountsLoaded(true);
+    })();
+  }, [currentUserId]);
+
+  // Once counts are loaded, set a baseline for any community not yet tracked so that
+  // messages that already existed before this session don't show as new.
+  useEffect(() => {
+    if (!countsLoaded || !currentUserId) return;
+    const allCommunities = [...ownedCommunities, ...joinedCommunities];
+    setReadGroupChatCounts(prev => {
+      const updated = { ...prev };
+      let changed = false;
+      for (const community of allCommunities) {
+        if (!(community.id in updated)) {
+          updated[community.id] = community.chatMessages.filter(m => m.senderId !== currentUserId).length;
+          changed = true;
+        }
+      }
+      return changed ? updated : prev;
+    });
+  }, [countsLoaded, ownedCommunities, joinedCommunities, currentUserId]);
+
+  // Persist read counts whenever they change (skip during initial load to avoid overwriting saved data)
+  useEffect(() => {
+    if (!currentUserId || !countsLoaded) return;
+    AsyncStorage.setItem(`@readGroupCounts_${currentUserId}`, JSON.stringify(readGroupChatCounts)).catch(() => {});
+  }, [readGroupChatCounts, currentUserId, countsLoaded]);
+
+  useEffect(() => {
+    if (!currentUserId || !countsLoaded) return;
+    AsyncStorage.setItem(`@readPrivateCounts_${currentUserId}`, JSON.stringify(readPrivateChatCounts)).catch(() => {});
+  }, [readPrivateChatCounts, currentUserId, countsLoaded]);
 
   // Helper to count unread group chat messages
   const getUnreadGroupCount = (community: Community): number => {
@@ -230,6 +300,10 @@ export default function CommunityScreen() {
     } else if (viewMode === 'privateChat') {
       setViewMode('detail');
       setPrivateChatMember(null);
+    } else if (viewMode === 'memberProgress') {
+      setViewMode('detail');
+      setProgressMember(null);
+      setMemberJournalData(null);
     } else {
       setViewMode('list');
       setSelectedCommunity(null);
@@ -312,6 +386,34 @@ export default function CommunityScreen() {
     }
   };
 
+  const openMemberProgress = async (member: Member) => {
+    setProgressMember(member);
+    setMemberJournalData(null);
+    setMemberProgressLoading(true);
+    setViewMode('memberProgress');
+    try {
+      const snap = await getDoc(doc(db, 'users', member.id, 'data', 'workout'));
+      const journal: WorkoutJournalEntry[] = snap.exists() ? (snap.data().journal ?? []) : [];
+      setMemberJournalData([...journal].sort((a, b) => b.date - a.date));
+    } catch (e) {
+      console.error('[openMemberProgress] failed to read member workout data:', e);
+      setMemberJournalData([]);
+    }
+    setMemberProgressLoading(false);
+  };
+
+  const handleEditAndReturn = async (communityId: string, workout: { id: string; programName: string; color: string; splitDays: any[]; sharedBy: string }) => {
+    await AsyncStorage.setItem('@coachEditReturn', JSON.stringify({
+      communityId,
+      workoutId: workout.id,
+      memberName: workout.sharedBy,
+      programName: workout.programName,
+      color: workout.color,
+      splitDays: workout.splitDays,
+    }));
+    router.navigate('/create-program?mode=returnToMember');
+  };
+
   const toggleMemberSelection = (memberId: string) => {
     setSelectedMembers(prev =>
       prev.includes(memberId)
@@ -377,21 +479,19 @@ export default function CommunityScreen() {
                     end={{ x: 1, y: 1 }}
                     style={StyleSheet.absoluteFillObject}
                   />
-                  <View style={styles.communityCardHeader}>
-                    <View style={styles.communityInfo}>
-                      <Text style={[styles.communityName, { color: '#fff' }]}>{community.name}</Text>
-                      <Text style={[styles.communityMeta, { color: 'rgba(255,255,255,0.75)' }]}>
-                        {community.members.length} members · Owner
-                      </Text>
+                  {pendingOwner > 0 && (
+                    <View style={[styles.pendingBadge, { position: 'absolute', top: 12, right: 12 }]}>
+                      <Ionicons name="notifications" size={14} color="#fff" />
                     </View>
-                    {pendingOwner > 0 && (
-                      <View style={styles.pendingBadge}>
-                        <Ionicons name="notifications" size={14} color="#fff" />
-                      </View>
-                    )}
+                  )}
+                  <View style={styles.communityInfo}>
+                    <Text style={[styles.communityName, { color: '#fff', textAlign: 'center' }]}>{community.name}</Text>
+                    <Text style={[styles.communityMeta, { color: 'rgba(255,255,255,0.75)', textAlign: 'center' }]}>
+                      {community.members.length} members · Owner
+                    </Text>
                   </View>
                   {community.description && (
-                    <Text style={[styles.communityDesc, { color: 'rgba(255,255,255,0.8)' }]} numberOfLines={2}>{community.description}</Text>
+                    <Text style={[styles.communityDesc, { color: 'rgba(255,255,255,0.8)', textAlign: 'center' }]} numberOfLines={2}>{community.description}</Text>
                   )}
                 </BounceButton>
               );
@@ -420,21 +520,19 @@ export default function CommunityScreen() {
                     end={{ x: 1, y: 1 }}
                     style={StyleSheet.absoluteFillObject}
                   />
-                  <View style={styles.communityCardHeader}>
-                    <View style={styles.communityInfo}>
-                      <Text style={[styles.communityName, { color: '#fff' }]}>{community.name}</Text>
-                      <Text style={[styles.communityMeta, { color: 'rgba(255,255,255,0.75)' }]}>
-                        by {community.ownerName} · {community.members.length} members
-                      </Text>
+                  {pendingWorkouts > 0 && (
+                    <View style={[styles.pendingBadge, { position: 'absolute', top: 12, right: 12 }]}>
+                      <Ionicons name="notifications" size={14} color="#fff" />
                     </View>
-                    {pendingWorkouts > 0 && (
-                      <View style={styles.pendingBadge}>
-                        <Ionicons name="notifications" size={14} color="#fff" />
-                      </View>
-                    )}
+                  )}
+                  <View style={styles.communityInfo}>
+                    <Text style={[styles.communityName, { color: '#fff', textAlign: 'center' }]}>{community.name}</Text>
+                    <Text style={[styles.communityMeta, { color: 'rgba(255,255,255,0.75)', textAlign: 'center' }]}>
+                      by {community.ownerName} · {community.members.length} members
+                    </Text>
                   </View>
                   {community.description && (
-                    <Text style={[styles.communityDesc, { color: 'rgba(255,255,255,0.8)' }]} numberOfLines={2}>{community.description}</Text>
+                    <Text style={[styles.communityDesc, { color: 'rgba(255,255,255,0.8)', textAlign: 'center' }]} numberOfLines={2}>{community.description}</Text>
                   )}
                 </BounceButton>
               );
@@ -469,8 +567,15 @@ export default function CommunityScreen() {
   const renderDetailView = () => {
     if (!selectedCommunity) return null;
 
-    const pendingWorkouts = selectedCommunity.sharedWorkouts.filter(w => w.status === 'pending' && w.direction !== 'toCoach');
-    const acceptedWorkouts = selectedCommunity.sharedWorkouts.filter(w => w.status === 'accepted' && w.direction !== 'toCoach');
+    const pendingWorkouts = selectedCommunity.sharedWorkouts.filter(w =>
+      w.status === 'pending' && w.direction !== 'toCoach' &&
+      (w.direction !== 'returnedToMember' || w.recipientMemberId === currentUserId)
+    );
+    const acceptedWorkouts = selectedCommunity.sharedWorkouts.filter(w =>
+      w.status === 'accepted' &&
+      w.direction !== 'toCoach' &&
+      !(w.removedByMemberIds?.includes(currentUserId))
+    );
     const scheme = getColorScheme(selectedCommunity.color);
 
     return (
@@ -483,15 +588,14 @@ export default function CommunityScreen() {
             end={{ x: 1, y: 1 }}
             style={styles.heroBanner}
           >
-            <View style={styles.heroBannerContent}>
-              <Text style={styles.heroBannerName} numberOfLines={1}>{selectedCommunity.name}</Text>
+            <View style={[styles.heroBannerContent, { alignItems: 'center', paddingTop: 16, paddingBottom: 16 }]}>
+              <Text style={styles.heroBannerName} numberOfLines={2}>{selectedCommunity.name}</Text>
               {selectedCommunity.description ? (
-                <Text style={styles.heroBannerDesc} numberOfLines={2}>{selectedCommunity.description}</Text>
+                <Text style={[styles.heroBannerDesc, { textAlign: 'center', marginTop: 6 }]} numberOfLines={1}>{selectedCommunity.description}</Text>
               ) : null}
-              <View style={styles.memberCountPill}>
-                <Ionicons name="people-outline" size={14} color="#fff" />
-                <Text style={styles.memberCountPillText}>{selectedCommunity.members.length} member{selectedCommunity.members.length !== 1 ? 's' : ''}</Text>
-              </View>
+              <Text style={styles.heroBannerMeta}>
+                {selectedCommunity.members.length} member{selectedCommunity.members.length !== 1 ? 's' : ''}{' · '}{isOwnerView ? 'Owner' : `by ${selectedCommunity.ownerName ?? 'Coach'}`}
+              </Text>
             </View>
           </LinearGradient>
 
@@ -601,7 +705,9 @@ export default function CommunityScreen() {
                   <View style={styles.workoutInfo}>
                     <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
                     <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
-                      from {workout.sharedBy} · {workout.splitDays.length} day split
+                      {workout.direction === 'returnedToMember'
+                        ? `Returned from ${workout.returnedBy ?? 'Coach'}`
+                        : `from ${workout.sharedBy}`} · {workout.splitDays.length} day split
                     </Text>
                   </View>
                   <View style={styles.workoutActions}>
@@ -609,13 +715,17 @@ export default function CommunityScreen() {
                       style={styles.acceptBtn}
                       onPress={() => {
                         acceptWorkout(selectedCommunity.id, workout.id);
-                        addSharedProgram({
-                          id: workout.id,
-                          name: workout.programName,
-                          color: workout.color,
-                          splitDays: workout.splitDays,
-                          sharedBy: workout.sharedBy,
-                        });
+                        if (workout.direction === 'returnedToMember') {
+                          addProgram(workout.programName, workout.color, workout.splitDays);
+                        } else {
+                          addSharedProgram({
+                            id: workout.id,
+                            name: workout.programName,
+                            color: workout.color,
+                            splitDays: workout.splitDays,
+                            sharedBy: workout.sharedBy,
+                          });
+                        }
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                       }}
                     >
@@ -670,7 +780,7 @@ export default function CommunityScreen() {
           )}
 
           {/* Shared Programs (owner: programs they shared to members) */}
-          {isOwnerView && selectedCommunity.sharedWorkouts.filter(w => w.direction !== 'toCoach').length > 0 && (
+          {isOwnerView && selectedCommunity.sharedWorkouts.filter(w => w.direction === 'toMembers' || !w.direction).length > 0 && (
             <>
               <View style={styles.sectionHeader}>
                 <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24, marginBottom: 0 }]}>SHARED PROGRAMS</Text>
@@ -682,7 +792,7 @@ export default function CommunityScreen() {
                   <Ionicons name="ellipsis-vertical" size={18} color={colors.secondaryText} />
                 </TouchableOpacity>
               </View>
-              {selectedCommunity.sharedWorkouts.filter(w => w.direction !== 'toCoach').map(workout => (
+              {selectedCommunity.sharedWorkouts.filter(w => w.direction === 'toMembers' || !w.direction).map(workout => (
                 <View key={workout.id} style={[styles.workoutCard, { backgroundColor: `${workout.color}12`, borderColor: `${workout.color}40` }]}>
                   <View style={[styles.workoutColorIcon, { backgroundColor: `${workout.color}25` }]}>
                     <Ionicons name="barbell-outline" size={20} color={workout.color} />
@@ -695,7 +805,13 @@ export default function CommunityScreen() {
                     <Text style={[styles.workoutSharedWith, { color: colors.secondaryText }]}>
                       {workout.sharedWith === 'everyone'
                         ? 'Shared with everyone'
-                        : `Shared with ${(workout.sharedWith as string[]).length} member(s)`}
+                        : (() => {
+                            const ids = workout.sharedWith as string[];
+                            const names = ids.map(id => selectedCommunity.members.find(m => m.id === id)?.name ?? 'Unknown');
+                            const shown = names.slice(0, 2);
+                            const extra = names.length - 2;
+                            return `Shared with ${shown.join(', ')}${extra > 0 ? ` +${extra} more` : ''}`;
+                          })()}
                     </Text>
                   </View>
                 </View>
@@ -718,32 +834,22 @@ export default function CommunityScreen() {
                       from {workout.sharedBy} · {workout.splitDays.length} day split
                     </Text>
                   </View>
-                  {workout.status === 'pending' && (
-                    <View style={styles.workoutActions}>
-                      <BounceButton
-                        style={styles.acceptBtn}
-                        onPress={() => {
-                          respondToMemberShare(selectedCommunity.id, workout.id, true);
-                          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        }}
-                      >
-                        <Ionicons name="checkmark" size={20} color="#fff" />
-                      </BounceButton>
-                      <BounceButton
-                        style={styles.declineBtn}
-                        onPress={() => {
-                          respondToMemberShare(selectedCommunity.id, workout.id, false);
-                        }}
-                      >
-                        <Ionicons name="close" size={20} color="#e74c3c" />
-                      </BounceButton>
-                    </View>
-                  )}
-                  {workout.status === 'accepted' && (
-                    <View style={styles.acceptedBadge}>
-                      <Ionicons name="checkmark-circle" size={20} color="#34D399" />
-                    </View>
-                  )}
+                  <View style={styles.workoutActions}>
+                    <BounceButton
+                      style={[styles.declineBtn, { backgroundColor: `${workout.color}1A`, borderColor: `${workout.color}4D` }]}
+                      onPress={() => handleEditAndReturn(selectedCommunity.id, workout)}
+                    >
+                      <Ionicons name="create-outline" size={18} color={workout.color} />
+                    </BounceButton>
+                    <BounceButton
+                      style={styles.declineBtn}
+                      onPress={() => {
+                        respondToMemberShare(selectedCommunity.id, workout.id, false);
+                      }}
+                    >
+                      <Ionicons name="close" size={20} color="#e74c3c" />
+                    </BounceButton>
+                  </View>
                 </View>
               ))}
             </>
@@ -753,46 +859,153 @@ export default function CommunityScreen() {
           {!isOwnerView && acceptedWorkouts.filter(w => w.direction !== 'toCoach').length > 0 && (
             <>
               <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24 }]}>YOUR PROGRAMS</Text>
-              {acceptedWorkouts.filter(w => w.direction !== 'toCoach').map(workout => (
-                <View key={workout.id} style={[styles.workoutCard, { backgroundColor: `${workout.color}12`, borderColor: `${workout.color}40` }]}>
-                  <View style={[styles.workoutColorIcon, { backgroundColor: `${workout.color}25` }]}>
-                    <Ionicons name="barbell-outline" size={20} color={workout.color} />
-                  </View>
-                  <View style={styles.workoutInfo}>
-                    <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
-                    <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
-                      {workout.splitDays.length} day split · Shared {formatDate(workout.sharedAt)}
-                    </Text>
-                  </View>
-                  <Ionicons name="checkmark-circle" size={22} color="#34D399" />
-                </View>
-              ))}
+              {acceptedWorkouts.filter(w => w.direction !== 'toCoach').map(workout => {
+                const alreadySaved = programs.some(p => p.name === workout.programName && !p.archived);
+                const isPrivateShare = Array.isArray(workout.sharedWith);
+                const isExpanded = expandedSharedWorkoutId === workout.id;
+                const isConfirming = confirmRemoveWorkoutId === workout.id;
+                return (
+                  <TouchableOpacity
+                    key={workout.id}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      if (isExpanded) {
+                        setExpandedSharedWorkoutId(null);
+                        setConfirmRemoveWorkoutId(null);
+                      } else {
+                        setExpandedSharedWorkoutId(workout.id);
+                        setConfirmRemoveWorkoutId(null);
+                      }
+                    }}
+                    style={[styles.workoutCard, { backgroundColor: `${workout.color}12`, borderColor: isExpanded ? `${workout.color}80` : `${workout.color}40` }]}
+                  >
+                    <View style={[styles.workoutColorIcon, { backgroundColor: `${workout.color}25` }]}>
+                      <Ionicons name="barbell-outline" size={20} color={workout.color} />
+                    </View>
+                    <View style={styles.workoutInfo}>
+                      <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
+                      <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
+                        {workout.splitDays.length} day split · Shared {formatDate(workout.sharedAt)}
+                      </Text>
+                      {isExpanded && (
+                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 8, alignSelf: 'flex-start' }}>
+                          {!alreadySaved && (
+                            <TouchableOpacity
+                              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: '#34D399' }}
+                              onPress={() => {
+                                addProgram(workout.programName, workout.color, workout.splitDays);
+                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                setExpandedSharedWorkoutId(null);
+                              }}
+                            >
+                              <Ionicons name="add" size={13} color="#fff" />
+                              <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'Arimo_700Bold' }}>Add</Text>
+                            </TouchableOpacity>
+                          )}
+                          {isConfirming ? (
+                            <TouchableOpacity
+                              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: '#e74c3c' }}
+                              onPress={() => {
+                                if (isPrivateShare) {
+                                  removeSharedWorkout(selectedCommunity.id, workout.id);
+                                } else {
+                                  dismissSharedWorkout(selectedCommunity.id, workout.id);
+                                }
+                                setExpandedSharedWorkoutId(null);
+                                setConfirmRemoveWorkoutId(null);
+                              }}
+                            >
+                              <Ionicons name="checkmark" size={13} color="#fff" />
+                              <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'Arimo_700Bold' }}>Confirm</Text>
+                            </TouchableOpacity>
+                          ) : (
+                            <TouchableOpacity
+                              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(231,76,60,0.12)', borderWidth: 1, borderColor: 'rgba(231,76,60,0.3)' }}
+                              onPress={() => setConfirmRemoveWorkoutId(workout.id)}
+                            >
+                              <Ionicons name="trash-outline" size={13} color="#e74c3c" />
+                              <Text style={{ color: '#e74c3c', fontSize: 12, fontFamily: 'Arimo_700Bold' }}>Remove</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                    {alreadySaved ? (
+                      <Ionicons name="checkmark-circle" size={22} color="#34D399" />
+                    ) : (
+                      <Ionicons name="add-circle-outline" size={22} color={workout.color} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </>
           )}
 
           {/* Shared with Coach (member: programs they sent to coach) */}
-          {!isOwnerView && selectedCommunity.sharedWorkouts.filter(w => w.direction === 'toCoach').length > 0 && (
+          {!isOwnerView && selectedCommunity.sharedWorkouts.filter(w => w.direction === 'toCoach' && w.recipientMemberId === currentUserId).length > 0 && (
             <>
               <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24 }]}>SHARED WITH COACH</Text>
-              {selectedCommunity.sharedWorkouts.filter(w => w.direction === 'toCoach').map(workout => (
-                <View key={workout.id} style={[styles.workoutCard, { backgroundColor: `${workout.color}12`, borderColor: `${workout.color}40` }]}>
-                  <View style={[styles.workoutColorIcon, { backgroundColor: `${workout.color}25` }]}>
-                    <Ionicons name="barbell-outline" size={20} color={workout.color} />
-                  </View>
-                  <View style={styles.workoutInfo}>
-                    <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
-                    <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
-                      {workout.splitDays.length} day split · {workout.status === 'pending' ? 'Pending' : workout.status === 'accepted' ? 'Seen' : 'Declined'}
-                    </Text>
-                  </View>
-                  {workout.status === 'pending' && (
-                    <Ionicons name="time-outline" size={20} color={colors.tertiaryText} />
-                  )}
-                  {workout.status === 'accepted' && (
-                    <Ionicons name="checkmark-circle" size={22} color="#34D399" />
-                  )}
-                </View>
-              ))}
+              {selectedCommunity.sharedWorkouts.filter(w => w.direction === 'toCoach' && w.recipientMemberId === currentUserId).map(workout => {
+                const isExpanded = expandedSharedWorkoutId === workout.id;
+                const isConfirming = confirmRemoveWorkoutId === workout.id;
+                return (
+                  <TouchableOpacity
+                    key={workout.id}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      setExpandedSharedWorkoutId(isExpanded ? null : workout.id);
+                      setConfirmRemoveWorkoutId(null);
+                    }}
+                    style={[styles.workoutCard, { backgroundColor: `${workout.color}12`, borderColor: isExpanded ? `${workout.color}80` : `${workout.color}40` }]}
+                  >
+                    <View style={[styles.workoutColorIcon, { backgroundColor: `${workout.color}25` }]}>
+                      <Ionicons name="barbell-outline" size={20} color={workout.color} />
+                    </View>
+                    <View style={styles.workoutInfo}>
+                      <Text style={[styles.workoutName, { color: colors.primaryText }]}>{workout.programName}</Text>
+                      <Text style={[styles.workoutMeta, { color: colors.secondaryText }]}>
+                        {workout.splitDays.length} day split · {workout.status === 'pending' ? 'Pending' : workout.status === 'accepted' ? 'Seen' : 'Declined'}
+                      </Text>
+                      {isExpanded && (
+                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 8, alignSelf: 'flex-start' }}>
+                          {isConfirming ? (
+                            <TouchableOpacity
+                              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: '#e74c3c' }}
+                              onPress={() => {
+                                removeSharedWorkout(selectedCommunity.id, workout.id);
+                                setExpandedSharedWorkoutId(null);
+                                setConfirmRemoveWorkoutId(null);
+                              }}
+                            >
+                              <Ionicons name="checkmark" size={13} color="#fff" />
+                              <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'Arimo_700Bold' }}>Confirm</Text>
+                            </TouchableOpacity>
+                          ) : (
+                            <TouchableOpacity
+                              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(231,76,60,0.12)', borderWidth: 1, borderColor: 'rgba(231,76,60,0.3)' }}
+                              onPress={() => setConfirmRemoveWorkoutId(workout.id)}
+                            >
+                              <Ionicons name="trash-outline" size={13} color="#e74c3c" />
+                              <Text style={{ color: '#e74c3c', fontSize: 12, fontFamily: 'Arimo_700Bold' }}>Remove</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.workoutActions}>
+                      {workout.status === 'pending' && (
+                        <Ionicons name="time-outline" size={20} color={colors.tertiaryText} />
+                      )}
+                      {workout.status === 'accepted' && (
+                        <Ionicons name="checkmark-circle" size={22} color="#34D399" />
+                      )}
+                      {workout.status === 'declined' && (
+                        <Ionicons name="close-circle" size={22} color="#e74c3c" />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </>
           )}
 
@@ -826,23 +1039,31 @@ export default function CommunityScreen() {
                 {isOwnerView && member.role !== 'owner' && (() => {
                   const unreadPM = getUnreadPrivateCount(selectedCommunity.id, member.id);
                   return (
-                    <BounceButton
-                      style={styles.memberChatBtn}
-                      onPress={() => {
-                        const chat = selectedCommunity.privateChats.find(pc => pc.memberId === member.id);
-                        const otherCount = chat ? chat.messages.filter(m => m.senderId !== currentUserId).length : 0;
-                        const key = `${selectedCommunity.id}-${member.id}`;
-                        setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherCount }));
-                        openPrivateChat(member);
-                      }}
-                    >
-                      <Ionicons name="chatbubble-outline" size={18} color="#47DDFF" />
-                      {unreadPM > 0 && (
-                        <View style={styles.chatNotifBadge}>
-                          <Text style={styles.chatNotifBadgeText}>{unreadPM > 9 ? '9+' : unreadPM}</Text>
-                        </View>
-                      )}
-                    </BounceButton>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <BounceButton
+                        style={styles.memberProgressBtn}
+                        onPress={() => openMemberProgress(member)}
+                      >
+                        <Ionicons name="stats-chart" size={16} color="#34D399" />
+                      </BounceButton>
+                      <BounceButton
+                        style={styles.memberChatBtn}
+                        onPress={() => {
+                          const chat = selectedCommunity.privateChats.find(pc => pc.memberId === member.id);
+                          const otherCount = chat ? chat.messages.filter(m => m.senderId !== currentUserId).length : 0;
+                          const key = `${selectedCommunity.id}-${member.id}`;
+                          setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherCount }));
+                          openPrivateChat(member);
+                        }}
+                      >
+                        <Ionicons name="chatbubble-outline" size={18} color="#47DDFF" />
+                        {unreadPM > 0 && (
+                          <View style={styles.chatNotifBadge}>
+                            <Text style={styles.chatNotifBadgeText}>{unreadPM > 9 ? '9+' : unreadPM}</Text>
+                          </View>
+                        )}
+                      </BounceButton>
+                    </View>
                   );
                 })()}
               </View>
@@ -1113,7 +1334,6 @@ export default function CommunityScreen() {
                     <Text style={[styles.selectableCardMeta, { color: colors.secondaryText, marginTop: 0 }]}>Sharing with</Text>
                     <Text style={[styles.selectableCardTitle, { color: colors.primaryText }]}>{coach.name}</Text>
                   </View>
-                  <Ionicons name="shield-checkmark" size={20} color={selectedCommunity.color} />
                 </View>
               )}
               <BounceButton
@@ -1222,6 +1442,44 @@ export default function CommunityScreen() {
     );
   };
 
+  // Render Member Progress View (owner sees a member's workout history)
+  const renderMemberProgressView = () => {
+    if (!progressMember || !selectedCommunity) return null;
+
+    return (
+      <>
+        <View style={[styles.groupChatHeader, { paddingBottom: 8 }]}>
+          <TouchableOpacity style={[styles.heroBannerBtn, { backgroundColor: colors.backButtonBg }]} onPress={handleBack}>
+            <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
+          </TouchableOpacity>
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginHorizontal: 8 }}>
+            <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(progressMember.id) }]}>
+              <Text style={styles.memberAvatarText}>{getInitials(progressMember.name)}</Text>
+            </View>
+            <View style={{ marginLeft: 10 }}>
+              <Text style={[styles.groupChatHeaderName, { color: colors.primaryText }]}>{progressMember.name}</Text>
+              <Text style={[styles.groupChatHeaderSubtitle, { color: colors.secondaryText }]}>Progress Overview</Text>
+            </View>
+          </View>
+          <View style={{ width: 44 }} />
+        </View>
+
+        {memberProgressLoading ? (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator size="large" color={selectedCommunity.color} />
+          </View>
+        ) : (
+          <ProgressView
+            journal={memberJournalData ?? []}
+            unit={unit}
+            toDisplay={toDisplay}
+            scrollTopPadding={8}
+          />
+        )}
+      </>
+    );
+  };
+
   return (
     <LinearGradient
       colors={[colors.gradientStart, colors.gradientEnd]}
@@ -1236,6 +1494,7 @@ export default function CommunityScreen() {
       {viewMode === 'chat' && renderChatView()}
       {viewMode === 'share' && renderShareView()}
       {viewMode === 'privateChat' && renderPrivateChatView()}
+      {viewMode === 'memberProgress' && renderMemberProgressView()}
 
       {/* Create Community Modal */}
       <Modal visible={showCreateModal} transparent animationType="fade">
@@ -1553,7 +1812,7 @@ export default function CommunityScreen() {
           <Text style={[styles.manageMembersTitle, { color: colors.primaryText }]}>Remove Programs</Text>
           <Text style={[styles.manageMembersSubtitle, { color: colors.secondaryText }]}>Select a program to remove from the community</Text>
           <ScrollView style={styles.manageMembersList} showsVerticalScrollIndicator={false}>
-            {selectedCommunity?.sharedWorkouts.filter(w => w.direction !== 'toCoach').map(workout => (
+            {selectedCommunity?.sharedWorkouts.filter(w => w.direction === 'toMembers' || !w.direction).map(workout => (
               <BounceButton
                 key={workout.id}
                 style={[styles.manageMemberItem, { backgroundColor: colors.inputBg }]}
@@ -1577,52 +1836,55 @@ export default function CommunityScreen() {
         </TouchableOpacity>
       </BottomSheetModal>
 
-      {/* Remove Program Confirmation Modal */}
-      <Modal visible={showRemoveProgramConfirmation} transparent animationType="fade">
-        <View style={[styles.joinModalOverlay, { backgroundColor: colors.overlayBg }]}>
-          <View style={[styles.confirmModalContent, { backgroundColor: colors.modalBg }]}>
-            <View style={[styles.confirmIconContainer, { backgroundColor: 'rgba(231, 76, 60, 0.1)' }]}>
-              <Ionicons name="barbell" size={32} color="#e74c3c" />
-            </View>
-            <Text style={[styles.confirmTitle, { color: colors.primaryText }]}>Remove Program?</Text>
-            <Text style={[styles.confirmSubtitle, { color: colors.secondaryText }]}>
-              Are you sure you want to remove{' '}
-              <Text style={[styles.confirmMemberName, { color: colors.primaryText }]}>{programToRemove?.name}</Text>
-              {' '}from this community? Members will no longer have access to it.
-            </Text>
-            <View style={styles.confirmActions}>
-              <TouchableOpacity
-                style={[styles.confirmCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setShowRemoveProgramConfirmation(false);
-                  setProgramToRemove(null);
-                }}
-              >
-                <Text style={[styles.confirmCancelText, { color: colors.secondaryText }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.confirmRemoveBtn}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  if (selectedCommunity && programToRemove) {
-                    removeSharedWorkout(selectedCommunity.id, programToRemove.id);
-                    setSelectedCommunity({
-                      ...selectedCommunity,
-                      sharedWorkouts: selectedCommunity.sharedWorkouts.filter(w => w.id !== programToRemove.id),
-                    });
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                  }
-                  setShowRemoveProgramConfirmation(false);
-                  setProgramToRemove(null);
-                }}
-              >
-                <Text style={styles.confirmRemoveText}>Remove</Text>
-              </TouchableOpacity>
+      {/* Remove Program Confirmation — in-tree overlay instead of a native Modal so
+          Firestore's instant onSnapshot re-render can't interfere with modal animations */}
+      {showRemoveProgramConfirmation && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 999 }]}>
+          <FadeBackdrop
+            onPress={() => { setShowRemoveProgramConfirmation(false); setProgramToRemove(null); }}
+            color={colors.overlayBg}
+          />
+          <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }]} pointerEvents="box-none">
+            <View style={[styles.confirmModalContent, { backgroundColor: colors.modalBg }]}>
+              <View style={[styles.confirmIconContainer, { backgroundColor: 'rgba(231, 76, 60, 0.1)' }]}>
+                <Ionicons name="barbell" size={32} color="#e74c3c" />
+              </View>
+              <Text style={[styles.confirmTitle, { color: colors.primaryText }]}>Remove Program?</Text>
+              <Text style={[styles.confirmSubtitle, { color: colors.secondaryText }]}>
+                Are you sure you want to remove{' '}
+                <Text style={[styles.confirmMemberName, { color: colors.primaryText }]}>{programToRemove?.name}</Text>
+                {' '}from this community? Members will no longer have access to it.
+              </Text>
+              <View style={styles.confirmActions}>
+                <TouchableOpacity
+                  style={[styles.confirmCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setShowRemoveProgramConfirmation(false);
+                    setProgramToRemove(null);
+                  }}
+                >
+                  <Text style={[styles.confirmCancelText, { color: colors.secondaryText }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.confirmRemoveBtn}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    if (selectedCommunity && programToRemove) {
+                      removeSharedWorkout(selectedCommunity.id, programToRemove.id);
+                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    }
+                    setShowRemoveProgramConfirmation(false);
+                    setProgramToRemove(null);
+                  }}
+                >
+                  <Text style={styles.confirmRemoveText}>Remove</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </View>
-      </Modal>
+      )}
     </LinearGradient>
   );
 }
@@ -1649,7 +1911,7 @@ const styles = StyleSheet.create({
   heroBanner: {
     borderRadius: 20,
     overflow: 'hidden',
-    paddingBottom: 20,
+    paddingBottom: 4,
     marginBottom: 16,
   },
   heroBannerOverlay: {
@@ -1678,20 +1940,30 @@ const styles = StyleSheet.create({
     paddingTop: 20,
   },
   heroBannerName: {
-    fontSize: 26,
+    fontSize: 30,
     fontFamily: 'Arimo_700Bold',
     color: '#FFFFFF',
+    textAlign: 'center',
+    letterSpacing: -0.5,
+    lineHeight: 36,
   },
   heroBannerDesc: {
     fontSize: 14,
     fontFamily: 'Arimo_400Regular',
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(255,255,255,0.75)',
     marginTop: 4,
+  },
+  heroBannerMeta: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    color: 'rgba(255,255,255,0.55)',
+    marginTop: 10,
+    textAlign: 'center',
   },
   memberCountPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
+    alignSelf: 'center',
     gap: 5,
     backgroundColor: 'rgba(255,255,255,0.2)',
     borderRadius: 12,
@@ -1735,6 +2007,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Arimo_700Bold',
     color: '#FFFFFF',
     lineHeight: 36,
+    textAlign: 'center',
     textShadowColor: '#00000080',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -1764,6 +2037,8 @@ const styles = StyleSheet.create({
   },
   communityInfo: {
     flex: 1,
+    alignItems: 'center',
+    paddingVertical: 4,
   },
   communityName: {
     fontSize: 18,
@@ -2803,5 +3078,102 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontFamily: 'Arimo_700Bold',
     color: '#fff',
+  },
+  // Member progress button on member card
+  memberProgressBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(52, 211, 153, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Member progress view
+  progressStatsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 24,
+  },
+  progressStatCard: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  progressStatNumber: {
+    fontSize: 26,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+  },
+  progressStatLabel: {
+    fontSize: 11,
+    fontFamily: 'Arimo_400Regular',
+    color: '#5a6c7d',
+    marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  progressEmptyCard: {
+    borderRadius: 16,
+    borderWidth: 1.5,
+    padding: 32,
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+  },
+  progressEmptyText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_400Regular',
+    color: '#5a6c7d',
+  },
+  progressEntryCard: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    marginBottom: 10,
+    flexDirection: 'row',
+    overflow: 'hidden',
+  },
+  progressEntryColorBar: {
+    width: 4,
+    borderTopLeftRadius: 14,
+    borderBottomLeftRadius: 14,
+  },
+  progressEntryHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 12,
+    paddingTop: 12,
+  },
+  progressEntryDate: {
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+  },
+  progressEntryProgram: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    color: '#5a6c7d',
+    marginTop: 2,
+  },
+  progressEntryDuration: {
+    fontSize: 13,
+    fontFamily: 'Arimo_700Bold',
+    color: '#5a6c7d',
+  },
+  progressEntryMeta: {
+    fontSize: 12,
+    fontFamily: 'Arimo_400Regular',
+    color: '#8e8e93',
+    marginTop: 2,
+  },
+  progressEntryExercises: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    color: '#5a6c7d',
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    paddingTop: 6,
+    lineHeight: 18,
   },
 });
