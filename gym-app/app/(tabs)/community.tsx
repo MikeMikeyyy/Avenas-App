@@ -514,7 +514,7 @@ export default function CommunityScreen() {
             <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>MY COMMUNITIES</Text>
             {ownedCommunities.map(community => {
               const scheme = getColorScheme(community.color);
-              const pendingOwner = community.sharedWorkouts.filter(w => w.status === 'pending').length;
+              const pendingOwner = community.sharedWorkouts.filter(w => w.status === 'pending' && w.direction === 'toCoach').length;
               return (
                 <BounceButton
                   key={community.id}
@@ -554,7 +554,11 @@ export default function CommunityScreen() {
               JOINED COMMUNITIES
             </Text>
             {joinedCommunities.map(community => {
-              const pendingWorkouts = community.sharedWorkouts.filter(w => w.status === 'pending').length;
+              const pendingWorkouts = community.sharedWorkouts.filter(w =>
+                w.status === 'pending' &&
+                w.direction !== 'toCoach' &&
+                (w.direction !== 'returnedToMember' || w.recipientMemberId === currentUserId)
+              ).length;
               const scheme = getColorScheme(community.color);
               return (
                 <BounceButton
