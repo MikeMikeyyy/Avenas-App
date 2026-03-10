@@ -34,16 +34,15 @@ import { FadeBackdrop } from '../../components/FadeBackdrop';
 import { ProgressView } from '../../components/ProgressView';
 import { useUnits } from '../../unitsStore';
 
-// Each scheme: key stored in Firestore, gradStart/gradEnd used for banner gradient
-// The swatch shows the actual gradient so it matches what displays
+// Each scheme: key stored in Firestore, colors is a 7-stop gradient
 const COMMUNITY_COLOR_SCHEMES = [
-  { key: 'electric', gradStart: '#1E90FF', gradEnd: '#47DDFF' }, // Blue → Cyan
-  { key: 'cosmic',   gradStart: '#A855F7', gradEnd: '#FF6EC7' }, // Purple → Hot Pink
-  { key: 'amber',    gradStart: '#F7971E', gradEnd: '#ffd900' }, // Amber → Gold
-  { key: 'neon',     gradStart: '#FF1493', gradEnd: '#FF9500' }, // Deep Pink → Orange
-  { key: 'aurora',   gradStart: '#00F5A0', gradEnd: '#0ED2F7' }, // Mint → Cyan
-  { key: 'periwinkle', gradStart: '#88c9ff', gradEnd: '#e760ff' }, // Light Blue → Hot Pink
-  { key: 'galaxy',   gradStart: '#aba4ff', gradEnd: '#A855F7' }, // Slate Blue → Purple
+  { key: 'electric',   colors: ['#5DB1F5','#60BEEB','#62CBE1','#65D8D8','#67E5CE','#6AF2C4','#6CFFBA'] }, // Blue → Cyan
+  { key: 'cosmic',     colors: ['#9BAFD9','#849BCB','#6D87BC','#5673AE','#3E5FA0','#274B91','#103783'] }, // Purple → Hot Pink
+  { key: 'amber',      colors: ['#CAD0FF','#CED3FA','#D2D6F6','#D7DAF1','#DBDDEC','#DFE0E8','#E3E3E3'] }, // Amber → Gold
+  { key: 'neon',       colors: ['#F86CA7','#F77D97','#F78F86','#F6A076','#F5B165','#F5C355','#F4D444'] }, // Deep Pink → Orange
+  { key: 'aurora',     colors: ['#1ED7B5','#41DDB3','#64E2B0','#87E8AE','#AAEEAC','#CDF3A9','#F0F9A7'] }, // Cyan → Mint
+  { key: 'periwinkle', colors: ['#F492F0','#E691EA','#D890E5','#CB90DF','#BD8FD9','#AF8ED4','#A18DCE'] }, // Light Blue → Hot Pink
+  { key: 'galaxy',     colors: ['#ED0E6F','#DF0C6A','#D00965','#C20760','#B4055B','#A50256','#970051'] }, // Rose → Lavender
 ];
 
 function BounceButton({ style, children, onPress, disabled, ...rest }: any) {
@@ -130,11 +129,11 @@ const getAvatarColor = (id: string): string => {
   return AVATAR_COLORS[index];
 };
 
+const FALLBACK_COLORS = ['#1E90FF','#259DFF','#2CAAFF','#33B7FF','#39C3FF','#40D0FF','#47DDFF'];
 const getColorScheme = (color: string) => {
   const scheme = COMMUNITY_COLOR_SCHEMES.find(s => s.key === color);
-  return scheme
-    ? { gradStart: scheme.gradStart, gradEnd: scheme.gradEnd }
-    : { gradStart: '#1E90FF', gradEnd: '#47DDFF' }; // fallback (Electric)
+  const colors = scheme ? scheme.colors : FALLBACK_COLORS;
+  return { colors, gradStart: colors[0] };
 };
 
 export default function CommunityScreen() {
@@ -557,7 +556,7 @@ export default function CommunityScreen() {
                   onPress={() => handleOpenCommunity(community, true)}
                 >
                   <LinearGradient
-                    colors={[scheme.gradStart, scheme.gradEnd]}
+                    colors={scheme.colors as any}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={StyleSheet.absoluteFillObject}
@@ -569,9 +568,6 @@ export default function CommunityScreen() {
                   )}
                   <View style={styles.communityInfo}>
                     <Text style={[styles.communityName, { color: '#fff' }]}>{community.name}</Text>
-                    <Text style={[styles.communityMeta, { color: 'rgba(255,255,255,0.75)' }]}>
-                      {community.members.length} members · Owner
-                    </Text>
                   </View>
                   {community.description && (
                     <Text style={[styles.communityDesc, { color: 'rgba(255,255,255,0.8)' }]} numberOfLines={2}>{community.description}</Text>
@@ -602,7 +598,7 @@ export default function CommunityScreen() {
                   onPress={() => handleOpenCommunity(community, false)}
                 >
                   <LinearGradient
-                    colors={[scheme.gradStart, scheme.gradEnd]}
+                    colors={scheme.colors as any}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={StyleSheet.absoluteFillObject}
@@ -615,7 +611,7 @@ export default function CommunityScreen() {
                   <View style={styles.communityInfo}>
                     <Text style={[styles.communityName, { color: '#fff' }]}>{community.name}</Text>
                     <Text style={[styles.communityMeta, { color: 'rgba(255,255,255,0.75)' }]}>
-                      by {community.ownerName} · {community.members.length} members
+                      by {community.ownerName}
                     </Text>
                   </View>
                   {community.description && (
@@ -671,7 +667,7 @@ export default function CommunityScreen() {
         <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: Platform.OS === 'ios' ? 112 : 92 }]} showsVerticalScrollIndicator={false}>
           {/* Hero Banner */}
           <LinearGradient
-            colors={[scheme.gradStart, scheme.gradEnd]}
+            colors={scheme.colors as any}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.heroBanner}
@@ -681,9 +677,9 @@ export default function CommunityScreen() {
               {selectedCommunity.description ? (
                 <Text style={[styles.heroBannerDesc, { textAlign: 'left', marginTop: 6 }]} numberOfLines={4}>{selectedCommunity.description}</Text>
               ) : null}
-              <Text style={styles.heroBannerMeta}>
-                {selectedCommunity.members.length} member{selectedCommunity.members.length !== 1 ? 's' : ''}{' · '}{isOwnerView ? 'Owner' : `by ${selectedCommunity.ownerName ?? 'Coach'}`}
-              </Text>
+              {!isOwnerView && (
+                <Text style={styles.heroBannerMeta}>by {selectedCommunity.ownerName ?? 'Coach'}</Text>
+              )}
             </View>
           </LinearGradient>
 
@@ -1100,7 +1096,7 @@ export default function CommunityScreen() {
           {/* Members List */}
           <>
             <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24, marginBottom: 0 }]}>MEMBERS</Text>
+              <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24, marginBottom: 0 }]}>MEMBERS · {selectedCommunity.members.length}</Text>
               {isOwnerView && selectedCommunity.members.filter(m => m.role !== 'owner').length > 0 && (
                 <TouchableOpacity
                   style={styles.sectionMenuBtn}
@@ -1624,7 +1620,7 @@ export default function CommunityScreen() {
                   activeOpacity={0.8}
                 >
                   <LinearGradient
-                    colors={[scheme.gradStart, scheme.gradEnd]}
+                    colors={scheme.colors as any}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={styles.colorSwatch}
@@ -1752,7 +1748,7 @@ export default function CommunityScreen() {
                     activeOpacity={0.8}
                   >
                     <LinearGradient
-                      colors={[scheme.gradStart, scheme.gradEnd]}
+                      colors={scheme.colors as any}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       style={styles.colorSwatch}
