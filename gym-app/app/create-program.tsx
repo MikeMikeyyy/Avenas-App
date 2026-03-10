@@ -574,14 +574,8 @@ export default function CreateProgramScreen() {
       {/* Floating back button — rendered after ScrollView so it sits on top */}
       <TouchableOpacity
         style={[styles.backButton, { backgroundColor: colors.backButtonBg }]}
-        onPress={async () => {
+        onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          if (isReturnMode && returnData) {
-            const name = programName || 'Untitled Program';
-            await returnWorkoutToMember(returnData.communityId, returnData.workoutId, {
-              programName: name, color: selectedColor, splitDays,
-            });
-          }
           router.back();
         }}
         activeOpacity={0.7}

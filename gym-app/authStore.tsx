@@ -78,8 +78,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const updateDisplayName = async (name: string) => {
     if (!auth.currentUser) throw new Error('Not logged in');
     await updateProfile(auth.currentUser, { displayName: name.trim() });
-    // Refresh user state so UI updates immediately
-    setUser(Object.assign(Object.create(Object.getPrototypeOf(auth.currentUser)), auth.currentUser));
+    // Refresh user state so UI updates immediately (explicitly set displayName in case it wasn't own-enumerable)
+    setUser(Object.assign(Object.create(Object.getPrototypeOf(auth.currentUser)), auth.currentUser, { displayName: name.trim() }));
   };
 
   const updateUserPassword = async (currentPassword: string, newPassword: string) => {

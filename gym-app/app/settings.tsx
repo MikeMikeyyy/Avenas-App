@@ -22,6 +22,7 @@ import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/ar
 import { useTheme } from '../themeStore';
 import { useUnits } from '../unitsStore';
 import { useAuth } from '../authStore';
+import { useCommunityStore } from '../communityStore';
 import { BottomSheetModal } from '../components/BottomSheetModal';
 
 function getInitials(name: string): string {
@@ -87,6 +88,7 @@ export default function SettingsScreen() {
   const { isDark, colors, toggleTheme } = useTheme();
   const { unit, setUnit } = useUnits();
   const { user, isGuest, signOut, updateDisplayName, updateUserPassword, updateUserEmail, sendPasswordReset } = useAuth();
+  const { syncUserName } = useCommunityStore();
   const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold });
 
   const displayName = user?.displayName || (isGuest ? 'Guest' : '');
@@ -132,6 +134,7 @@ export default function SettingsScreen() {
     setModalError('');
     try {
       await updateDisplayName(newName.trim());
+      syncUserName(newName.trim()).catch(() => {});
       closeModals();
     } catch (e: any) {
       setModalError(getAuthErrorMessage(e.code ?? ''));
@@ -176,7 +179,7 @@ export default function SettingsScreen() {
 
   const ACCOUNT_ITEMS: SettingsItem[] = [
     {
-      icon: 'person-outline', label: 'Edit Profile',
+      icon: 'person-outline', label: 'Edit Username',
       subtitle: displayName || undefined,
       type: 'action',
       onPress: () => { setNewName(displayName); setModalError(''); setEditProfileVisible(true); },
@@ -344,7 +347,7 @@ export default function SettingsScreen() {
       {/* ── Edit Profile Modal ── */}
       <BottomSheetModal visible={editProfileVisible} onDismiss={closeModals}>
         <View style={[styles.modalContent, { backgroundColor: colors.modalBg }]}>
-          <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Edit Profile</Text>
+          <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Edit Username</Text>
           <View style={[styles.modalInputWrap, { backgroundColor: colors.inputBg }]}>
             <Ionicons name="person-outline" size={18} color={colors.tertiaryText} style={{ marginRight: 8 }} />
             <TextInput

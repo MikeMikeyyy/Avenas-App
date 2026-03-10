@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type ThemeColors = {
   gradientStart: string;
@@ -63,10 +64,13 @@ const DARK_COLORS: ThemeColors = {
   overlayBg: 'rgba(0,0,0,0.7)',
 };
 
+const THEME_KEY = '@theme_isDark';
+
 type ThemeContextType = {
   isDark: boolean;
   colors: ThemeColors;
   toggleTheme: () => void;
+  setDark: (isDark: boolean) => void;
 };
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
@@ -74,15 +78,32 @@ const ThemeContext = createContext<ThemeContextType | null>(null);
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [isDark, setIsDark] = useState(false);
 
+  // Load persisted value on mount (handles guests and first render before auth)
+  useEffect(() => {
+    AsyncStorage.getItem(THEME_KEY).then(v => {
+      if (v === 'true') setIsDark(true);
+      else if (v === 'false') setIsDark(false);
+    }).catch(() => {});
+  }, []);
+
   const toggleTheme = useCallback(() => {
-    setIsDark(prev => !prev);
+    setIsDark(prev => {
+      const next = !prev;
+      AsyncStorage.setItem(THEME_KEY, String(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const setDark = useCallback((value: boolean) => {
+    setIsDark(value);
+    AsyncStorage.setItem(THEME_KEY, String(value)).catch(() => {});
   }, []);
 
   const colors = isDark ? DARK_COLORS : LIGHT_COLORS;
 
   return React.createElement(
     ThemeContext.Provider,
-    { value: { isDark, colors, toggleTheme } },
+    { value: { isDark, colors, toggleTheme, setDark } },
     children
   );
 }

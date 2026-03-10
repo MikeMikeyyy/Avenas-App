@@ -44,6 +44,7 @@ import { useUnits } from '../../unitsStore';
 import { BottomSheetModal } from '../../components/BottomSheetModal';
 import { FadeBackdrop } from '../../components/FadeBackdrop';
 import { ExercisePicker } from '../../components/ExercisePicker';
+import { ExerciseInfoModal } from '../../components/ExerciseInfoModal';
 
 type SetData = { set: number; reps: number; weight: number | null; hold?: number; prevReps?: number; prevWeight?: number; prevHold?: number; isWarmup?: boolean; fillKey?: number };
 type Exercise = { name: string; sets: SetData[]; mode?: 'reps' | 'hold' };
@@ -220,7 +221,7 @@ function CalendarStrip({ selectedIndex, onSelect, accentColor, days, todayIndex,
   );
 }
 
-function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onToggleWarmup, onMoveUp, onMoveDown, isFirst, isLast: isLastExercise, accentColor = '#47DDFF', note, onNoteChange, mode, onToggleMode, onShowExerciseList, onRemoveExercise, readOnly, onFillPrev }: { exercise: Exercise; index: number; onAddSet: () => void; onRemoveSet: () => void; onUpdateSet: (setIndex: number, field: 'reps' | 'weight' | 'hold', value: string) => void; onToggleWarmup: (setIndex: number) => void; onMoveUp?: () => void; onMoveDown?: () => void; isFirst?: boolean; isLast?: boolean; accentColor?: string; note?: string; onNoteChange?: (text: string) => void; mode: 'reps' | 'hold'; onToggleMode: () => void; onShowExerciseList: () => void; onRemoveExercise: () => void; readOnly?: boolean; onFillPrev: (setIndex: number) => void }) {
+function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onToggleWarmup, onMoveUp, onMoveDown, isFirst, isLast: isLastExercise, accentColor = '#47DDFF', note, onNoteChange, mode, onToggleMode, onShowExerciseList, onRemoveExercise, readOnly, onFillPrev, onShowInfo }: { exercise: Exercise; index: number; onAddSet: () => void; onRemoveSet: () => void; onUpdateSet: (setIndex: number, field: 'reps' | 'weight' | 'hold', value: string) => void; onToggleWarmup: (setIndex: number) => void; onMoveUp?: () => void; onMoveDown?: () => void; isFirst?: boolean; isLast?: boolean; accentColor?: string; note?: string; onNoteChange?: (text: string) => void; mode: 'reps' | 'hold'; onToggleMode: () => void; onShowExerciseList: () => void; onRemoveExercise: () => void; readOnly?: boolean; onFillPrev: (setIndex: number) => void; onShowInfo?: () => void }) {
   const [editing, setEditing] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -235,18 +236,24 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
   return (
     <View style={[styles.exerciseCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
       <View style={styles.exerciseHeader}>
-        <View style={[styles.exerciseNumberBadge, { backgroundColor: `${accentColor}25`, borderColor: `${accentColor}4D` }]}>
+        <View style={[styles.exerciseNumberBadge, { backgroundColor: `${accentColor}25`, borderColor: accentColor }]}>
           <Text style={[styles.exerciseNumberText, { color: colors.primaryText }]}>{index + 1}</Text>
         </View>
-        {(() => {
-          const imgUrl = getExerciseImageUrl(exercise.name);
-          return imgUrl ? (
-            <View style={[styles.exerciseThumb, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
-              <Image source={{ uri: imgUrl }} style={styles.exerciseThumbImg} contentFit="cover" />
-            </View>
-          ) : null;
-        })()}
-        <Text style={[styles.exerciseName, { color: colors.primaryText, flex: 1 }]}>{exercise.name}</Text>
+        <TouchableOpacity
+          style={styles.exerciseNameRow}
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onShowInfo?.(); }}
+          activeOpacity={0.7}
+        >
+          {(() => {
+            const imgUrl = getExerciseImageUrl(exercise.name);
+            return imgUrl ? (
+              <View style={[styles.exerciseThumb, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+                <Image source={{ uri: imgUrl }} style={styles.exerciseThumbImg} contentFit="cover" />
+              </View>
+            ) : null;
+          })()}
+          <Text style={[styles.exerciseName, { color: colors.primaryText, flex: 1 }]}>{exercise.name}</Text>
+        </TouchableOpacity>
         {!readOnly && (
           <TouchableOpacity
             onPress={() => {
@@ -371,15 +378,15 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
       {editing && (
         <>
           <TouchableOpacity
-            style={[styles.addSetBtn, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)' }]}
+            style={[styles.addSetBtn, { borderColor: '#00EBAC' }]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               onAddSet();
             }}
             activeOpacity={0.7}
           >
-            <Ionicons name="add" size={16} color={colors.primaryText} />
-            <Text style={[styles.addSetText, { color: colors.primaryText }]}>Add Set</Text>
+            <Ionicons name="add" size={16} color="#00EBAC" />
+            <Text style={[styles.addSetText, { color: '#00EBAC' }]}>Add Set</Text>
           </TouchableOpacity>
 
           {(!isFirst || !isLastExercise) && (
@@ -543,6 +550,7 @@ export default function WorkoutScreen() {
   const [dayOverrides, setDayOverrides] = useState<Record<number, 'rest' | number>>({});
   const [showSwapOverlay, setShowSwapOverlay] = useState(false);
   const [showMakeTodayPrompt, setShowMakeTodayPrompt] = useState(false);
+  const [infoExerciseName, setInfoExerciseName] = useState<string | null>(null);
   const promptedDays = useRef<Set<number>>(new Set());
   const pendingFillAction = useRef<(() => void) | null>(null);
   // Stores final workout duration per day after finishing
@@ -1126,7 +1134,7 @@ export default function WorkoutScreen() {
 
               {/* Program badge */}
               <View style={styles.programRow}>
-                <View style={[styles.programBadge, { backgroundColor: `${resolveEntryColor(pastEntryForDate)}25`, borderColor: `${resolveEntryColor(pastEntryForDate)}4D` }]}>
+                <View style={[styles.programBadge, { backgroundColor: `${resolveEntryColor(pastEntryForDate)}25`, borderColor: resolveEntryColor(pastEntryForDate) }]}>
                   <Text style={[styles.programBadgeText, { color: colors.primaryText }]}>{pastEntryForDate.programName}</Text>
                 </View>
               </View>
@@ -1471,7 +1479,7 @@ export default function WorkoutScreen() {
         {!isViewingPast && workout ? (
           <>
             <View style={styles.programRow}>
-              <View style={[styles.programBadge, { backgroundColor: `${accentColor}25`, borderColor: `${accentColor}4D` }]}>
+              <View style={[styles.programBadge, { backgroundColor: `${accentColor}25`, borderColor: accentColor }]}>
                 <Text style={[styles.programBadgeText, { color: colors.primaryText }]}>{workout.program}</Text>
               </View>
               <View style={[styles.exerciseCountBadge, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, marginLeft: 10 }]}>
@@ -1649,6 +1657,7 @@ export default function WorkoutScreen() {
                   }
                   doFill();
                 }}
+                onShowInfo={() => setInfoExerciseName(exercise.name)}
               />
             ))}
 
@@ -1942,6 +1951,9 @@ export default function WorkoutScreen() {
           </View>
         ) : null}
       </ScrollView>
+
+      {/* Exercise Info Modal */}
+      <ExerciseInfoModal exerciseName={infoExerciseName} onClose={() => setInfoExerciseName(null)} />
 
       {/* Change / Add Exercise Picker */}
       <ExercisePicker
@@ -2769,6 +2781,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Arimo_700Bold',
     color: '#2c3e50',
+    flex: 1,
+  },
+  exerciseNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
   },
   setRow: {

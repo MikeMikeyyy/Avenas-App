@@ -12,6 +12,7 @@ import {
   Platform,
   Animated,
   PanResponder,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,7 +25,21 @@ import Svg, {
   Stop as SvgStop,
 } from 'react-native-svg';
 import { useTheme } from '../themeStore';
+import { useProgramStore } from '../programStore';
 import type { WorkoutJournalEntry, ExerciseHistoryEntry } from '../workoutState';
+import { ExerciseInfoModal } from './ExerciseInfoModal';
+import exerciseDbRaw from '../assets/data/exercises.json';
+
+const IMAGE_BASE = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
+const exerciseImageMap: Record<string, string> = {};
+(exerciseDbRaw as { name: string; image: string }[]).forEach(e => {
+  if (e.name && e.image) exerciseImageMap[e.name] = e.image;
+});
+function getExerciseImageUrl(name: string): string | null {
+  const path = exerciseImageMap[name];
+  if (!path) return null;
+  return IMAGE_BASE + path.split('/').map(encodeURIComponent).join('/');
+}
 
 // ─── Period types ─────────────────────────────────────────────────────────────
 
@@ -438,6 +453,8 @@ type Props = {
   scrollTopPadding?: number;
   /** Forward ref to the internal ScrollView so callers can scroll to top on focus. */
   scrollRef?: React.RefObject<ScrollView | null>;
+  /** Override the initial selected program name (e.g. for community member view). */
+  initialProgramName?: string | null;
 };
 
 export function ProgressView({
@@ -447,8 +464,10 @@ export function ProgressView({
   showTitle = false,
   scrollTopPadding = 8,
   scrollRef,
+  initialProgramName,
 }: Props) {
   const { colors } = useTheme();
+  const { programs, activeId } = useProgramStore();
   const [chartPanning, setChartPanning] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodKey>('week');
   const [exerciseMetric, setExerciseMetric] = useState<'heaviest' | 'setVolume'>('heaviest');
@@ -456,7 +475,11 @@ export function ProgressView({
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
 
   const ALL_ACCENT = '#94A3B8';
-  const [selectedProgramName, setSelectedProgramName] = useState<string | null>(null);
+  const activeProgramName = initialProgramName !== undefined
+    ? initialProgramName
+    : (programs.find(p => p.id === activeId)?.name ?? null);
+  const [selectedProgramName, setSelectedProgramName] = useState<string | null>(activeProgramName);
+  const [infoExerciseName, setInfoExerciseName] = useState<string | null>(null);
 
   // ── Derive unique programs from journal ──────────────────────────────────────
   const derivedPrograms = useMemo(() => {
@@ -737,14 +760,21 @@ export function ProgressView({
                 </TouchableOpacity>
                 {isExpanded && day.exercises.map(name => {
                   const isSelected = name === selectedExercise;
+                  const imgUrl = getExerciseImageUrl(name);
                   return (
                     <TouchableOpacity
                       key={name}
-                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelectedExercise(name); }}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        if (isSelected) { setInfoExerciseName(name); } else { setSelectedExercise(name); }
+                      }}
                       style={[pvStyles.exerciseRow, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }, isSelected && { backgroundColor: `${day.color}20`, borderColor: `${day.color}80` }]}
                       activeOpacity={0.7}
                     >
-                      <Text style={[pvStyles.exerciseRowText, { color: colors.primaryText }, isSelected && { fontFamily: 'Arimo_700Bold' }]}>{name}</Text>
+                      {imgUrl && (
+                        <Image source={{ uri: imgUrl }} style={pvStyles.exerciseThumb} resizeMode="cover" />
+                      )}
+                      <Text style={[pvStyles.exerciseRowText, { color: colors.primaryText, flex: 1 }, isSelected && { fontFamily: 'Arimo_700Bold' }]}>{name}</Text>
                       {isSelected
                         ? <Ionicons name="chevron-forward" size={16} color={day.color} />
                         : (() => {
@@ -848,6 +878,7 @@ export function ProgressView({
           <Text style={[pvStyles.emptyText, { color: colors.secondaryText }]}>No workouts logged yet</Text>
         </View>
       )}
+      <ExerciseInfoModal exerciseName={infoExerciseName} onClose={() => setInfoExerciseName(null)} />
     </ScrollView>
   );
 }
@@ -1020,6 +1051,13 @@ const pvStyles = StyleSheet.create({
     borderColor: 'transparent',
     marginTop: 4,
     backgroundColor: '#ffffff30',
+  },
+  exerciseThumb: {
+    width: 32,
+    height: 32,
+    borderRadius: 7,
+    marginRight: 10,
+    backgroundColor: 'rgba(0,0,0,0.06)',
   },
   exerciseRowText: {
     fontSize: 14,

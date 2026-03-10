@@ -442,7 +442,7 @@ export default function HomeScreen() {
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={[styles.programLabel, { color: colors.secondaryText }]}>Active Program</Text>
-                  <View style={[styles.programBadge, { backgroundColor: `${accentColor}40`, borderColor: `${accentColor}80` }]}>
+                  <View style={[styles.programBadge, { backgroundColor: `${accentColor}30`, borderColor: accentColor }]}>
                     <Text style={[styles.programBadgeText, { color: colors.primaryText }]}>{activeProgram?.name || 'None'}</Text>
                   </View>
                 </View>
@@ -464,7 +464,7 @@ export default function HomeScreen() {
                 </View>
               )}
               <BounceButton
-                style={[styles.startButton, { backgroundColor: hasPrograms ? accentColor : '#47DDFF' }, workoutDone && hasPrograms && { backgroundColor: `${accentColor}25`, borderWidth: 2, borderColor: `${accentColor}CC` }]}
+                style={[styles.startButton, { backgroundColor: hasPrograms ? accentColor : '#47DDFF' }, workoutDone && hasPrograms && { backgroundColor: `${accentColor}25`, borderWidth: 2, borderColor: accentColor }]}
                 onPress={() => {
                   if (!hasPrograms) { router.navigate('/create-program'); return; }
                   if (!isRestDay && !workoutDone) workoutState.startTimer(todayDayIndex);
@@ -548,7 +548,7 @@ export default function HomeScreen() {
                 <TouchableOpacity
                   onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/journal'); }}
                   activeOpacity={0.7}
-                  style={[styles.viewAllBtn, { backgroundColor: `${accentColor}22`, borderColor: `${accentColor}55` }]}
+                  style={[styles.viewAllBtn, { backgroundColor: `${accentColor}22`, borderColor: accentColor }]}
                 >
                   <Text style={[styles.viewAllText, { color: colors.primaryText }]}>View Journal</Text>
                   <Ionicons name="chevron-forward" size={13} color={colors.primaryText} />
@@ -604,7 +604,7 @@ const styles = StyleSheet.create({
   },
   fixedProfile: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 54 : 34,
+    top: Platform.OS === 'ios' ? 58 : 38,
     right: 20,
     width: 44,
     height: 44,
@@ -627,6 +627,7 @@ const styles = StyleSheet.create({
   headerLogo: {
     width: 44,
     height: 44,
+    marginTop: 4,
     marginBottom: 16,
   },
   greetingContainer: {

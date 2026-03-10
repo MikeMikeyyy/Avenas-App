@@ -14,6 +14,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   LayoutAnimation,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +28,19 @@ import { useUnits } from '../unitsStore';
 import { useProgramStore, getDayLabel, getDayExerciseCount } from '../programStore';
 import type { Program } from '../programStore';
 import { BottomSheetModal } from '../components/BottomSheetModal';
+import { ExerciseInfoModal } from '../components/ExerciseInfoModal';
+import exerciseDbRaw from '../assets/data/exercises.json';
+
+const IMAGE_BASE = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
+const exerciseImageMap: Record<string, string> = {};
+(exerciseDbRaw as { name: string; image: string }[]).forEach(e => {
+  if (e.name && e.image) exerciseImageMap[e.name] = e.image;
+});
+function getExerciseImageUrl(name: string): string | null {
+  const path = exerciseImageMap[name];
+  if (!path) return null;
+  return IMAGE_BASE + path.split('/').map(encodeURIComponent).join('/');
+}
 
 function BounceButton({ style, children, onPress, ...rest }: any) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -131,6 +145,7 @@ function JournalDetail({
   const [notesVal, setNotesVal] = useState('');
 
   const [exerciseMenuKey, setExerciseMenuKey] = useState<string | null>(null);
+  const [infoExerciseName, setInfoExerciseName] = useState<string | null>(null);
   const [confirmRemoveKey, setConfirmRemoveKey] = useState<string | null>(null);
   const [changeExerciseTarget, setChangeExerciseTarget] = useState<{ si: number; ei: number } | null>(null);
   const [newExerciseName, setNewExerciseName] = useState('');
@@ -313,9 +328,23 @@ function JournalDetail({
                 {(() => {
                   const menuKey = `${si}-${ei}`;
                   const isMenuOpen = exerciseMenuKey === menuKey;
+                  const imageUrl = getExerciseImageUrl(exercise.name);
                   return (
                     <View style={styles.exerciseHeader}>
-                      <Text style={[styles.exerciseName, { color: colors.primaryText }]} numberOfLines={1}>{exercise.name}</Text>
+                      <TouchableOpacity
+                        style={styles.exerciseNameRow}
+                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setInfoExerciseName(exercise.name); }}
+                        activeOpacity={0.7}
+                      >
+                        {imageUrl && (
+                          <Image
+                            source={{ uri: imageUrl }}
+                            style={styles.exerciseThumb}
+                            resizeMode="cover"
+                          />
+                        )}
+                        <Text style={[styles.exerciseName, { color: colors.primaryText }]} numberOfLines={1}>{exercise.name}</Text>
+                      </TouchableOpacity>
                       <TouchableOpacity
                         onPress={() => {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -604,6 +633,8 @@ function JournalDetail({
           </View>
         </KeyboardAvoidingView>
       </BottomSheetModal>
+
+      <ExerciseInfoModal exerciseName={infoExerciseName} onClose={() => setInfoExerciseName(null)} />
     </ScrollView>
   );
 }
@@ -822,7 +853,7 @@ function JournalCalendar({
                     </Text>
                   </View>
                   <View style={styles.cardMeta}>
-                    <View style={[styles.programBadge, { backgroundColor: `${eColor}25` }]}>
+                    <View style={[styles.programBadge, { backgroundColor: `${eColor}25`, borderWidth: 1, borderColor: eColor }]}>
                       <Text style={[styles.programBadgeText, { color: eColor }]}>{entry.programName}</Text>
                     </View>
                     <Text style={[styles.cardDate, { color: colors.tertiaryText }]}>{formatDate(entry.date)}</Text>
@@ -1343,6 +1374,18 @@ const styles = StyleSheet.create({
     paddingLeft: 14,
     paddingTop: 12,
     paddingBottom: 8,
+  },
+  exerciseNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  exerciseThumb: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    marginRight: 10,
+    backgroundColor: 'rgba(0,0,0,0.06)',
   },
   exerciseControls: {
     borderTopWidth: 1,
