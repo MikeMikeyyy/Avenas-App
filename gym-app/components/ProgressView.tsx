@@ -481,7 +481,7 @@ export function ProgressView({
   const [selectedProgramName, setSelectedProgramName] = useState<string | null>(activeProgramName);
   const [infoExerciseName, setInfoExerciseName] = useState<string | null>(null);
 
-  // ── Derive unique programs from journal ──────────────────────────────────────
+  // ── Derive unique programs from journal (active program first) ───────────────
   const derivedPrograms = useMemo(() => {
     const map = new Map<string, { name: string; color: string }>();
     for (const entry of journal) {
@@ -489,8 +489,14 @@ export function ProgressView({
         map.set(entry.programName, { name: entry.programName, color: entry.programColor });
       }
     }
-    return Array.from(map.values());
-  }, [journal]);
+    const arr = Array.from(map.values());
+    const activeName = programs.find(p => p.id === activeId)?.name;
+    if (activeName) {
+      const idx = arr.findIndex(p => p.name === activeName);
+      if (idx > 0) arr.unshift(...arr.splice(idx, 1));
+    }
+    return arr;
+  }, [journal, programs, activeId]);
 
   const selectedProgram = derivedPrograms.find(p => p.name === selectedProgramName);
   const accentColor = selectedProgramName === null ? ALL_ACCENT : (selectedProgram?.color ?? ALL_ACCENT);
@@ -524,11 +530,29 @@ export function ProgressView({
         dayMap.set(session.label, { exercises, color: entry.programColor });
       }
     }
-    return {
-      trainingDays: Array.from(dayMap.entries()).map(([label, { exercises, color }]) => ({ label, exercises, color })),
-      exercisePrograms: exPrograms,
-    };
-  }, [filteredJournal]);
+
+    // Order days by the program's splitDays order
+    const refProgram = selectedProgramName !== null
+      ? programs.find(p => p.name === selectedProgramName)
+      : programs.find(p => p.id === activeId);
+    const orderedLabels = refProgram
+      ? refProgram.splitDays.flatMap(sd => 'sessions' in sd ? sd.sessions.map(s => s.label) : []).filter((l, i, a) => a.indexOf(l) === i)
+      : [];
+
+    const days = Array.from(dayMap.entries()).map(([label, { exercises, color }]) => ({ label, exercises, color }));
+    if (orderedLabels.length > 0) {
+      days.sort((a, b) => {
+        const ia = orderedLabels.indexOf(a.label);
+        const ib = orderedLabels.indexOf(b.label);
+        if (ia === -1 && ib === -1) return 0;
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+    }
+
+    return { trainingDays: days, exercisePrograms: exPrograms };
+  }, [filteredJournal, programs, activeId, selectedProgramName]);
 
   const firstExercise = trainingDays[0]?.exercises[0] ?? '';
   const [selectedExercise, setSelectedExercise] = useState(firstExercise);

@@ -262,7 +262,7 @@ function JournalDetail({
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.detailScrollContent} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={styles.detailScrollContent} showsVerticalScrollIndicator={false} automaticallyAdjustKeyboardInsets={true}>
       {/* Header */}
       <View style={styles.detailHeader}>
         <Text style={[styles.detailTitle, { color: colors.primaryText }]} numberOfLines={1}>
@@ -700,15 +700,11 @@ function JournalCalendar({
       .sort((a, b) => b.date - a.date),
     [entries, year, month]);
 
-  const [listFilter, setListFilter] = useState<'week' | 'month'>('month');
-
-  const weekEntries = useMemo(() => {
+  const displayedEntries = useMemo(() => {
     const now = today.getTime();
     const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
     return entries.filter(e => e.date >= sevenDaysAgo && e.date <= now).sort((a, b) => b.date - a.date);
   }, [entries, today]);
-
-  const displayedEntries = listFilter === 'week' ? weekEntries : monthEntries;
 
   const workoutCount = useMemo(() => weeks.flat().filter(day => {
     if (!day) return false;
@@ -719,9 +715,9 @@ function JournalCalendar({
   return (
     <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
       <Text style={styles.screenTitle}>Journal</Text>
-      <Text style={[styles.screenSubtitle, { color: 'rgba(255,255,255,0.7)' }]}>Workout calendar</Text>
+      <Text style={[styles.screenSubtitle, { color: 'rgba(255,255,255,0.9)' }]}>Workout calendar</Text>
 
-      <View style={[styles.monthCalendar, { backgroundColor: colors.cardTranslucent, borderColor: isDark ? colors.cardBorder : 'rgba(0,0,0,0.12)' }]}>
+      <View style={[styles.monthCalendar, { backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.82)', borderColor: isDark ? colors.cardBorder : 'rgba(0,0,0,0.12)' }]}>
         {/* Navigation header */}
         <View style={styles.monthCalendarHeader}>
           <TouchableOpacity
@@ -810,32 +806,10 @@ function JournalCalendar({
         ))}
       </View>
 
-      {/* Filter toggle */}
-      <View style={styles.listFilterRow}>
-        {(['week', 'month'] as const).map(f => (
-          <TouchableOpacity
-            key={f}
-            style={[
-              styles.listFilterPill,
-              listFilter === f
-                ? { backgroundColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)', borderWidth: 1.5, borderStyle: 'solid', borderColor: 'transparent' }
-                : { borderWidth: 1.5, borderStyle: 'dotted', borderColor: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)' },
-            ]}
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setListFilter(f); }}
-          >
-            <Text style={[styles.listFilterPillText, { color: listFilter === f ? colors.primaryText : colors.tertiaryText }]}>
-              {f === 'week' ? 'Week' : 'Month'}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
       {/* Workout list */}
       {displayedEntries.length > 0 ? (
         <View style={styles.monthWorkoutList}>
-          <Text style={[styles.monthLabel, { color: colors.secondaryText }]}>
-            {listFilter === 'week' ? 'Last 7 Days' : label.split(' ')[0]}
-          </Text>
+          <Text style={[styles.monthLabel, { color: colors.secondaryText }]}>Last 7 Days</Text>
           {displayedEntries.map(entry => {
             const exCount = countExercises(entry);
             const eColor = resolveEntryColor(entry);
@@ -1001,8 +975,8 @@ export default function JournalScreen() {
   return (
     <LinearGradient
       colors={[colors.gradientStart, colors.gradientEnd]}
-      start={{ x: 0.5, y: 0 }}
-      end={{ x: 0.5, y: 0.35 }}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
       style={styles.container}
     >
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.gradientStart} />
@@ -1487,7 +1461,7 @@ const styles = StyleSheet.create({
   detailScrollContent: {
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingHorizontal: 20,
-    paddingBottom: 120,
+    paddingBottom: 220,
   },
 
   // Save Changes floating button

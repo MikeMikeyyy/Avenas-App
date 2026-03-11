@@ -262,7 +262,8 @@ export default function HomeScreen() {
   const todayDayIndex = 0; // today is always index 0 in the calendar
   const [streak, setStreak] = useState(1);
   const [workoutDone, setWorkoutDone] = useState(workoutState.finished);
-  const [recentEntries, setRecentEntries] = useState(() => workoutState.getJournalLog().slice(0, 3));
+  const getLast7DaysEntries = () => { const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000; return workoutState.getJournalLog().filter(e => e.date >= cutoff); };
+  const [recentEntries, setRecentEntries] = useState(() => getLast7DaysEntries());
   const [weeklyStats, setWeeklyStats] = useState(() => computeWeeklyStats());
   const [weeklyPlanCount, setWeeklyPlanCount] = useState<number | null>(null);
   const [timerActive, setTimerActive] = useState(!!workoutState.getTimerStartedAt(todayDayIndex) || workoutState.getTimerPausedElapsed(todayDayIndex) > 0);
@@ -328,7 +329,7 @@ export default function HomeScreen() {
 
   useFocusEffect(useCallback(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
-    setRecentEntries(workoutState.getJournalLog().slice(0, 3));
+    setRecentEntries(getLast7DaysEntries());
     setWeeklyStats(computeWeeklyStats());
   }, []));
 
@@ -467,13 +468,18 @@ export default function HomeScreen() {
                 style={[styles.startButton, { backgroundColor: hasPrograms ? accentColor : '#47DDFF' }, workoutDone && hasPrograms && { backgroundColor: `${accentColor}25`, borderWidth: 2, borderColor: accentColor }]}
                 onPress={() => {
                   if (!hasPrograms) { router.navigate('/create-program'); return; }
-                  if (!isRestDay && !workoutDone) workoutState.startTimer(todayDayIndex);
+                  if (workoutDone) {
+                    const todayEntry = workoutState.getJournalLog().find(e => new Date(e.date).toDateString() === new Date().toDateString());
+                    router.navigate(todayEntry ? `/journal?entryId=${todayEntry.id}` : '/journal');
+                    return;
+                  }
+                  if (!isRestDay) workoutState.startTimer(todayDayIndex);
                   router.navigate('/(tabs)/workout');
                 }}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Text style={[styles.startButtonText, workoutDone && hasPrograms && { color: isDark ? '#FFFFFF' : '#1C1C1E' }]}>
-                    {!hasPrograms ? 'Create a Program' : workoutDone ? 'Edit Workout' : isRestDay ? 'View Schedule' : timerActive ? 'Continue Workout' : 'Start Workout'}
+                    {!hasPrograms ? 'Create a Program' : workoutDone ? "Edit Today's Workout" : isRestDay ? 'View Schedule' : timerActive ? 'Continue Workout' : 'Start Workout'}
                   </Text>
                   {timerActive && !workoutDone && hasPrograms ? (
                     <>
@@ -499,6 +505,7 @@ export default function HomeScreen() {
           {[
             { icon: 'add-circle-outline' as const, label: 'Create New\nProgram', route: '/create-program' as const },
             { icon: 'list-outline' as const, label: 'View/Change\nPrograms', route: '/programs' as const },
+            { icon: 'book-outline' as const, label: 'View\nJournal', route: '/journal' as const },
           ].map((action, i) => (
             <BounceButton key={i} style={styles.quickActionButton} onPress={() => router.push(action.route)}>
               <View style={[styles.quickActionIcon, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#ffffff80', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#ffffffcc' }]}>
@@ -543,17 +550,7 @@ export default function HomeScreen() {
           };
           return (
             <>
-              <View style={styles.sectionTitleRow}>
-                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Recent Activity</Text>
-                <TouchableOpacity
-                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/journal'); }}
-                  activeOpacity={0.7}
-                  style={[styles.viewAllBtn, { backgroundColor: `${accentColor}22`, borderColor: accentColor }]}
-                >
-                  <Text style={[styles.viewAllText, { color: colors.primaryText }]}>View Journal</Text>
-                  <Ionicons name="chevron-forward" size={13} color={colors.primaryText} />
-                </TouchableOpacity>
-              </View>
+              <Text style={styles.sectionTitle}>Recent Activity</Text>
               {recentEntries.length === 0 ? (
                 <View style={[styles.activityCard, styles.emptyActivity, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
                   <BookOpenIcon size={22} color={colors.tertiaryText} />
@@ -769,7 +766,7 @@ const styles = StyleSheet.create({
   quickActions: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 64,
+    gap: 48,
     marginTop: 8,
     marginBottom: 28,
   },

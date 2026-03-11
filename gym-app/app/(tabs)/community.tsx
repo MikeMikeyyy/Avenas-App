@@ -36,13 +36,13 @@ import { useUnits } from '../../unitsStore';
 
 // Each scheme: key stored in Firestore, colors is a 7-stop gradient
 const COMMUNITY_COLOR_SCHEMES = [
-  { key: 'electric',   colors: ['#5DB1F5','#60BEEB','#62CBE1','#65D8D8','#67E5CE','#6AF2C4','#6CFFBA'] }, // Blue → Cyan
-  { key: 'cosmic',     colors: ['#9BAFD9','#849BCB','#6D87BC','#5673AE','#3E5FA0','#274B91','#103783'] }, // Purple → Hot Pink
-  { key: 'amber',      colors: ['#CAD0FF','#CED3FA','#D2D6F6','#D7DAF1','#DBDDEC','#DFE0E8','#E3E3E3'] }, // Amber → Gold
-  { key: 'neon',       colors: ['#F86CA7','#F77D97','#F78F86','#F6A076','#F5B165','#F5C355','#F4D444'] }, // Deep Pink → Orange
-  { key: 'aurora',     colors: ['#1ED7B5','#41DDB3','#64E2B0','#87E8AE','#AAEEAC','#CDF3A9','#F0F9A7'] }, // Cyan → Mint
-  { key: 'periwinkle', colors: ['#F492F0','#E691EA','#D890E5','#CB90DF','#BD8FD9','#AF8ED4','#A18DCE'] }, // Light Blue → Hot Pink
-  { key: 'galaxy',     colors: ['#ED0E6F','#DF0C6A','#D00965','#C20760','#B4055B','#A50256','#970051'] }, // Rose → Lavender
+  { key: 'electric',   colors: ['#5DB1F5','#60BEEB','#62CBE1','#65D8D8','#67E5CE','#6AF2C4','#6CFFBA'] }, // Blue → Aqua
+  { key: 'cosmic',     colors: ['#9BAFD9','#849BCB','#6D87BC','#5673AE','#3E5FA0','#274B91','#103783'] }, // Periwinkle → Navy
+  { key: 'amber',      colors: ['#CAD0FF','#CED3FA','#D2D6F6','#D7DAF1','#DBDDEC','#DFE0E8','#E3E3E3'] }, // Soft Lilac → White
+  { key: 'neon',       colors: ['#F86CA7','#F77D97','#F78F86','#F6A076','#F5B165','#F5C355','#F4D444'] }, // Pink → Yellow
+  { key: 'aurora',     colors: ['#1ED7B5','#41DDB3','#64E2B0','#87E8AE','#AAEEAC','#CDF3A9','#F0F9A7'] }, // Teal → Lime
+  { key: 'periwinkle', colors: ['#F492F0','#E691EA','#D890E5','#CB90DF','#BD8FD9','#AF8ED4','#A18DCE'] }, // Pink → Periwinkle
+  { key: 'galaxy',     colors: ['#ED0E6F','#DF0C6A','#D00965','#C20760','#B4055B','#A50256','#970051'] }, // Hot Pink → Deep Rose
 ];
 
 function BounceButton({ style, children, onPress, disabled, ...rest }: any) {

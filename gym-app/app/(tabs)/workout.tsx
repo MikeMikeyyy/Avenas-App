@@ -41,6 +41,8 @@ import { workoutState } from '../../workoutState';
 import { useProgramStore, getDayLabel, getDayExerciseCount } from '../../programStore';
 import { useTheme } from '../../themeStore';
 import { useUnits } from '../../unitsStore';
+import { useCommunityStore } from '../../communityStore';
+import { useAuth } from '../../authStore';
 import { BottomSheetModal } from '../../components/BottomSheetModal';
 import { FadeBackdrop } from '../../components/FadeBackdrop';
 import { ExercisePicker } from '../../components/ExercisePicker';
@@ -281,7 +283,7 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
       {exercise.sets.map((s, si) => {
         const isWarmup = !!s.isWarmup;
         const workingIndex = exercise.sets.slice(0, si).filter(x => !x.isWarmup).length + 1;
-        const completed = isHold ? ((s.hold ?? 0) > 0 && (s.weight ?? 0) > 0) : (s.reps > 0 && (s.weight ?? 0) > 0);
+        const completed = isHold ? ((s.hold ?? 0) > 0 && s.weight !== null) : (s.reps > 0 && s.weight !== null);
         const hasPrev = isHold ? (s.prevHold != null && s.prevHold > 0) : (s.prevReps != null && s.prevReps > 0);
         const isLast = si === exercise.sets.length - 1;
         return (
@@ -523,6 +525,8 @@ export default function WorkoutScreen() {
   const router = useRouter();
   const { programs, activeId, updateProgram } = useProgramStore();
   const { isDark, colors } = useTheme();
+  const { user } = useAuth();
+  const { ownedCommunities, joinedCommunities, removeSharedWorkout } = useCommunityStore();
   const activeProgram = programs.find(p => p.id === activeId);
   const PAST_DAYS = 7;
   const PICK_ITEM_H = 50;
@@ -763,17 +767,15 @@ export default function WorkoutScreen() {
     const currentEnd = workoutEndTime ?? new Date();
     const newStart = editingTime === 'start' ? date : currentStart;
     const newEnd = editingTime === 'end' ? date : currentEnd;
-    if (newEnd.getTime() <= newStart.getTime()) {
-      Alert.alert('Invalid Time', 'Your end time cannot be before or the same as your start time.');
-      return;
-    }
     if (editingTime === 'start') setWorkoutStartTime(date);
     else setWorkoutEndTime(date);
-    const secs = Math.max(0, Math.floor((newEnd.getTime() - newStart.getTime()) / 1000));
-    setFinishedDurations(prev => ({ ...prev, [selectedDayIndex]: secs }));
-    if (lastEntryId) {
-      const entry = workoutState.getJournalEntry(lastEntryId);
-      if (entry) workoutState.updateJournalEntry({ ...entry, durationSecs: secs });
+    if (newEnd.getTime() > newStart.getTime()) {
+      const secs = Math.floor((newEnd.getTime() - newStart.getTime()) / 1000);
+      setFinishedDurations(prev => ({ ...prev, [selectedDayIndex]: secs }));
+      if (lastEntryId) {
+        const entry = workoutState.getJournalEntry(lastEntryId);
+        if (entry) workoutState.updateJournalEntry({ ...entry, durationSecs: secs });
+      }
     }
     setShowTimePicker(false);
   }, [pickerHour, pickerMinute, pickerAmPm, editingTime, workoutStartTime, workoutEndTime, selectedDayIndex, lastEntryId]);
@@ -987,17 +989,45 @@ export default function WorkoutScreen() {
     if (exerciseCache[cacheKey]) {
       setExercises(exerciseCache[cacheKey]);
     } else {
-      const prevExercises = currentSession ? workoutState.getPrev(currentSession.label) : undefined;
+      // If today's workout is already finished, restore actual logged values from today's journal entry
+      // and use the PREVIOUS journal entry (before today) for the "prev" column
+      let todaySessionData: ReturnType<typeof workoutState.getJournalLog>[number]['sessions'][number] | undefined;
+      let prevExercises = currentSession ? workoutState.getPrev(currentSession.label) : undefined;
+      if (workoutState.finished && selectedDayIndex === 0 && currentSession) {
+        const todayStr = new Date().toDateString();
+        const journal = workoutState.getJournalLog(); // newest first
+        const todayEntry = journal.find(e => new Date(e.date).toDateString() === todayStr);
+        todaySessionData = todayEntry?.sessions.find(s => s.label === currentSession.label);
+        // Find the most recent journal entry BEFORE today for this session label, so "prev"
+        // shows last week's data rather than today's just-completed workout
+        const prevEntry = journal.find(e => new Date(e.date).toDateString() !== todayStr && e.sessions.some(s => s.label === currentSession.label));
+        if (prevEntry) {
+          const prevSession = prevEntry.sessions.find(s => s.label === currentSession.label);
+          if (prevSession) prevExercises = prevSession.exercises.map(ex => ({ name: ex.name, sets: ex.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })), mode: ex.mode }));
+        } else if (todaySessionData) {
+          // Only entry is today's — clear prev so it doesn't show today's data
+          prevExercises = undefined;
+        }
+      }
+
       const initial = currentSession?.exercises.map(e => {
         const prevEx = prevExercises?.find(p => p.name === e.name);
+        const todayEx = todaySessionData?.exercises.find(je => je.name === e.name);
         return {
           ...e,
-          sets: e.sets.map((s, si) => ({
-            ...s,
-            prevReps: prevEx?.sets[si]?.reps ?? undefined,
-            prevWeight: prevEx?.sets[si]?.weight ?? undefined,
-            prevHold: prevEx?.sets[si]?.hold ?? undefined,
-          })),
+          sets: e.sets.map((s, si) => {
+            const todaySet = todayEx?.sets[si];
+            return {
+              ...s,
+              reps: todaySet?.reps ?? s.reps,
+              weight: todaySet?.weight ?? s.weight,
+              hold: todaySet?.hold ?? s.hold,
+              prevReps: prevEx?.sets[si]?.reps ?? undefined,
+              prevWeight: prevEx?.sets[si]?.weight ?? undefined,
+              prevHold: prevEx?.sets[si]?.hold ?? undefined,
+              fillKey: todaySet ? 1 : 0,
+            };
+          }),
         };
       }) ?? [];
       exerciseCache[cacheKey] = initial;
@@ -1270,15 +1300,24 @@ export default function WorkoutScreen() {
                           onPress: () => {
                             // If a journal entry was already logged (e.g. all sessions done but
                             // user re-opened the day), delete it along with the workout log & history
-                            const dayDate = calendarDays[selectedDayIndex]?.date ?? new Date();
+                            const dayDate = calendarDays[calendarIndex]?.date ?? new Date();
+                            let deletedEntryId: string | null = lastEntryId;
                             if (lastEntryId) {
                               workoutState.deleteJournalEntry(lastEntryId);
                             } else {
                               const existing = workoutState.getJournalLog().find(e => new Date(e.date).toDateString() === dayDate.toDateString());
-                              if (existing) workoutState.deleteJournalEntry(existing.id);
+                              if (existing) { workoutState.deleteJournalEntry(existing.id); deletedEntryId = existing.id; }
                             }
                             workoutState.deleteWorkoutLog(dayDate);
                             workoutState.deleteHistoryForDate(dayDate);
+                            // Remove any workouts shared to communities today
+                            if (deletedEntryId && user) {
+                              const todayStr = dayDate.toDateString();
+                              const allCommunities = [...ownedCommunities, ...joinedCommunities];
+                              allCommunities.forEach(c => {
+                                c.sharedWorkouts.filter(w => w.sharedBy === user.uid && new Date(w.sharedAt).toDateString() === todayStr).forEach(w => removeSharedWorkout(c.id, w.id));
+                              });
+                            }
                             // Restore prev stats for any sessions already saved mid-workout
                             workout?.sessions.forEach(s => workoutState.restorePrev(s.label));
                             workoutState.resetTimer(selectedDayIndex);
@@ -1350,42 +1389,56 @@ export default function WorkoutScreen() {
                   <Text style={[styles.timerStartText, { color: colors.primaryText }]}>Start Workout</Text>
                 </TouchableOpacity>
               )
-            ) : displayElapsed > 0 ? (
-              <View style={{ flexDirection: 'row', gap: 8, alignSelf: 'flex-start', marginBottom: 12 }}>
-                <TouchableOpacity
-                  style={[styles.timerRow, { marginBottom: 0, backgroundColor: colors.cardSolid, borderColor: colors.border }]}
-                  activeOpacity={0.7}
+            ) : (
+              <>
+                {/* View / Edit in Journal button */}
+                <BounceButton
+                  style={[styles.pastDayBtn, { backgroundColor: `${accentColor}18`, borderColor: accentColor, marginBottom: 10 }]}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    Alert.alert(
-                      'Edit Workout Time',
-                      `Started: ${(workoutStartTime ?? new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}  ·  Ended: ${(workoutEndTime ?? new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-                      [
-                        { text: 'Edit Start Time', onPress: () => { setEditingTime('start'); setShowTimePicker(true); } },
-                        { text: 'Edit End Time', onPress: () => { setEditingTime('end'); setShowTimePicker(true); } },
-                        { text: 'Cancel', style: 'cancel' },
-                      ]
-                    );
+                    const todayEntry = lastEntryId
+                      ? { id: lastEntryId }
+                      : workoutState.getJournalLog().find(e => new Date(e.date).toDateString() === new Date().toDateString());
+                    router.push(todayEntry ? `/journal?entryId=${todayEntry.id}` : '/journal');
                   }}
                 >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
+                    <BookOpenIcon size={14} color={colors.primaryText} />
+                    <Text style={[styles.pastDayBtnText, { color: colors.primaryText }]}>View / Edit in Journal</Text>
+                  </View>
+                </BounceButton>
+
+                {/* Workout Complete + duration */}
+                <View style={[styles.timerRow, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}>
                   <Ionicons name="checkmark-circle" size={18} color={accentColor} />
+                  <Text style={[styles.timerStartText, { color: accentColor }]}>Workout Complete</Text>
                   <Text style={[styles.timerText, { color: colors.primaryText }]}>{timerText}</Text>
-                  <Ionicons name="pencil-outline" size={14} color={colors.tertiaryText} />
-                </TouchableOpacity>
+                </View>
+
+                {/* Reset workout */}
                 <TouchableOpacity
-                  style={[styles.timerRow, { marginBottom: 0, backgroundColor: colors.cardSolid, borderColor: colors.border }]}
+                  style={[styles.timerRow, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     const doFullReset = (clearLock: boolean) => {
-                      const dayDate = calendarDays[selectedDayIndex]?.date ?? new Date();
+                      const dayDate = calendarDays[calendarIndex]?.date ?? new Date();
+                      let deletedEntryId: string | null = lastEntryId;
                       if (lastEntryId) {
                         workoutState.deleteJournalEntry(lastEntryId);
                       } else {
                         const existing = workoutState.getJournalLog().find(e => new Date(e.date).toDateString() === dayDate.toDateString());
-                        if (existing) workoutState.deleteJournalEntry(existing.id);
+                        if (existing) { workoutState.deleteJournalEntry(existing.id); deletedEntryId = existing.id; }
                       }
                       workoutState.deleteWorkoutLog(dayDate);
                       workoutState.deleteHistoryForDate(dayDate);
+                      // Remove any workouts shared to communities today
+                      if (user) {
+                        const todayStr = dayDate.toDateString();
+                        const allCommunities = [...ownedCommunities, ...joinedCommunities];
+                        allCommunities.forEach(c => {
+                          c.sharedWorkouts.filter(w => w.sharedBy === user.uid && new Date(w.sharedAt).toDateString() === todayStr).forEach(w => removeSharedWorkout(c.id, w.id));
+                        });
+                      }
                       workout?.sessions.forEach(s => workoutState.restorePrev(s.label));
                       workoutState.setFinished(false);
                       workoutState.resetTimer(selectedDayIndex);
@@ -1471,8 +1524,8 @@ export default function WorkoutScreen() {
                   <Ionicons name="refresh" size={18} color={colors.secondaryText} />
                   <Text style={[styles.timerText, { color: colors.secondaryText }]}>Reset workout</Text>
                 </TouchableOpacity>
-              </View>
-            ) : null
+              </>
+            )
           );
         })()}
 
@@ -1610,7 +1663,7 @@ export default function WorkoutScreen() {
                 isFirst={i === 0}
                 isLast={i === exercises.length - 1}
                 accentColor={accentColor}
-                readOnly={futureReadOnly}
+                readOnly={futureReadOnly || (workoutFinished && isToday && !isViewingPast)}
                 note={exerciseNotes[`${selectedDayIndex}-${selectedSessionIndex}-${i}`] || ''}
                 onNoteChange={(text) => setExerciseNotes(prev => ({ ...prev, [`${selectedDayIndex}-${selectedSessionIndex}-${i}`]: text }))}
                 onMoveUp={() => {
@@ -2272,6 +2325,10 @@ export default function WorkoutScreen() {
             )}
 
             {!isSaveChangesToast && <BounceButton style={[styles.completeDoneBtn, { backgroundColor: accentColor }]} onPress={() => {
+              if (workoutStartTime && workoutEndTime && workoutEndTime.getTime() <= workoutStartTime.getTime()) {
+                Alert.alert('Invalid Time', 'Your end time cannot be before or the same as your start time.');
+                return;
+              }
               setShowComplete(false);
               completeScale.setValue(0);
               completeOpacity.setValue(0);

@@ -63,6 +63,11 @@ const JOURNAL_KEY = '@journal_v1';
 const HISTORY_KEY = '@history_v1';
 const PREV_KEY = '@prev_v2';
 
+// Strip undefined values so Firestore doesn't reject the write
+function _stripUndefined<T>(obj: T): T {
+  return JSON.parse(JSON.stringify(obj, (_, v) => v === undefined ? null : v));
+}
+
 // Firestore sync
 let _currentUserId: string | null = null;
 let _fsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -73,8 +78,8 @@ function _syncToFirestore() {
     if (!_currentUserId) return;
     try {
       await setDoc(doc(db, 'users', _currentUserId, 'data', 'workout'), {
-        journal: _journalLog,
-        prev: _prevData,
+        journal: _stripUndefined(_journalLog),
+        prev: _stripUndefined(_prevData),
         updatedAt: serverTimestamp(),
       });
     } catch {}
@@ -85,8 +90,8 @@ function _syncToFirestoreNow() {
   if (!_currentUserId) return;
   if (_fsTimer) { clearTimeout(_fsTimer); _fsTimer = null; }
   setDoc(doc(db, 'users', _currentUserId, 'data', 'workout'), {
-    journal: _journalLog,
-    prev: _prevData,
+    journal: _stripUndefined(_journalLog),
+    prev: _stripUndefined(_prevData),
     updatedAt: serverTimestamp(),
   }).catch(() => {});
 }
@@ -599,8 +604,21 @@ export const workoutState = {
         const data = snap.data();
         const fsJournal: WorkoutJournalEntry[] = data.journal ?? [];
         const fsPrev: Record<string, PrevEntry> = data.prev ?? {};
+
+        // Merge: local AsyncStorage may have entries that failed to sync to Firestore
+        // (e.g. due to a write error). Recover them so no workout data is lost.
+        const localRaw = await AsyncStorage.getItem(JOURNAL_KEY).catch(() => null);
+        const localJournal: WorkoutJournalEntry[] = localRaw
+          ? (JSON.parse(localRaw) as WorkoutJournalEntry[]).map(e => ({ ...e, date: Number(e.date) }))
+          : [];
+        const fsDateSet = new Set(fsJournal.map(e => e.date));
+        const localOnly = localJournal.filter(e => !fsDateSet.has(e.date));
+        const mergedJournal = localOnly.length > 0
+          ? [...fsJournal, ...localOnly].sort((a, b) => a.date - b.date)
+          : fsJournal;
+
         _journalLog.length = 0;
-        _journalLog.push(...fsJournal);
+        _journalLog.push(...mergedJournal);
         for (const k of Object.keys(_prevData)) delete _prevData[k];
         for (const [k, v] of Object.entries(fsPrev)) _prevData[k] = v;
         // Rebuild finished flag
@@ -612,9 +630,10 @@ export const workoutState = {
         _workoutFinished = loggedToday;
         _listeners.forEach(fn => fn(loggedToday));
         _notifyPrevChanged();
-        // Keep AsyncStorage in sync for offline use
+        // Keep AsyncStorage in sync and re-upload if local had unsynced entries
         AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(_journalLog)).catch(() => {});
         AsyncStorage.setItem(PREV_KEY, JSON.stringify(_prevData)).catch(() => {});
+        if (localOnly.length > 0) _syncToFirestoreNow();
       } else {
         // Firestore has no workout document yet.
         // This happens when the Firestore sync didn't complete before the app closed
