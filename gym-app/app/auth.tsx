@@ -266,7 +266,7 @@ export default function AuthScreen() {
                 onSubmitEditing={() => mode === 'signup' ? confirmRef.current?.focus() : handleSubmit()}
               />
               <TouchableOpacity onPress={() => setShowPassword(v => !v)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color="#8e8e93" />
+                <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={18} color="#8e8e93" />
               </TouchableOpacity>
             </View>
 
@@ -288,7 +288,7 @@ export default function AuthScreen() {
                   onSubmitEditing={handleSubmit}
                 />
                 <TouchableOpacity onPress={() => setShowPassword(v => !v)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color="#8e8e93" />
+                  <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={18} color="#8e8e93" />
                 </TouchableOpacity>
               </View>
             )}
