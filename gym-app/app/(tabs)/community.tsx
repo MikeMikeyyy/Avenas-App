@@ -1569,7 +1569,7 @@ export default function CommunityScreen() {
 
         {/* Program picker bottom sheet */}
         <BottomSheetModal visible={showPrivateProgramPicker} onDismiss={() => setShowPrivateProgramPicker(false)}>
-          <Text style={[styles.sheetTitle, { color: colors.primaryText }]}>Share a Program</Text>
+          <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Share a Program</Text>
           {programs.filter(p => !p.archived).length === 0 ? (
             <Text style={[styles.emptyProgramsText, { color: colors.secondaryText, textAlign: 'center', marginVertical: 24 }]}>No programs to share. Create one first!</Text>
           ) : (
