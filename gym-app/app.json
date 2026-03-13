@@ -44,7 +44,15 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/av-logo.png",
+          "color": "#47DDFF",
+          "sounds": []
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

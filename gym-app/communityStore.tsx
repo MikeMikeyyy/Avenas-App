@@ -7,6 +7,7 @@ import {
 import { db } from './firebase';
 import { useAuth } from './authStore';
 import { SplitDay } from './programStore';
+import { sendPushToUser, sendPushToUsers } from './notificationService';
 
 // Types
 export type MemberRole = 'owner' | 'member';
@@ -367,6 +368,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         { merge: true }
       );
       subscribeToCommunity(commDoc.id, 'joined');
+      sendPushToUser(data.ownerId, 'New Member', `${newMember.name} joined ${data.name}`).catch(() => {});
       console.log('[joinCommunity] success');
       return true;
     } catch (e) {
@@ -466,10 +468,13 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
     try {
       const snap = await getDoc(doc(db, 'communities', communityId));
       if (!snap.exists()) return;
-      const existing = snap.data().sharedWorkouts ?? [];
+      const data = snap.data();
+      const existing = data.sharedWorkouts ?? [];
       await updateDoc(doc(db, 'communities', communityId), {
         sharedWorkouts: [...existing, newWorkout],
       });
+      const senderName = user.displayName ?? user.email ?? 'Member';
+      sendPushToUser(data.ownerId, 'Program Shared', `${senderName} shared ${workout.programName} with you`).catch(() => {});
     } catch (e) { console.error('[shareWithCoach]', e); }
   }, [user]);
 
@@ -509,22 +514,35 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
       await updateDoc(doc(db, 'communities', communityId), {
         sharedWorkouts: [...withoutOriginal, returnedWorkout],
       });
+      if (original.recipientMemberId) {
+        const coachName = user.displayName ?? user.email ?? 'Your coach';
+        sendPushToUser(original.recipientMemberId, 'Program Returned', `${coachName} updated and returned ${updatedWorkout.programName}`).catch(() => {});
+      }
     } catch {}
   }, [user]);
 
   const sendMessage = useCallback(async (communityId: string, message: string) => {
     if (!user) return;
+    const community = [...ownedCommunities, ...joinedCommunities].find(c => c.id === communityId);
     const isOwner = ownedCommunities.some(c => c.id === communityId);
+    const senderName = user.displayName ?? user.email ?? 'You';
     try {
       await addDoc(collection(db, 'communities', communityId, 'messages'), {
         senderId: user.uid,
-        senderName: user.displayName ?? user.email ?? 'You',
+        senderName,
         message,
         isOwner,
         timestamp: serverTimestamp(),
       });
+      if (community) {
+        const recipientIds = community.members
+          .filter(m => m.id !== user.uid)
+          .map(m => m.id);
+        const preview = message.length > 60 ? message.slice(0, 60) + '…' : message;
+        sendPushToUsers(recipientIds, community.name, `${senderName}: ${preview}`).catch(() => {});
+      }
     } catch {}
-  }, [user, ownedCommunities]);
+  }, [user, ownedCommunities, joinedCommunities]);
 
   const removeMember = useCallback(async (communityId: string, memberId: string) => {
     if (!user) return;
@@ -577,17 +595,19 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
 
   const sendPrivateMessage = useCallback(async (communityId: string, memberId: string, memberName: string, message: string) => {
     if (!user) return;
+    const senderName = user.displayName ?? user.email ?? 'You';
     const newMsg = {
       id: `pm-${Date.now()}`,
       senderId: user.uid,
-      senderName: user.displayName ?? user.email ?? 'You',
+      senderName,
       message,
       timestamp: new Date(),
     };
     try {
       const snap = await getDoc(doc(db, 'communities', communityId));
       if (!snap.exists()) return;
-      const privateChats: any[] = snap.data().privateChats ?? [];
+      const data = snap.data();
+      const privateChats: any[] = data.privateChats ?? [];
       const chatIdx = privateChats.findIndex(pc => pc.memberId === memberId);
       if (chatIdx >= 0) {
         privateChats[chatIdx] = {
@@ -598,6 +618,10 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         privateChats.push({ memberId, memberName, messages: [newMsg] });
       }
       await updateDoc(doc(db, 'communities', communityId), { privateChats });
+      // Notify the other party
+      const recipientId = user.uid === memberId ? data.ownerId : memberId;
+      const preview = message.length > 60 ? message.slice(0, 60) + '…' : message;
+      sendPushToUser(recipientId, senderName, preview).catch(() => {});
     } catch {}
   }, [user]);
 
@@ -608,10 +632,11 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
     workout: { programId: string; programName: string; color: string; splitDays: number }
   ) => {
     if (!user) return;
+    const senderName = user.displayName ?? user.email ?? 'You';
     const newMsg = {
       id: `pm-${Date.now()}`,
       senderId: user.uid,
-      senderName: user.displayName ?? user.email ?? 'You',
+      senderName,
       message: `Shared a program: ${workout.programName}`,
       timestamp: new Date(),
       sharedWorkout: workout,
@@ -619,7 +644,8 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
     try {
       const snap = await getDoc(doc(db, 'communities', communityId));
       if (!snap.exists()) return;
-      const privateChats: any[] = snap.data().privateChats ?? [];
+      const data = snap.data();
+      const privateChats: any[] = data.privateChats ?? [];
       const chatIdx = privateChats.findIndex(pc => pc.memberId === memberId);
       if (chatIdx >= 0) {
         privateChats[chatIdx] = {
@@ -630,6 +656,8 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         privateChats.push({ memberId, memberName, messages: [newMsg] });
       }
       await updateDoc(doc(db, 'communities', communityId), { privateChats });
+      const recipientId = user.uid === memberId ? data.ownerId : memberId;
+      sendPushToUser(recipientId, 'Program Shared', `${senderName} shared ${workout.programName} with you`).catch(() => {});
     } catch {}
   }, [user]);
 

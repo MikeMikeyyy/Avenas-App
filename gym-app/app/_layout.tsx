@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import { useEffect, useRef, useState } from 'react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { registerForPushNotificationsAsync } from '../notificationService';
 
 import { ProgramProvider } from '../programStore';
 import { CommunityProvider } from '../communityStore';
@@ -33,6 +34,7 @@ function InnerLayout() {
   useEffect(() => {
     if (user) {
       workoutState.loadForUser(user.uid);
+      registerForPushNotificationsAsync(user.uid).catch(() => {});
     } else {
       workoutState.setUser(null);
     }
