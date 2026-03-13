@@ -159,6 +159,7 @@ export default function CommunityScreen() {
     removeSharedWorkout,
     dismissSharedWorkout,
     sendPrivateMessage,
+    shareWorkoutPrivately,
     getPrivateChat,
     deletedCommunityName,
     clearDeletedNotification,
@@ -252,6 +253,7 @@ export default function CommunityScreen() {
   // Private chat state
   const [privateChatMember, setPrivateChatMember] = useState<Member | null>(null);
   const [privateMessage, setPrivateMessage] = useState('');
+  const [showPrivateProgramPicker, setShowPrivateProgramPicker] = useState(false);
 
   // Member progress state (owner viewing a member's workout history)
   const [progressMember, setProgressMember] = useState<Member | null>(null);
@@ -1527,7 +1529,20 @@ export default function CommunityScreen() {
                   </View>
                 )}
                 <View style={[styles.messageBubble, isMe ? styles.messageBubbleMe : [styles.messageBubbleOther, { backgroundColor: colors.cardSolid }]]}>
-                  <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>{item.message}</Text>
+                  {item.sharedWorkout ? (
+                    <View style={styles.sharedWorkoutMessage}>
+                      <View style={[styles.sharedWorkoutIcon, { backgroundColor: item.sharedWorkout.color }, isMe && styles.sharedWorkoutIconMe]}>
+                        <Ionicons name="barbell" size={18} color="#fff" />
+                      </View>
+                      <View style={styles.sharedWorkoutInfo}>
+                        <Text style={[styles.sharedWorkoutLabel, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.secondaryText }]}>PROGRAM</Text>
+                        <Text style={[styles.sharedWorkoutName, { color: isMe ? '#fff' : colors.primaryText }]}>{item.sharedWorkout.programName}</Text>
+                        <Text style={[styles.sharedWorkoutMeta, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.secondaryText }]}>{item.sharedWorkout.splitDays} day split</Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>{item.message}</Text>
+                  )}
                   <Text style={[styles.messageTime, { color: colors.secondaryText }, isMe && styles.messageTimeMe]}>
                     {formatTime(item.timestamp)}
                   </Text>
@@ -1538,6 +1553,9 @@ export default function CommunityScreen() {
         />
 
         <View style={[styles.privateChatInputContainer, { backgroundColor: colors.cardSolid, borderTopColor: colors.border, marginBottom: chatKeyboardHeight > 0 ? chatKeyboardHeight : (Platform.OS === 'ios' ? 100 : 85) }]}>
+          <TouchableOpacity style={styles.chatAttachBtn} onPress={() => setShowPrivateProgramPicker(true)}>
+            <Ionicons name="barbell-outline" size={22} color={colors.secondaryText} />
+          </TouchableOpacity>
           <TextInput
             style={[styles.chatInput, { backgroundColor: colors.inputBg, color: colors.primaryText }]}
             placeholder="Type a message..."
@@ -1548,6 +1566,39 @@ export default function CommunityScreen() {
             onSubmitEditing={handleSendPrivate}
           />
         </View>
+
+        {/* Program picker bottom sheet */}
+        <BottomSheetModal visible={showPrivateProgramPicker} onDismiss={() => setShowPrivateProgramPicker(false)}>
+          <Text style={[styles.sheetTitle, { color: colors.primaryText }]}>Share a Program</Text>
+          {programs.filter(p => !p.archived).length === 0 ? (
+            <Text style={[styles.emptyProgramsText, { color: colors.secondaryText, textAlign: 'center', marginVertical: 24 }]}>No programs to share. Create one first!</Text>
+          ) : (
+            programs.filter(p => !p.archived).map(program => (
+              <BounceButton
+                key={program.id}
+                style={[styles.selectableCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
+                onPress={() => {
+                  shareWorkoutPrivately(
+                    selectedCommunity.id,
+                    privateChatKey,
+                    isOwnerView ? privateChatMember.name : currentUserName,
+                    { programId: program.id, programName: program.name, color: program.color, splitDays: program.splitDays.filter(d => d.type === 'training').length }
+                  );
+                  setShowPrivateProgramPicker(false);
+                }}
+              >
+                <View style={[styles.programColorDot, { backgroundColor: program.color }]} />
+                <View style={styles.selectableCardInfo}>
+                  <Text style={[styles.selectableCardTitle, { color: colors.primaryText }]}>{program.name}</Text>
+                  <Text style={[styles.selectableCardMeta, { color: colors.secondaryText }]}>
+                    {program.splitDays.filter(d => d.type === 'training').length} training days
+                  </Text>
+                </View>
+                <Ionicons name="share-outline" size={20} color={colors.secondaryText} />
+              </BounceButton>
+            ))
+          )}
+        </BottomSheetModal>
       </View>
     );
   };
@@ -3032,6 +3083,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginHorizontal: 10,
     gap: 10,
+  },
+  chatAttachBtn: {
+    padding: 4,
   },
   shareInChatBtn: {
     width: 44,
