@@ -287,6 +287,9 @@ export default function AuthScreen() {
                   returnKeyType="done"
                   onSubmitEditing={handleSubmit}
                 />
+                <TouchableOpacity onPress={() => setShowPassword(v => !v)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color="#8e8e93" />
+                </TouchableOpacity>
               </View>
             )}
 
