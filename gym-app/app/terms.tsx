@@ -36,39 +36,39 @@ function BounceButton({ style, children, onPress, ...rest }: any) {
 const SECTIONS = [
   {
     title: '1. Acceptance of Terms',
-    body: 'By downloading or using this app, you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the app. We reserve the right to update these terms at any time, and continued use of the app following any changes constitutes your acceptance of the revised terms.',
+    body: 'By downloading or using this app, you agree to these Terms of Service. If you do not agree, please do not use the app. We may update these terms from time to time. Continuing to use the app after any changes means you accept the updated terms.',
   },
   {
     title: '2. Use of the App',
-    body: 'This app is intended for personal fitness tracking purposes only. You agree to use it only for lawful purposes and in a manner that does not infringe the rights of others. You are responsible for maintaining the confidentiality of your account information and for all activities that occur under your account.',
+    body: 'This app is for personal fitness tracking only. You agree to use it lawfully and in a way that does not infringe on the rights of others. You are responsible for keeping your account details secure and for any activity that happens under your account.',
   },
   {
     title: '3. Health Disclaimer',
-    body: 'The app provides fitness tracking tools and information for general informational purposes only. Nothing in this app constitutes professional medical advice, diagnosis, or treatment. Always consult a qualified healthcare provider before beginning any exercise programme, particularly if you have a pre-existing medical condition or injury.',
+    body: 'This app provides fitness tracking tools for general use only. Nothing in this app is medical advice, diagnosis, or treatment. Please consult a qualified health professional before starting any exercise program, especially if you have an existing medical condition or injury.',
   },
   {
     title: '4. User Content',
-    body: 'You retain ownership of all workout data, notes, and other content you create within the app. By using the app, you grant us a limited licence to store and process your data solely for the purpose of providing the service to you. We will not sell your personal data to third parties.',
+    body: 'You own all the workout data and content you create in the app. By using the app, you give us a limited licence to store and process your data for the purpose of running the service. We will not sell your personal data to third parties.',
   },
   {
     title: '5. Intellectual Property',
-    body: 'All content, features, and functionality of this app — including but not limited to text, graphics, logos, and software — are the exclusive property of the app developer and are protected by applicable intellectual property laws. You may not copy, modify, or distribute any part of the app without prior written consent.',
+    body: 'All content, features, and functionality of this app, including text, graphics, logos, and software, are the property of the app developer and are protected under applicable intellectual property laws. You may not copy, modify, or distribute any part of the app without written permission.',
   },
   {
     title: '6. Limitation of Liability',
-    body: 'To the fullest extent permitted by law, the app developer shall not be liable for any indirect, incidental, special, or consequential damages arising out of your use of, or inability to use, the app. This includes any injury resulting from exercise activities tracked or suggested by the app.',
+    body: 'To the extent permitted by law, the app developer is not liable for any indirect or consequential damages arising from your use of the app. This includes any injury resulting from exercise activities you log or undertake while using the app.',
   },
   {
     title: '7. Termination',
-    body: 'We reserve the right to suspend or terminate your access to the app at any time, without notice, for conduct that we believe violates these Terms of Service or is harmful to other users, us, or third parties, or for any other reason at our sole discretion.',
+    body: 'We may suspend or terminate your access to the app at any time if we believe you have violated these Terms of Service or acted in a way that is harmful to other users or to the app.',
   },
   {
     title: '8. Governing Law',
-    body: 'These Terms of Service shall be governed by and construed in accordance with applicable law. Any disputes arising under these terms shall be subject to the exclusive jurisdiction of the courts in the relevant jurisdiction.',
+    body: 'These Terms of Service are governed by the laws of New South Wales, Australia. Any disputes arising from these terms will be subject to the jurisdiction of the courts of New South Wales.',
   },
   {
     title: '9. Contact',
-    body: 'If you have any questions about these Terms of Service, please contact us at support@gymapp.com.',
+    body: 'If you have any questions about these Terms of Service, please get in touch at support@gymapp.com.',
   },
 ];
 
@@ -97,7 +97,7 @@ export default function TermsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.lastUpdated, { color: colors.tertiaryText }]}>Last updated: January 2025</Text>
+        <Text style={[styles.lastUpdated, { color: colors.tertiaryText }]}>Last updated: March 2026</Text>
 
         <View style={[styles.card, { backgroundColor: colors.cardSolid }]}>
           {SECTIONS.map((section, i) => (

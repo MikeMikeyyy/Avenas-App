@@ -36,39 +36,43 @@ function BounceButton({ style, children, onPress, ...rest }: any) {
 const SECTIONS = [
   {
     title: '1. Information We Collect',
-    body: 'We collect information you provide directly to us when you use the app, including workout data, exercise logs, personal records, and any notes or journal entries you create. We may also collect usage information such as the features you use and the frequency and duration of your activities.',
+    body: 'We collect information you enter when using the app, including workout data, exercise logs, personal records, and journal entries. We also store your account details such as your name and email address when you register.',
   },
   {
     title: '2. How We Use Your Information',
-    body: 'We use the information we collect to provide, maintain, and improve the app; to personalise your experience; to track your fitness progress over time; and to respond to your comments and questions. We do not use your data for advertising purposes.',
+    body: 'We use your information to run the app, personalise your experience, and track your fitness progress. We do not use your data for advertising and we do not sell it to third parties.',
   },
   {
     title: '3. Data Storage',
-    body: 'Your workout data is stored locally on your device. We do not transmit your personal fitness data to external servers unless you explicitly opt in to cloud sync features (if available). You are responsible for maintaining the security of your device.',
+    body: 'Your workout data is securely stored in the cloud and linked to your account. This means your data is available across devices when you log in and is not lost if you delete or reinstall the app. We use Firebase, a Google service, to store and sync your data.',
   },
   {
     title: '4. Data Sharing',
-    body: 'We do not sell, trade, or otherwise transfer your personal information to third parties. We may share aggregated, anonymised data that does not identify any individual for analytics or research purposes.',
+    body: 'We do not sell or trade your personal information. If you are part of a community in the app, your name and workout data you choose to share will be visible to other members of that community. This sharing is controlled by you.',
   },
   {
-    title: '5. Data Retention',
-    body: 'We retain your data for as long as you use the app. You may delete your data at any time through the Settings screen using the "Clear All Data" option. Note that this action is irreversible.',
+    title: '5. Push Notifications',
+    body: 'If you grant permission, we may send push notifications for things like new messages, shared programs, and community activity. You can turn notifications off at any time in Settings or through your device settings.',
   },
   {
-    title: '6. Children\'s Privacy',
-    body: 'This app is not intended for use by children under the age of 13. We do not knowingly collect personal information from children under 13. If you become aware that a child has provided us with personal information, please contact us so we can take appropriate action.',
+    title: '6. Data Deletion',
+    body: 'You can clear your local app data at any time through the Settings screen using the Clear All Data option. To request full deletion of your account and cloud data, please contact us at support@gymapp.com.',
   },
   {
-    title: '7. Security',
-    body: 'We take reasonable measures to help protect your information from loss, theft, misuse, and unauthorised access. However, no security system is impenetrable and we cannot guarantee the security of your information.',
+    title: '7. Children\'s Privacy',
+    body: 'This app is not intended for children under the age of 13. We do not knowingly collect personal information from children under 13. If you believe a child has created an account, please contact us and we will remove it.',
   },
   {
-    title: '8. Changes to This Policy',
-    body: 'We may update this Privacy Policy from time to time. We will notify you of any changes by updating the "Last updated" date at the top of this page. Your continued use of the app after any changes indicates your acceptance of the updated policy.',
+    title: '8. Security',
+    body: 'We use reasonable security measures to protect your data from unauthorised access. Your account is protected by password authentication and we recommend using a strong, unique password.',
   },
   {
-    title: '9. Contact',
-    body: 'If you have any questions about this Privacy Policy or our data practices, please contact us at support@gymapp.com.',
+    title: '9. Changes to This Policy',
+    body: 'We may update this Privacy Policy from time to time. When we do, we will update the date at the top of this page. Continued use of the app after changes means you accept the updated policy.',
+  },
+  {
+    title: '10. Contact',
+    body: 'If you have any questions about this Privacy Policy or how we handle your data, please get in touch at support@gymapp.com.',
   },
 ];
 
@@ -97,7 +101,7 @@ export default function PrivacyScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.lastUpdated, { color: colors.tertiaryText }]}>Last updated: January 2025</Text>
+        <Text style={[styles.lastUpdated, { color: colors.tertiaryText }]}>Last updated: March 2026</Text>
 
         <View style={[styles.card, { backgroundColor: colors.cardSolid }]}>
           {SECTIONS.map((section, i) => (

@@ -37,31 +37,35 @@ function BounceButton({ style, children, onPress, ...rest }: any) {
 const FAQ = [
   {
     q: 'How do I start tracking a workout?',
-    a: 'Go to the Workout tab, select today\'s session, and tap the timer to begin. Enter your sets, reps, and weights as you go.',
-  },
-  {
-    q: 'Can I change the order of exercises?',
-    a: 'Yes — tap the pencil icon on any exercise card to enter edit mode, then use the up/down arrows to reorder.',
-  },
-  {
-    q: 'How do I switch between kg and lbs?',
-    a: 'Go to Settings → Preferences → Units and tap your preferred unit. All weights across the app will update instantly.',
+    a: 'Go to the Workout tab and your current program day will be shown. Tap the timer to start the session, then log your sets, reps, and weights as you go.',
   },
   {
     q: 'How do I edit a completed workout?',
-    a: 'Open the Journal tab, tap the entry you want to change, then tap any set to edit its values. Tap Save Changes when done.',
+    a: 'Open the Journal tab and tap any past workout entry to edit it. You can adjust sets, reps, and weights, then save your changes.',
+  },
+  {
+    q: 'How do I switch between kg and lbs?',
+    a: 'Go to Settings, then Preferences, and tap your preferred unit. All weights across the app update straight away.',
   },
   {
     q: 'Can I create my own training program?',
-    a: 'Yes — go to Programs and tap the + button. You can add as many training days and exercises as you like.',
+    a: 'Yes, go to Programs and tap the plus button. You can set up training days, rest days, and add as many exercises as you need.',
   },
   {
-    q: 'Why isn\'t the timer saving when I close the app?',
-    a: 'The wall-clock start time is saved automatically. If you reopen the app mid-workout, the elapsed time will be based on your original start time.',
+    q: 'How do I join a community?',
+    a: 'Go to the Community tab and tap Join Community. Enter the invite code from your coach or group to get added.',
   },
   {
-    q: 'How does the streak work?',
-    a: 'Your streak increases each day you open the app. It resets if you miss a full day, so make sure to check in daily to keep it going.',
+    q: 'Why is my previous data not showing on workout days?',
+    a: 'Previous performance only shows after you have completed at least one session for that same day in the current program. It is specific to your active program.',
+  },
+  {
+    q: 'How does dark mode work?',
+    a: 'You can toggle dark mode in Settings under Preferences. Your preference is saved to your account so it carries across devices.',
+  },
+  {
+    q: 'Will my data be lost if I delete the app?',
+    a: 'Your workout data is linked to your account and stored in the cloud. If you reinstall and log back in, your history will be restored.',
   },
 ];
 
@@ -100,7 +104,7 @@ export default function HelpSupportScreen() {
             <Text style={[styles.cardTitle, { color: colors.primaryText }]}>Contact Us</Text>
           </View>
           <Text style={[styles.cardBody, { color: colors.secondaryText }]}>
-            Having trouble or want to share feedback? Reach out and we'll get back to you as soon as possible.
+            Having trouble or want to share feedback? Reach out and we will get back to you as soon as we can.
           </Text>
           <TouchableOpacity
             style={[styles.emailBtn, { backgroundColor: isDark ? 'rgba(71,221,255,0.12)' : 'rgba(71,221,255,0.1)', borderColor: '#47DDFF' }]}
