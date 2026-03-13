@@ -364,7 +364,7 @@ export function ExercisePicker({ visible, onDismiss, onSelect }: Props) {
           renderItem={renderItem}
           keyExtractor={keyExtractor}
           getItemType={getItemType}
-          estimatedItemSize={62}
+
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
         />
