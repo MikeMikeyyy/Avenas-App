@@ -222,7 +222,6 @@ export default function SettingsScreen() {
   const ACCOUNT_ITEMS: SettingsItem[] = [
     {
       icon: 'person-outline', label: 'Edit Username',
-      subtitle: displayName || undefined,
       type: 'action',
       onPress: () => { setNewName(displayName); setModalError(''); setEditProfileVisible(true); },
     },
