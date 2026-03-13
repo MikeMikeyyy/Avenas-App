@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -17,12 +17,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
+import { doc, updateDoc, deleteField } from 'firebase/firestore';
+import { db } from '../firebase';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { useTheme } from '../themeStore';
 import { useUnits } from '../unitsStore';
 import { useAuth } from '../authStore';
 import { useCommunityStore } from '../communityStore';
+import { registerForPushNotificationsAsync } from '../notificationService';
 import { BottomSheetModal } from '../components/BottomSheetModal';
 
 function getInitials(name: string): string {
@@ -60,7 +64,6 @@ type SettingsItem = {
 };
 
 const PREFERENCES_ITEMS: SettingsItem[] = [
-  { icon: 'notifications-outline', label: 'Notifications', subtitle: 'Push, reminders', type: 'navigate' },
   { icon: 'moon-outline', label: 'Dark Mode', type: 'toggle' },
 ];
 
@@ -94,6 +97,45 @@ export default function SettingsScreen() {
   const displayName = user?.displayName || (isGuest ? 'Guest' : '');
   const displayEmail = user?.email || '';
   const initials = displayName ? getInitials(displayName) : '?';
+
+  // Notifications toggle
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const stored = await AsyncStorage.getItem('@notifications_enabled');
+      if (stored === 'false') {
+        setNotificationsEnabled(false);
+      } else {
+        const { status } = await Notifications.getPermissionsAsync();
+        setNotificationsEnabled(status === 'granted');
+      }
+    })();
+  }, []);
+
+  const handleNotificationsToggle = async (value: boolean) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (value) {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status === 'granted') {
+        setNotificationsEnabled(true);
+        await AsyncStorage.setItem('@notifications_enabled', 'true');
+        if (user) registerForPushNotificationsAsync(user.uid).catch(() => {});
+      } else {
+        Alert.alert(
+          'Notifications Disabled',
+          'Please enable notifications in your device Settings to receive alerts.',
+          [{ text: 'OK' }]
+        );
+      }
+    } else {
+      setNotificationsEnabled(false);
+      await AsyncStorage.setItem('@notifications_enabled', 'false');
+      if (user) {
+        updateDoc(doc(db, 'users', user.uid), { expoPushToken: deleteField() }).catch(() => {});
+      }
+    }
+  };
 
   // Edit Profile modal
   const [editProfileVisible, setEditProfileVisible] = useState(false);
@@ -274,6 +316,23 @@ export default function SettingsScreen() {
         {/* Preferences Section */}
         <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>PREFERENCES</Text>
         <View style={[styles.sectionCard, { backgroundColor: colors.cardSolid }]}>
+          {/* Notifications toggle */}
+          <View style={[styles.settingsItem, { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
+            <View style={[styles.settingsItemIcon, { backgroundColor: isDark ? 'rgba(71, 221, 255, 0.15)' : 'rgba(71, 221, 255, 0.12)' }]}>
+              <Ionicons name="notifications-outline" size={20} color="#47DDFF" />
+            </View>
+            <View style={styles.settingsItemContent}>
+              <Text style={[styles.settingsItemLabel, { color: colors.primaryText }]}>Notifications</Text>
+            </View>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={handleNotificationsToggle}
+              trackColor={{ false: '#8e8e93', true: '#47DDFF' }}
+              thumbColor="#fff"
+              ios_backgroundColor="#8e8e93"
+            />
+          </View>
+          {/* Units picker */}
           <View style={[styles.settingsItem, { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
             <View style={[styles.settingsItemIcon, { backgroundColor: isDark ? 'rgba(71, 221, 255, 0.15)' : 'rgba(71, 221, 255, 0.12)' }]}>
               <Ionicons name="barbell-outline" size={20} color="#47DDFF" />
