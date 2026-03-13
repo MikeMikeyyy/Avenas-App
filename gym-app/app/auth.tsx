@@ -332,13 +332,10 @@ export default function AuthScreen() {
 
             {/* Apple Sign-In (iOS only) */}
             {Platform.OS === 'ios' && (
-              <AppleAuthentication.AppleAuthenticationButton
-                buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
-                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-                cornerRadius={12}
-                style={styles.appleBtn}
-                onPress={handleAppleSignIn}
-              />
+              <TouchableOpacity style={[styles.socialBtn, styles.appleBtnCustom]} onPress={handleAppleSignIn} disabled={loading}>
+                <Ionicons name="logo-apple" size={20} color="#ffffff" />
+                <Text style={[styles.socialBtnText, { color: '#ffffff' }]}>Continue with Apple</Text>
+              </TouchableOpacity>
             )}
 
             {/* Toggle mode */}
@@ -483,10 +480,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Arimo_700Bold',
     color: '#2c3e50',
   },
-  appleBtn: {
-    width: '100%',
-    height: 50,
-    marginBottom: 12,
+  appleBtnCustom: {
+    backgroundColor: '#1C1C1E',
+    borderColor: '#1C1C1E',
   },
   toggleRow: {
     alignItems: 'center',
