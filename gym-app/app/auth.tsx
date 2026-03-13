@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,16 +14,24 @@ import {
   Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { Nunito_700Bold } from '@expo-google-fonts/nunito';
 import * as Haptics from 'expo-haptics';
+import * as WebBrowser from 'expo-web-browser';
+import * as Google from 'expo-auth-session/providers/google';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { useAuth } from '../authStore';
+
+WebBrowser.maybeCompleteAuthSession();
+
+const IOS_CLIENT_ID = '509276082930-dllkb3jls25igd0v6r4igg27vonjpte3.apps.googleusercontent.com';
+const WEB_CLIENT_ID = '509276082930-79361f34bo7b238od4kng8ui4nk9hvoi.apps.googleusercontent.com';
 
 export default function AuthScreen() {
   const router = useRouter();
-  const { signIn, signUp, continueAsGuest } = useAuth();
+  const { signIn, signUp, continueAsGuest, signInWithGoogle, signInWithApple } = useAuth();
   const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold, Nunito_700Bold });
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -39,6 +47,26 @@ export default function AuthScreen() {
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
   const confirmRef = useRef<TextInput>(null);
+
+  const [, googleResponse, promptGoogleAsync] = Google.useAuthRequest({
+    iosClientId: IOS_CLIENT_ID,
+    webClientId: WEB_CLIENT_ID,
+  });
+
+  useEffect(() => {
+    if (googleResponse?.type === 'success') {
+      const idToken = googleResponse.params?.id_token ?? (googleResponse as any).authentication?.idToken;
+      if (idToken) {
+        setLoading(true);
+        signInWithGoogle(idToken)
+          .then(() => router.replace('/home'))
+          .catch(e => setError(getErrorMessage(e.code ?? '')))
+          .finally(() => setLoading(false));
+      } else {
+        setError('Google sign-in failed. Please try again.');
+      }
+    }
+  }, [googleResponse]);
 
   if (!fontsLoaded) return null;
 
@@ -114,6 +142,37 @@ export default function AuthScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await continueAsGuest();
     router.replace('/home');
+  };
+
+  const handleGoogleSignIn = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setError('');
+    await promptGoogleAsync();
+  };
+
+  const handleAppleSignIn = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setError('');
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+      if (!credential.identityToken) throw new Error('No identity token');
+      const fullName = [credential.fullName?.givenName, credential.fullName?.familyName]
+        .filter(Boolean).join(' ') || null;
+      setLoading(true);
+      await signInWithApple(credential.identityToken, fullName);
+      router.replace('/home');
+    } catch (e: any) {
+      if (e.code !== 'ERR_REQUEST_CANCELED') {
+        setError('Apple sign-in failed. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -254,6 +313,30 @@ export default function AuthScreen() {
               </Animated.View>
             </TouchableOpacity>
 
+            {/* Divider */}
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Google Sign-In */}
+            <TouchableOpacity style={styles.socialBtn} onPress={handleGoogleSignIn} disabled={loading}>
+              <MaterialCommunityIcons name="google" size={20} color="#EA4335" />
+              <Text style={styles.socialBtnText}>Continue with Google</Text>
+            </TouchableOpacity>
+
+            {/* Apple Sign-In (iOS only) */}
+            {Platform.OS === 'ios' && (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                cornerRadius={12}
+                style={styles.appleBtn}
+                onPress={handleAppleSignIn}
+              />
+            )}
+
             {/* Toggle mode */}
             <TouchableOpacity onPress={toggleMode} style={styles.toggleRow}>
               <Text style={styles.toggleText}>
@@ -359,9 +442,51 @@ const styles = StyleSheet.create({
     fontFamily: 'Nunito_700Bold',
     letterSpacing: 0.3,
   },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.1)',
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    color: '#8e8e93',
+  },
+  socialBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    height: 50,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.12)',
+    marginBottom: 12,
+    gap: 10,
+  },
+  socialIcon: {
+    width: 20,
+    height: 20,
+  },
+  socialBtnText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
+    color: '#2c3e50',
+  },
+  appleBtn: {
+    width: '100%',
+    height: 50,
+    marginBottom: 12,
+  },
   toggleRow: {
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: 4,
   },
   toggleText: {
     fontSize: 14,

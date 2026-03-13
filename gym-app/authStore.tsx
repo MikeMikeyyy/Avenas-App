@@ -9,6 +9,9 @@ import {
   updateEmail,
   reauthenticateWithCredential,
   sendPasswordResetEmail,
+  signInWithCredential,
+  GoogleAuthProvider,
+  OAuthProvider,
   EmailAuthProvider,
   User,
 } from 'firebase/auth';
@@ -25,6 +28,8 @@ type AuthContextType = {
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
   signOut: () => Promise<void>;
   continueAsGuest: () => Promise<void>;
+  signInWithGoogle: (idToken: string) => Promise<void>;
+  signInWithApple: (identityToken: string, fullName?: string | null) => Promise<void>;
   updateDisplayName: (name: string) => Promise<void>;
   updateUserPassword: (currentPassword: string, newPassword: string) => Promise<void>;
   updateUserEmail: (currentPassword: string, newEmail: string) => Promise<void>;
@@ -75,6 +80,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsGuest(true);
   };
 
+  const signInWithGoogle = async (idToken: string) => {
+    const credential = GoogleAuthProvider.credential(idToken);
+    await signInWithCredential(auth, credential);
+    await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+    setIsGuest(false);
+  };
+
+  const signInWithApple = async (identityToken: string, fullName?: string | null) => {
+    const provider = new OAuthProvider('apple.com');
+    const credential = provider.credential({ idToken: identityToken });
+    const result = await signInWithCredential(auth, credential);
+    if (fullName && result.user && !result.user.displayName) {
+      await updateProfile(result.user, { displayName: fullName });
+    }
+    await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+    setIsGuest(false);
+  };
+
   const updateDisplayName = async (name: string) => {
     if (!auth.currentUser) throw new Error('Not logged in');
     await updateProfile(auth.currentUser, { displayName: name.trim() });
@@ -108,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, isGuest, loading,
-      signIn, signUp, signOut, continueAsGuest,
+      signIn, signUp, signOut, continueAsGuest, signInWithGoogle, signInWithApple,
       updateDisplayName, updateUserPassword, updateUserEmail, sendPasswordReset,
     }}>
       {children}
