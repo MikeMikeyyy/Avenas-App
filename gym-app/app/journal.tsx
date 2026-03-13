@@ -576,11 +576,11 @@ function JournalDetail({
               onSubmitEditing={commitChangeExercise}
               autoFocus
             />
-            <View style={styles.durationActions}>
-              <TouchableOpacity style={[styles.durationAction, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)' }]} onPress={() => { setChangeExerciseTarget(null); setNewExerciseName(''); }} activeOpacity={0.7}>
+            <View style={styles.durationSheetActions}>
+              <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]} onPress={() => { setChangeExerciseTarget(null); setNewExerciseName(''); }} activeOpacity={0.7}>
                 <Text style={[styles.durationActionText, { color: colors.secondaryText }]}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.durationAction, { backgroundColor: entryColor, borderColor: entryColor }]} onPress={commitChangeExercise} activeOpacity={0.7}>
+              <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: entryColor }]} onPress={commitChangeExercise} activeOpacity={0.7}>
                 <Text style={[styles.durationActionText, { color: '#fff' }]}>Save</Text>
               </TouchableOpacity>
             </View>
@@ -845,7 +845,7 @@ function JournalCalendar({
         </View>
       ) : (
         <Text style={[styles.noWorkoutsText, { color: colors.tertiaryText }]}>
-          {listFilter === 'week' ? 'No workouts in the last 7 days' : isFutureMonth ? '' : `No workouts in ${label.split(' ')[0]}`}
+          {isFutureMonth ? '' : 'No workouts in the last 7 days'}
         </Text>
       )}
     </ScrollView>
