@@ -14,7 +14,8 @@ import {
   Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
+import GoogleLogo from '../components/GoogleLogo';
 import { useRouter } from 'expo-router';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { Nunito_700Bold } from '@expo-google-fonts/nunito';
@@ -322,7 +323,7 @@ export default function AuthScreen() {
 
             {/* Google Sign-In */}
             <TouchableOpacity style={styles.socialBtn} onPress={handleGoogleSignIn} disabled={loading}>
-              <MaterialCommunityIcons name="google" size={20} color="#EA4335" />
+              <GoogleLogo size={20} />
               <Text style={styles.socialBtnText}>Continue with Google</Text>
             </TouchableOpacity>
 
