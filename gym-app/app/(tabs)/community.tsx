@@ -314,6 +314,31 @@ export default function CommunityScreen() {
       }
       return changed ? updated : prev;
     });
+    // Same baseline for private chats — prevent old messages showing as unread on first login
+    setReadPrivateChatCounts(prev => {
+      const updated = { ...prev };
+      let changed = false;
+      for (const community of ownedCommunities) {
+        for (const chat of community.privateChats) {
+          const key = `${community.id}-${chat.memberId}`;
+          if (!(key in updated)) {
+            updated[key] = chat.messages.filter(m => m.senderId !== currentUserId).length;
+            changed = true;
+          }
+        }
+      }
+      for (const community of joinedCommunities) {
+        const chat = community.privateChats.find(pc => pc.memberId === currentUserId);
+        if (chat) {
+          const key = `${community.id}-${currentUserId}`;
+          if (!(key in updated)) {
+            updated[key] = chat.messages.filter(m => m.senderId !== currentUserId).length;
+            changed = true;
+          }
+        }
+      }
+      return changed ? updated : prev;
+    });
   }, [countsLoaded, ownedCommunities, joinedCommunities, currentUserId]);
 
   // Persist read counts whenever they change (skip during initial load to avoid overwriting saved data)
