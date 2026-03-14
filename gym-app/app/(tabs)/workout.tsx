@@ -284,7 +284,7 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
             editingTarget ? (
               <TextInput
                 ref={targetInputRef}
-                style={{ fontSize: 10, color: accentColor, fontWeight: '600', textAlign: 'center', minWidth: 50, padding: 0 }}
+                style={{ fontSize: 10, color: colors.secondaryText, fontWeight: '600', textAlign: 'center', minWidth: 50, padding: 0 }}
                 value={targetDraft}
                 onChangeText={setTargetDraft}
                 placeholder="e.g. 8-12"
@@ -306,14 +306,14 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
                 hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
                 onPress={() => { setTargetDraft(targetReps ?? ''); setEditingTarget(true); }}
               >
-                <Text style={{ fontSize: 10, color: targetReps ? accentColor : colors.tertiaryText, fontWeight: '600', textAlign: 'center' }}>
+                <Text style={{ fontSize: 10, color: targetReps ? colors.secondaryText : colors.tertiaryText, fontWeight: '600', textAlign: 'center' }}>
                   {targetReps || 'set target'}
                 </Text>
               </TouchableOpacity>
             )
           )}
           {!isHold && readOnly && targetReps ? (
-            <Text style={{ fontSize: 10, color: accentColor, fontWeight: '600', textAlign: 'center' }}>{targetReps}</Text>
+            <Text style={{ fontSize: 10, color: colors.secondaryText, fontWeight: '600', textAlign: 'center' }}>{targetReps}</Text>
           ) : null}
           <Text style={[styles.setHeaderText, { color: colors.secondaryText }]}>{isHold ? 'HOLD' : 'REPS'}</Text>
         </View>
