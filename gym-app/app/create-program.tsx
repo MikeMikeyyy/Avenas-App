@@ -594,7 +594,25 @@ export default function CreateProgramScreen() {
         style={[styles.backButton, { backgroundColor: colors.backButtonBg }]}
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          router.back();
+          if (hasChanges) {
+            Alert.alert(
+              'Unsaved Changes',
+              'You have unsaved changes. What would you like to do?',
+              [
+                { text: 'Discard', style: 'destructive', onPress: () => router.back() },
+                {
+                  text: 'Save', style: 'default', onPress: () => {
+                    updateProgram(editId!, programName || 'Untitled Program', selectedColor, splitDays);
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    router.back();
+                  }
+                },
+                { text: 'Cancel', style: 'cancel' },
+              ]
+            );
+          } else {
+            router.back();
+          }
         }}
         activeOpacity={0.7}
       >
