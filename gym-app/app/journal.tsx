@@ -138,9 +138,10 @@ function JournalDetail({
   const showSessionLabel = entry.sessions.length > 1;
 
   const [editTarget, setEditTarget] = useState<{ si: number; ei: number; setI: number; mode: 'reps' | 'hold' } | null>(null);
-  const [editVal1, setEditVal1] = useState(''); // reps or hold secs
-  const [editVal2, setEditVal2] = useState(''); // weight
-  const repsInputRef = useRef<TextInput | null>(null);
+  const [editVal1, setEditVal1] = useState(''); // weight
+  const [editVal2, setEditVal2] = useState(''); // reps or hold secs
+  const weightRefs = useRef<Record<string, TextInput | null>>({});
+  const repsRefs = useRef<Record<string, TextInput | null>>({});
 
   const [editingNotesKey, setEditingNotesKey] = useState<string | null>(null);
   const [notesVal, setNotesVal] = useState('');
@@ -179,6 +180,8 @@ function JournalDetail({
     setEditTarget({ si, ei, setI, mode });
     setEditVal1(set.weight != null ? fmtW(set.weight) : '');
     setEditVal2(mode === 'hold' ? (set.hold > 0 ? String(set.hold) : '') : (set.reps > 0 ? String(set.reps) : ''));
+    const wKey = `${si}-${ei}-${setI}`;
+    setTimeout(() => weightRefs.current[wKey]?.focus(), 50);
   };
 
   const commitNotes = (si: number, ei: number) => {
@@ -262,9 +265,10 @@ function JournalDetail({
     Keyboard.dismiss();
   };
 
-  const commitAndAdvance = (nextSi: number, nextEi: number, nextSetI: number, nextSet: any, nextMode: 'reps' | 'hold') => {
+  const advanceToSet = (nextSi: number, nextEi: number, nextSetI: number, nextSet: any, nextMode: 'reps' | 'hold') => {
     if (!editTarget) return;
     const { si, ei, setI, mode } = editTarget;
+    // Save current set data
     const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
     const s = newEntry.sessions[si].exercises[ei].sets[setI];
     const w = editVal1 === '' ? null : parseFloat(editVal1);
@@ -275,7 +279,12 @@ function JournalDetail({
       s.reps = parseInt(editVal2) || 0;
     }
     onUpdateEntry(newEntry);
-    startEdit(nextSi, nextEi, nextSetI, nextSet, nextMode);
+    // Focus next weight input BEFORE state update so keyboard stays up
+    weightRefs.current[`${nextSi}-${nextEi}-${nextSetI}`]?.focus();
+    // Update state
+    setEditTarget({ si: nextSi, ei: nextEi, setI: nextSetI, mode: nextMode });
+    setEditVal1(nextSet.weight != null ? fmtW(nextSet.weight) : '');
+    setEditVal2(nextMode === 'hold' ? (nextSet.hold > 0 ? String(nextSet.hold) : '') : (nextSet.reps > 0 ? String(nextSet.reps) : ''));
   };
 
   return (
@@ -385,6 +394,8 @@ function JournalDetail({
                     : set.reps > 0;
                   const rowDividerColor = isDark ? colors.border : 'rgba(0,0,0,0.09)';
                   const isEditing = editTarget !== null && editTarget.si === si && editTarget.ei === ei && editTarget.setI === si2;
+                  const isLastSet = si2 === exercise.sets.length - 1;
+                  const refKey = `${si}-${ei}-${si2}`;
                   return (
                     <TouchableOpacity
                       key={si2}
@@ -402,53 +413,66 @@ function JournalDetail({
                           {isWarmup ? 'W' : workingIdx}
                         </Text>
                       </View>
-                      {isEditing ? (
-                        <>
-                          <View style={{ flexDirection: 'row', flex: 1, alignItems: 'center', gap: 6, marginLeft: 6 }}>
-                            <TextInput
-                              style={[styles.editInput, { color: colors.primaryText, borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', backgroundColor: colors.inputBg }]}
-                              value={editVal1}
-                              onChangeText={setEditVal1}
-                              keyboardType="decimal-pad"
-                              returnKeyType="next"
-                              onSubmitEditing={() => setTimeout(() => repsInputRef.current?.focus(), 50)}
-                              placeholder="0"
-                              placeholderTextColor={colors.tertiaryText}
-                              selectTextOnFocus
-                              autoFocus
-                            />
-                            <Text style={{ color: colors.tertiaryText, fontSize: 12, fontFamily: 'Arimo_400Regular' }}>{unit}</Text>
-                            <TextInput
-                              ref={repsInputRef}
-                              style={[styles.editInput, { color: colors.primaryText, borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', backgroundColor: colors.inputBg }]}
-                              value={editVal2}
-                              onChangeText={setEditVal2}
-                              keyboardType="decimal-pad"
-                              returnKeyType={si2 < exercise.sets.length - 1 ? 'next' : 'done'}
-                              onSubmitEditing={() => {
-                                if (si2 < exercise.sets.length - 1) {
-                                  commitAndAdvance(si, ei, si2 + 1, exercise.sets[si2 + 1], exercise.mode ?? 'reps');
-                                } else {
-                                  commitEdit();
-                                }
-                              }}
-                              placeholder="0"
-                              placeholderTextColor={colors.tertiaryText}
-                              selectTextOnFocus
-                            />
-                            <Text style={{ color: colors.tertiaryText, fontSize: 12, fontFamily: 'Arimo_400Regular' }}>
-                              {exercise.mode === 'hold' ? 's' : 'reps'}
-                            </Text>
-                          </View>
-                          <TouchableOpacity
-                            onPress={commitEdit}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            style={styles.rowIconSlot}
-                          >
-                            <Ionicons name="checkmark-circle" size={22} color={entryColor} />
-                          </TouchableOpacity>
-                        </>
-                      ) : (
+                      {/* Always-mounted inputs — hidden (height:0) when not editing so keyboard never dismisses on focus transfer */}
+                      <View
+                        pointerEvents={isEditing ? 'auto' : 'none'}
+                        style={[
+                          { flexDirection: 'row', flex: 1, alignItems: 'center', gap: 6, marginLeft: 6 },
+                          !isEditing && { height: 0, overflow: 'hidden', opacity: 0 },
+                        ]}
+                      >
+                        <TextInput
+                          ref={r => { weightRefs.current[refKey] = r; }}
+                          style={[styles.editInput, { color: colors.primaryText, borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', backgroundColor: colors.inputBg }]}
+                          value={isEditing ? editVal1 : ''}
+                          onChangeText={isEditing ? setEditVal1 : () => {}}
+                          editable={isEditing}
+                          keyboardType="decimal-pad"
+                          returnKeyType="next"
+                          onSubmitEditing={() => {
+                            if (isEditing) setTimeout(() => repsRefs.current[refKey]?.focus(), 50);
+                          }}
+                          placeholder="0"
+                          placeholderTextColor={colors.tertiaryText}
+                          selectTextOnFocus
+                        />
+                        <Text style={{ color: colors.tertiaryText, fontSize: 12, fontFamily: 'Arimo_400Regular' }}>{unit}</Text>
+                        <TextInput
+                          ref={r => { repsRefs.current[refKey] = r; }}
+                          style={[styles.editInput, { color: colors.primaryText, borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', backgroundColor: colors.inputBg }]}
+                          value={isEditing ? editVal2 : ''}
+                          onChangeText={isEditing ? setEditVal2 : () => {}}
+                          editable={isEditing}
+                          keyboardType="decimal-pad"
+                          returnKeyType={isLastSet ? 'done' : 'next'}
+                          onSubmitEditing={() => {
+                            if (!isEditing) return;
+                            if (!isLastSet) {
+                              advanceToSet(si, ei, si2 + 1, exercise.sets[si2 + 1], exercise.mode ?? 'reps');
+                            } else {
+                              commitEdit();
+                            }
+                          }}
+                          placeholder="0"
+                          placeholderTextColor={colors.tertiaryText}
+                          selectTextOnFocus
+                        />
+                        <Text style={{ color: colors.tertiaryText, fontSize: 12, fontFamily: 'Arimo_400Regular' }}>
+                          {exercise.mode === 'hold' ? 's' : 'reps'}
+                        </Text>
+                      </View>
+                      {/* Checkmark — only when editing */}
+                      {isEditing && (
+                        <TouchableOpacity
+                          onPress={commitEdit}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          style={styles.rowIconSlot}
+                        >
+                          <Ionicons name="checkmark-circle" size={22} color={entryColor} />
+                        </TouchableOpacity>
+                      )}
+                      {/* Display text — only when not editing */}
+                      {!isEditing && (
                         <>
                           {hasData ? (
                             exercise.mode === 'hold' ? (
