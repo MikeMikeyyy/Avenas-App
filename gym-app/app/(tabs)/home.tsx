@@ -230,8 +230,9 @@ function computeWeeklyStats() {
   const entries = workoutState.getJournalLog().filter(e => e.date >= weekStart && e.date <= now);
   const workouts = entries.length;
   const volume = entries.reduce((sum, e) => sum + e.totalVolume, 0);
-  const totalDuration = entries.reduce((sum, e) => sum + e.durationSecs, 0);
-  const avgDuration = workouts > 0 ? Math.round(totalDuration / workouts) : 0;
+  const timedEntries = entries.filter(e => e.durationSecs > 0);
+  const totalDuration = timedEntries.reduce((sum, e) => sum + e.durationSecs, 0);
+  const avgDuration = timedEntries.length > 0 ? Math.round(totalDuration / timedEntries.length) : 0;
   return { workouts, volume, avgDuration };
 }
 
