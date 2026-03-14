@@ -363,7 +363,11 @@ export default function HomeScreen() {
 
   // Expand badge and collapse after 2 s — only once per app session
   useFocusEffect(useCallback(() => {
-    if (_streakAnimPlayed) return;
+    if (_streakAnimPlayed) {
+      // Component may have remounted (tab switch) — jump straight to collapsed state
+      streakExpanded.setValue(0);
+      return;
+    }
     const t = setTimeout(() => {
       _streakAnimPlayed = true;
       Animated.timing(streakExpanded, {
