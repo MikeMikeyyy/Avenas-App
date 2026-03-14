@@ -358,7 +358,7 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
                   style={[styles.inputBoxText, { color: colors.primaryText }]}
                   keyboardType="decimal-pad"
                   returnKeyType="next"
-                  onSubmitEditing={() => repsRefs.current[si]?.focus()}
+                  onSubmitEditing={() => setTimeout(() => repsRefs.current[si]?.focus(), 50)}
                   defaultValue={s.weight != null ? fmtW(s.weight) : ''}
                   placeholder="—"
                   placeholderTextColor={colors.tertiaryText}
@@ -385,7 +385,7 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
                   returnKeyType={si < exercise.sets.length - 1 ? 'next' : 'done'}
                   onSubmitEditing={() => {
                     if (si < exercise.sets.length - 1) {
-                      weightRefs.current[si + 1]?.focus();
+                      setTimeout(() => weightRefs.current[si + 1]?.focus(), 50);
                     } else {
                       Keyboard.dismiss();
                     }
