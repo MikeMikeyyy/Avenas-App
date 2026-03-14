@@ -573,12 +573,12 @@ function JournalDetail({
                   if (isEditingNotes) {
                     return (
                       <View style={[styles.notesRow, { borderTopColor: divColor }]}>
-                        <Ionicons name="create-outline" size={13} color={entryColor} style={{ marginTop: 2 }} />
+                        <Ionicons name="create-outline" size={13} color={colors.tertiaryText} style={{ marginTop: 2 }} />
                         <TextInput
                           style={[styles.notesInput, { color: colors.primaryText }]}
                           value={notesVal}
                           onChangeText={setNotesVal}
-                          placeholder="Add a note…"
+                          placeholder="Add note…"
                           placeholderTextColor={colors.tertiaryText}
                           multiline
                           autoFocus
@@ -601,7 +601,7 @@ function JournalDetail({
                     >
                       <Ionicons name="create-outline" size={13} color={exercise.notes ? colors.secondaryText : colors.tertiaryText} />
                       <Text style={[styles.notesText, { color: exercise.notes ? colors.secondaryText : colors.tertiaryText }]}>
-                        {exercise.notes || 'Add note…'}
+                        {exercise.notes || 'Add note'}
                       </Text>
                     </TouchableOpacity>
                   );
