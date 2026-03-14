@@ -223,10 +223,13 @@ function CalendarStrip({ selectedIndex, onSelect, accentColor, days, todayIndex,
   );
 }
 
-function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onToggleWarmup, onMoveUp, onMoveDown, isFirst, isLast: isLastExercise, accentColor = '#47DDFF', note, onNoteChange, mode, onToggleMode, onShowExerciseList, onRemoveExercise, readOnly, onFillPrev, onShowInfo, targetReps }: { exercise: Exercise; index: number; onAddSet: () => void; onRemoveSet: () => void; onUpdateSet: (setIndex: number, field: 'reps' | 'weight' | 'hold', value: string) => void; onToggleWarmup: (setIndex: number) => void; onMoveUp?: () => void; onMoveDown?: () => void; isFirst?: boolean; isLast?: boolean; accentColor?: string; note?: string; onNoteChange?: (text: string) => void; mode: 'reps' | 'hold'; onToggleMode: () => void; onShowExerciseList: () => void; onRemoveExercise: () => void; readOnly?: boolean; onFillPrev: (setIndex: number) => void; onShowInfo?: () => void; targetReps?: string }) {
+function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onToggleWarmup, onMoveUp, onMoveDown, isFirst, isLast: isLastExercise, accentColor = '#47DDFF', note, onNoteChange, mode, onToggleMode, onShowExerciseList, onRemoveExercise, readOnly, onFillPrev, onShowInfo, targetReps, onTargetRepsChange }: { exercise: Exercise; index: number; onAddSet: () => void; onRemoveSet: () => void; onUpdateSet: (setIndex: number, field: 'reps' | 'weight' | 'hold', value: string) => void; onToggleWarmup: (setIndex: number) => void; onMoveUp?: () => void; onMoveDown?: () => void; isFirst?: boolean; isLast?: boolean; accentColor?: string; note?: string; onNoteChange?: (text: string) => void; mode: 'reps' | 'hold'; onToggleMode: () => void; onShowExerciseList: () => void; onRemoveExercise: () => void; readOnly?: boolean; onFillPrev: (setIndex: number) => void; onShowInfo?: () => void; targetReps?: string; onTargetRepsChange?: (value: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [editingTarget, setEditingTarget] = useState(false);
+  const [targetDraft, setTargetDraft] = useState('');
+  const targetInputRef = useRef<TextInput | null>(null);
   const { isDark, colors } = useTheme();
   const { unit, toDisplay, toKg } = useUnits();
   const weightRefs = useRef<(TextInput | null)[]>([]);
@@ -278,7 +281,41 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
         <View style={styles.inputHeaderCol}><Text style={[styles.setHeaderText, { color: colors.secondaryText, letterSpacing: 0.5 }]} numberOfLines={1} adjustsFontSizeToFit>WEIGHT ({unit.toUpperCase()})</Text></View>
         <View style={styles.inputHeaderCol}>
           <Text style={[styles.setHeaderText, { color: colors.secondaryText }]}>{isHold ? 'HOLD' : 'REPS'}</Text>
-          {!isHold && targetReps ? <Text style={{ fontSize: 10, color: accentColor, fontWeight: '600', textAlign: 'center' }}>{targetReps}</Text> : null}
+          {!isHold && !readOnly && (
+            editingTarget ? (
+              <TextInput
+                ref={targetInputRef}
+                style={{ fontSize: 10, color: accentColor, fontWeight: '600', textAlign: 'center', minWidth: 50, padding: 0 }}
+                value={targetDraft}
+                onChangeText={setTargetDraft}
+                placeholder="e.g. 8-12"
+                placeholderTextColor={colors.tertiaryText}
+                keyboardType="default"
+                returnKeyType="done"
+                autoFocus
+                onSubmitEditing={() => {
+                  onTargetRepsChange?.(targetDraft.trim());
+                  setEditingTarget(false);
+                }}
+                onBlur={() => {
+                  onTargetRepsChange?.(targetDraft.trim());
+                  setEditingTarget(false);
+                }}
+              />
+            ) : (
+              <TouchableOpacity
+                hitSlop={{ top: 6, bottom: 6, left: 12, right: 12 }}
+                onPress={() => { setTargetDraft(targetReps ?? ''); setEditingTarget(true); }}
+              >
+                <Text style={{ fontSize: 10, color: targetReps ? accentColor : colors.tertiaryText, fontWeight: '600', textAlign: 'center' }}>
+                  {targetReps || 'set target'}
+                </Text>
+              </TouchableOpacity>
+            )
+          )}
+          {!isHold && readOnly && targetReps ? (
+            <Text style={{ fontSize: 10, color: accentColor, fontWeight: '600', textAlign: 'center' }}>{targetReps}</Text>
+          ) : null}
         </View>
         <View style={styles.checkCol} />
       </View>
@@ -1679,6 +1716,22 @@ export default function WorkoutScreen() {
                 isLast={i === exercises.length - 1}
                 accentColor={accentColor}
                 targetReps={exercise.targetReps}
+                onTargetRepsChange={(value) => {
+                  updateExercises(prev => prev.map((ex, ei) => ei !== i ? ex : { ...ex, targetReps: value || undefined }));
+                  if (activeProgram) {
+                    const splitDays = [...activeProgram.splitDays];
+                    const splitIdx = getEffectiveSplitIndex(selectedDayIndex);
+                    const day = splitDays[splitIdx];
+                    if (day?.type === 'training') {
+                      const sessions = [...day.sessions];
+                      const exs = [...sessions[selectedSessionIndex].exercises];
+                      exs[i] = { ...exs[i], targetReps: value || undefined };
+                      sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
+                      splitDays[splitIdx] = { ...day, sessions };
+                      updateProgram(activeProgram.id, activeProgram.name, activeProgram.color, splitDays);
+                    }
+                  }
+                }}
                 readOnly={futureReadOnly || (workoutFinished && isToday && !isViewingPast)}
                 note={exerciseNotes[`${selectedDayIndex}-${selectedSessionIndex}-${i}`] || ''}
                 onNoteChange={(text) => setExerciseNotes(prev => ({ ...prev, [`${selectedDayIndex}-${selectedSessionIndex}-${i}`]: text }))}
