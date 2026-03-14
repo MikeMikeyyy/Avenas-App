@@ -1044,6 +1044,10 @@ export default function JournalScreen() {
               text: 'Save',
               onPress: () => closeDetail(),
             },
+            {
+              text: 'Cancel',
+              style: 'cancel',
+            },
           ],
         );
       } else {
