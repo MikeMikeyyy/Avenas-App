@@ -133,7 +133,7 @@ function JournalDetail({
   const { unit, toDisplay, toKg } = useUnits();
   // Always reflect the current program color, even if it was changed after logging
   const entryColor = programs.find(p => p.id === entry.programId)?.color ?? programs.find(p => p.name === entry.programName)?.color ?? entry.programColor;
-  const fmtW = (kg: number) => { const v = toDisplay(kg); const r = Math.round(v * 10) / 10; return `${r % 1 === 0 ? Math.round(r) : r.toFixed(1)}`; };
+  const fmtW = (kg: number) => { const v = toDisplay(kg); if (unit === 'lbs') return String(Math.round(v)); const r = Math.round(v * 10) / 10; return `${r % 1 === 0 ? Math.round(r) : r.toFixed(1)}`; };
   const totalExercises = countExercises(entry);
   const showSessionLabel = entry.sessions.length > 1;
 
