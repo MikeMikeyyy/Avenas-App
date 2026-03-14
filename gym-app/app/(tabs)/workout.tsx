@@ -49,7 +49,7 @@ import { ExercisePicker } from '../../components/ExercisePicker';
 import { ExerciseInfoModal } from '../../components/ExerciseInfoModal';
 
 type SetData = { set: number; reps: number; weight: number | null; hold?: number; prevReps?: number; prevWeight?: number; prevHold?: number; isWarmup?: boolean; fillKey?: number };
-type Exercise = { name: string; sets: SetData[]; mode?: 'reps' | 'hold' };
+type Exercise = { name: string; sets: SetData[]; mode?: 'reps' | 'hold'; targetReps?: string };
 type SessionWorkout = { label: string; exercises: Exercise[] };
 type DayWorkout = {
   program: string;
@@ -223,7 +223,7 @@ function CalendarStrip({ selectedIndex, onSelect, accentColor, days, todayIndex,
   );
 }
 
-function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onToggleWarmup, onMoveUp, onMoveDown, isFirst, isLast: isLastExercise, accentColor = '#47DDFF', note, onNoteChange, mode, onToggleMode, onShowExerciseList, onRemoveExercise, readOnly, onFillPrev, onShowInfo }: { exercise: Exercise; index: number; onAddSet: () => void; onRemoveSet: () => void; onUpdateSet: (setIndex: number, field: 'reps' | 'weight' | 'hold', value: string) => void; onToggleWarmup: (setIndex: number) => void; onMoveUp?: () => void; onMoveDown?: () => void; isFirst?: boolean; isLast?: boolean; accentColor?: string; note?: string; onNoteChange?: (text: string) => void; mode: 'reps' | 'hold'; onToggleMode: () => void; onShowExerciseList: () => void; onRemoveExercise: () => void; readOnly?: boolean; onFillPrev: (setIndex: number) => void; onShowInfo?: () => void }) {
+function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onToggleWarmup, onMoveUp, onMoveDown, isFirst, isLast: isLastExercise, accentColor = '#47DDFF', note, onNoteChange, mode, onToggleMode, onShowExerciseList, onRemoveExercise, readOnly, onFillPrev, onShowInfo, targetReps }: { exercise: Exercise; index: number; onAddSet: () => void; onRemoveSet: () => void; onUpdateSet: (setIndex: number, field: 'reps' | 'weight' | 'hold', value: string) => void; onToggleWarmup: (setIndex: number) => void; onMoveUp?: () => void; onMoveDown?: () => void; isFirst?: boolean; isLast?: boolean; accentColor?: string; note?: string; onNoteChange?: (text: string) => void; mode: 'reps' | 'hold'; onToggleMode: () => void; onShowExerciseList: () => void; onRemoveExercise: () => void; readOnly?: boolean; onFillPrev: (setIndex: number) => void; onShowInfo?: () => void; targetReps?: string }) {
   const [editing, setEditing] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -274,7 +274,10 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
         <Text style={[styles.setHeaderText, styles.setCol, { color: colors.secondaryText }]}>SET</Text>
         <View style={styles.prevCol}><Text style={[styles.prevColHeader, { color: colors.tertiaryText }]}>PREV</Text></View>
         <View style={styles.inputHeaderCol}><Text style={[styles.setHeaderText, { color: colors.secondaryText, letterSpacing: 0.5 }]} numberOfLines={1} adjustsFontSizeToFit>WEIGHT ({unit.toUpperCase()})</Text></View>
-        <View style={styles.inputHeaderCol}><Text style={[styles.setHeaderText, { color: colors.secondaryText }]}>{isHold ? 'HOLD' : 'REPS'}</Text></View>
+        <View style={styles.inputHeaderCol}>
+          <Text style={[styles.setHeaderText, { color: colors.secondaryText }]}>{isHold ? 'HOLD' : 'REPS'}</Text>
+          {!isHold && targetReps ? <Text style={{ fontSize: 10, color: accentColor, fontWeight: '600', textAlign: 'center' }}>{targetReps}</Text> : null}
+        </View>
         <View style={styles.checkCol} />
       </View>
 
@@ -909,6 +912,7 @@ export default function WorkoutScreen() {
           exercises: s.exercises.map(e => ({
             name: e.name,
             mode: e.mode,
+            targetReps: e.targetReps,
             sets: Array.from({ length: e.sets }, (_, i) => ({
               set: i + 1, reps: 0, weight: null, hold: 0,
               isWarmup: i < (e.warmupSets ?? 0),
@@ -934,6 +938,7 @@ export default function WorkoutScreen() {
         exercises: s.exercises.map(e => ({
           name: e.name,
           mode: e.mode,
+          targetReps: e.targetReps,
           sets: Array.from({ length: e.sets }, (_, i) => ({
             set: i + 1, reps: 0, weight: null, hold: 0,
             isWarmup: i < (e.warmupSets ?? 0),
@@ -1663,6 +1668,7 @@ export default function WorkoutScreen() {
                 isFirst={i === 0}
                 isLast={i === exercises.length - 1}
                 accentColor={accentColor}
+                targetReps={exercise.targetReps}
                 readOnly={futureReadOnly || (workoutFinished && isToday && !isViewingPast)}
                 note={exerciseNotes[`${selectedDayIndex}-${selectedSessionIndex}-${i}`] || ''}
                 onNoteChange={(text) => setExerciseNotes(prev => ({ ...prev, [`${selectedDayIndex}-${selectedSessionIndex}-${i}`]: text }))}

@@ -153,7 +153,7 @@ export default function CreateProgramScreen() {
     });
   };
 
-  const updateExercise = (dayIndex: number, sessionIndex: number, exIndex: number, field: 'name' | 'sets' | 'warmupSets', value: string | number) => {
+  const updateExercise = (dayIndex: number, sessionIndex: number, exIndex: number, field: 'name' | 'sets' | 'warmupSets' | 'targetReps', value: string | number) => {
     setSplitDays(prev => {
       const next = [...prev];
       const day = next[dayIndex];
@@ -443,6 +443,20 @@ export default function CreateProgramScreen() {
                           <Text style={[styles.setsBreakdown, { color: colors.tertiaryText }]}>
                             {ex.warmupSets} warmup sets + {ex.sets - (ex.warmupSets ?? 0)} working sets
                           </Text>
+                        )}
+                        {ex.mode !== 'hold' && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8, paddingLeft: 4 }}>
+                            <Text style={[styles.setsText, { color: colors.tertiaryText, minWidth: 60 }]}>Target reps</Text>
+                            <TextInput
+                              style={[styles.targetRepsInput, { color: colors.primaryText, backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)' }]}
+                              value={ex.targetReps ?? ''}
+                              onChangeText={v => updateExercise(i, si, j, 'targetReps', v)}
+                              placeholder="e.g. 8 or 8-12"
+                              placeholderTextColor={colors.tertiaryText}
+                              keyboardType="default"
+                              returnKeyType="done"
+                            />
+                          </View>
                         )}
                       </View>
                     );
@@ -787,6 +801,15 @@ const styles = StyleSheet.create({
     fontFamily: 'Arimo_400Regular',
     marginTop: 5,
     paddingLeft: 4,
+  },
+  targetRepsInput: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    minWidth: 90,
   },
   addExerciseBtn: {
     alignItems: 'center',

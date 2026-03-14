@@ -6,7 +6,7 @@ import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { useAuth } from './authStore';
 
-export type Exercise = { name: string; sets: number; warmupSets?: number; mode?: 'reps' | 'hold' };
+export type Exercise = { name: string; sets: number; warmupSets?: number; mode?: 'reps' | 'hold'; targetReps?: string };
 export type Session = { label: string; exercises: Exercise[] };
 export type SplitDay =
   | { type: 'training'; sessions: Session[] }
