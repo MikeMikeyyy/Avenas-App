@@ -820,6 +820,18 @@ export function ProgressView({
             );
           })}
 
+          {/* Selected exercise label */}
+          {selectedExercise ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20, marginBottom: 4, paddingHorizontal: 2 }}>
+              <View style={{ flex: 1, height: 1, backgroundColor: exerciseColor, opacity: 0.3 }} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, backgroundColor: `${exerciseColor}18`, borderWidth: 1, borderColor: `${exerciseColor}40` }}>
+                <Ionicons name="barbell-outline" size={13} color={exerciseColor} />
+                <Text style={{ fontSize: 13, fontFamily: 'Arimo_700Bold', color: exerciseColor }} numberOfLines={1}>{selectedExercise}</Text>
+              </View>
+              <View style={{ flex: 1, height: 1, backgroundColor: exerciseColor, opacity: 0.3 }} />
+            </View>
+          ) : null}
+
           {/* Weight progression chart */}
           <View style={[pvStyles.glassCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, marginTop: 16 }]}>
             <Text style={[pvStyles.cardLabel, { color: colors.secondaryText, marginBottom: 12 }]}>WEIGHT PROGRESSION</Text>
