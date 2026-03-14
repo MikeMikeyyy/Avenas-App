@@ -470,7 +470,10 @@ function JournalDetail({
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                           style={styles.rowIconSlot}
                         >
-                          <Ionicons name="checkmark-circle" size={22} color={entryColor} />
+                          <View style={{ width: 22, height: 22, alignItems: 'center', justifyContent: 'center' }}>
+                            <Ionicons name="ellipse" size={22} color={entryColor} style={{ position: 'absolute' }} />
+                            <Ionicons name="checkmark" size={13} color={isDark ? '#fff' : '#111'} />
+                          </View>
                         </TouchableOpacity>
                       )}
                       {/* Display text — only when not editing */}
