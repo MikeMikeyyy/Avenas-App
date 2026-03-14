@@ -229,6 +229,8 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
   const [confirmRemove, setConfirmRemove] = useState(false);
   const { isDark, colors } = useTheme();
   const { unit, toDisplay, toKg } = useUnits();
+  const weightRefs = useRef<(TextInput | null)[]>([]);
+  const repsRefs = useRef<(TextInput | null)[]>([]);
   const isHold = mode === 'hold';
   const fmtW = (kg: number) => {
     const v = toDisplay(kg);
@@ -315,10 +317,11 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
               <View style={[styles.inputBox, { backgroundColor: isDark ? colors.inputBg : '#FFFFFF', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)' }]}>
                 <TextInput
                   key={`w-${s.set}-${s.fillKey ?? 0}`}
+                  ref={r => { weightRefs.current[si] = r; }}
                   style={[styles.inputBoxText, { color: colors.primaryText }]}
                   keyboardType="decimal-pad"
-                  returnKeyType="done"
-                  onSubmitEditing={Keyboard.dismiss}
+                  returnKeyType="next"
+                  onSubmitEditing={() => repsRefs.current[si]?.focus()}
                   defaultValue={s.weight != null ? fmtW(s.weight) : ''}
                   placeholder="—"
                   placeholderTextColor={colors.tertiaryText}
@@ -339,10 +342,17 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
               <View style={[styles.inputBox, { backgroundColor: isDark ? colors.inputBg : '#FFFFFF', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)' }]}>
                 <TextInput
                   key={`r-${s.set}-${s.fillKey ?? 0}`}
+                  ref={r => { repsRefs.current[si] = r; }}
                   style={[styles.inputBoxText, { color: colors.primaryText }]}
                   keyboardType="decimal-pad"
-                  returnKeyType="done"
-                  onSubmitEditing={Keyboard.dismiss}
+                  returnKeyType={si < exercise.sets.length - 1 ? 'next' : 'done'}
+                  onSubmitEditing={() => {
+                    if (si < exercise.sets.length - 1) {
+                      weightRefs.current[si + 1]?.focus();
+                    } else {
+                      Keyboard.dismiss();
+                    }
+                  }}
                   defaultValue={isHold ? ((s.hold ?? 0) > 0 ? String(s.hold) : '') : (s.reps > 0 ? String(s.reps) : '')}
                   placeholder={isHold ? '0s' : '—'}
                   placeholderTextColor={colors.tertiaryText}
