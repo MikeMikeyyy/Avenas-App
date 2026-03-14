@@ -262,6 +262,22 @@ function JournalDetail({
     Keyboard.dismiss();
   };
 
+  const commitAndAdvance = (nextSi: number, nextEi: number, nextSetI: number, nextSet: any, nextMode: 'reps' | 'hold') => {
+    if (!editTarget) return;
+    const { si, ei, setI, mode } = editTarget;
+    const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
+    const s = newEntry.sessions[si].exercises[ei].sets[setI];
+    const w = editVal1 === '' ? null : parseFloat(editVal1);
+    s.weight = (w === null || isNaN(w)) ? null : toKg(w);
+    if (mode === 'hold') {
+      s.hold = parseFloat(editVal2) || 0;
+    } else {
+      s.reps = parseInt(editVal2) || 0;
+    }
+    onUpdateEntry(newEntry);
+    startEdit(nextSi, nextEi, nextSetI, nextSet, nextMode);
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.detailScrollContent} showsVerticalScrollIndicator={false} automaticallyAdjustKeyboardInsets={true}>
       {/* Header */}
@@ -408,8 +424,14 @@ function JournalDetail({
                               value={editVal2}
                               onChangeText={setEditVal2}
                               keyboardType="decimal-pad"
-                              returnKeyType="done"
-                              onSubmitEditing={commitEdit}
+                              returnKeyType={si2 < exercise.sets.length - 1 ? 'next' : 'done'}
+                              onSubmitEditing={() => {
+                                if (si2 < exercise.sets.length - 1) {
+                                  commitAndAdvance(si, ei, si2 + 1, exercise.sets[si2 + 1], exercise.mode ?? 'reps');
+                                } else {
+                                  commitEdit();
+                                }
+                              }}
                               placeholder="0"
                               placeholderTextColor={colors.tertiaryText}
                               selectTextOnFocus
