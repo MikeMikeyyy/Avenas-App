@@ -140,6 +140,7 @@ function JournalDetail({
   const [editTarget, setEditTarget] = useState<{ si: number; ei: number; setI: number; mode: 'reps' | 'hold' } | null>(null);
   const [editVal1, setEditVal1] = useState(''); // reps or hold secs
   const [editVal2, setEditVal2] = useState(''); // weight
+  const repsInputRef = useRef<TextInput | null>(null);
 
   const [editingNotesKey, setEditingNotesKey] = useState<string | null>(null);
   const [notesVal, setNotesVal] = useState('');
@@ -393,8 +394,8 @@ function JournalDetail({
                               value={editVal1}
                               onChangeText={setEditVal1}
                               keyboardType="decimal-pad"
-                              returnKeyType="done"
-                              onSubmitEditing={commitEdit}
+                              returnKeyType="next"
+                              onSubmitEditing={() => setTimeout(() => repsInputRef.current?.focus(), 50)}
                               placeholder="0"
                               placeholderTextColor={colors.tertiaryText}
                               selectTextOnFocus
@@ -402,6 +403,7 @@ function JournalDetail({
                             />
                             <Text style={{ color: colors.tertiaryText, fontSize: 12, fontFamily: 'Arimo_400Regular' }}>{unit}</Text>
                             <TextInput
+                              ref={repsInputRef}
                               style={[styles.editInput, { color: colors.primaryText, borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', backgroundColor: colors.inputBg }]}
                               value={editVal2}
                               onChangeText={setEditVal2}
