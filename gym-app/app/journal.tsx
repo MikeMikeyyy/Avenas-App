@@ -417,7 +417,7 @@ function JournalDetail({
                       <View
                         pointerEvents={isEditing ? 'auto' : 'none'}
                         style={[
-                          { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 6 },
+                          { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
                           isEditing ? { flex: 1 } : { width: 0, height: 0, overflow: 'hidden', opacity: 0 },
                         ]}
                       >
