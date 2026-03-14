@@ -142,6 +142,7 @@ function JournalDetail({
   const [editVal2, setEditVal2] = useState(''); // reps or hold secs
   const weightRefs = useRef<Record<string, TextInput | null>>({});
   const repsRefs = useRef<Record<string, TextInput | null>>({});
+  const notesRefs = useRef<Record<string, TextInput | null>>({});
 
   const [editingNotesKey, setEditingNotesKey] = useState<string | null>(null);
   const [notesVal, setNotesVal] = useState('');
@@ -585,44 +586,41 @@ function JournalDetail({
                     </View>
                   );
                 })()}
-                {/* Notes row */}
+                {/* Notes row — always renders TextInput to prevent layout shift on focus */}
                 {(() => {
                   const notesKey = `${si}-${ei}`;
                   const isEditingNotes = editingNotesKey === notesKey;
                   const divColor = isDark ? colors.border : 'rgba(0,0,0,0.09)';
-                  if (isEditingNotes) {
-                    return (
-                      <View style={[styles.notesRow, { borderTopColor: divColor }]}>
-                        <Ionicons name="create-outline" size={13} color={colors.tertiaryText} />
-                        <TextInput
-                          style={[styles.notesInput, { color: colors.primaryText }]}
-                          value={notesVal}
-                          onChangeText={setNotesVal}
-                          placeholder="Add note…"
-                          placeholderTextColor={colors.tertiaryText}
-                          multiline
-                          autoFocus
-                          onBlur={() => commitNotes(si, ei)}
-                          returnKeyType="done"
-                          blurOnSubmit
-                        />
-                      </View>
-                    );
-                  }
+                  const hasNote = !!exercise.notes;
+                  const textColor = isEditingNotes
+                    ? colors.primaryText
+                    : hasNote ? colors.secondaryText : colors.tertiaryText;
                   return (
                     <TouchableOpacity
                       style={[styles.notesRow, { borderTopColor: divColor }]}
                       onPress={() => {
+                        if (isEditingNotes) return;
                         if (editTarget) commitEdit();
                         setEditingNotesKey(notesKey);
                         setNotesVal(exercise.notes || '');
+                        setTimeout(() => notesRefs.current[notesKey]?.focus(), 50);
                       }}
-                      activeOpacity={0.6}
+                      activeOpacity={isEditingNotes ? 1 : 0.6}
                     >
-                      <Ionicons name="create-outline" size={13} color={exercise.notes ? colors.secondaryText : colors.tertiaryText} />
-                      <Text style={[styles.notesText, { color: exercise.notes ? colors.secondaryText : colors.tertiaryText }]}>
-                        {exercise.notes || 'Add note'}
-                      </Text>
+                      <Ionicons name="create-outline" size={13} color={textColor} />
+                      <TextInput
+                        ref={r => { notesRefs.current[notesKey] = r; }}
+                        style={[styles.notesInput, { color: textColor }]}
+                        value={isEditingNotes ? notesVal : (exercise.notes || '')}
+                        onChangeText={isEditingNotes ? setNotesVal : undefined}
+                        editable={isEditingNotes}
+                        placeholder="Add note"
+                        placeholderTextColor={colors.tertiaryText}
+                        multiline
+                        onBlur={isEditingNotes ? () => commitNotes(si, ei) : undefined}
+                        returnKeyType="done"
+                        blurOnSubmit
+                      />
                     </TouchableOpacity>
                   );
                 })()}
