@@ -1039,7 +1039,15 @@ export default function WorkoutScreen() {
     prevWorkoutLabelRef.current = currentLabel;
 
     if (exerciseCache[cacheKey]) {
-      setExercises(exerciseCache[cacheKey]);
+      // Sync targetReps from the current program definition into cached exercises
+      // so edits made in Edit Program are reflected without resetting entered weights/reps
+      const cached = exerciseCache[cacheKey];
+      const synced = cached.map((ex, i) => ({
+        ...ex,
+        targetReps: currentSession?.exercises[i]?.targetReps,
+      }));
+      exerciseCache[cacheKey] = synced;
+      setExercises(synced);
     } else {
       // If today's workout is already finished, restore actual logged values from today's journal entry
       // and use the PREVIOUS journal entry (before today) for the "prev" column
@@ -1085,7 +1093,7 @@ export default function WorkoutScreen() {
       exerciseCache[cacheKey] = initial;
       setExercises(initial);
     }
-  }, [selectedDayIndex, selectedSessionIndex, workout, activeId, prevVersion]);
+  }, [selectedDayIndex, selectedSessionIndex, workout, activeId, prevVersion, activeProgram?.splitDays]);
 
   const updateExercises = (updater: Exercise[] | ((prev: Exercise[]) => Exercise[])) => {
     setExercises(prev => {
