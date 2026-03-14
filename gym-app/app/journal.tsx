@@ -608,19 +608,21 @@ function JournalDetail({
                       activeOpacity={isEditingNotes ? 1 : 0.6}
                     >
                       <Ionicons name="create-outline" size={13} color={textColor} />
-                      <TextInput
-                        ref={r => { notesRefs.current[notesKey] = r; }}
-                        style={[styles.notesInput, { color: textColor }]}
-                        value={isEditingNotes ? notesVal : (exercise.notes || '')}
-                        onChangeText={isEditingNotes ? setNotesVal : undefined}
-                        editable={isEditingNotes}
-                        placeholder="Add note"
-                        placeholderTextColor={colors.tertiaryText}
-                        multiline
-                        onBlur={isEditingNotes ? () => commitNotes(si, ei) : undefined}
-                        returnKeyType="done"
-                        blurOnSubmit
-                      />
+                      <View pointerEvents={isEditingNotes ? 'auto' : 'none'} style={{ flex: 1 }}>
+                        <TextInput
+                          ref={r => { notesRefs.current[notesKey] = r; }}
+                          style={[styles.notesInput, { color: textColor }]}
+                          value={isEditingNotes ? notesVal : (exercise.notes || '')}
+                          onChangeText={isEditingNotes ? setNotesVal : undefined}
+                          editable={isEditingNotes}
+                          placeholder="Add note"
+                          placeholderTextColor={colors.tertiaryText}
+                          multiline
+                          onBlur={isEditingNotes ? () => commitNotes(si, ei) : undefined}
+                          returnKeyType="done"
+                          blurOnSubmit
+                        />
+                      </View>
                     </TouchableOpacity>
                   );
                 })()}
