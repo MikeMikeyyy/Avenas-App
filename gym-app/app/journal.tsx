@@ -413,12 +413,12 @@ function JournalDetail({
                           {isWarmup ? 'W' : workingIdx}
                         </Text>
                       </View>
-                      {/* Always-mounted inputs — hidden (height:0) when not editing so keyboard never dismisses on focus transfer */}
+                      {/* Always-mounted inputs — collapsed to 0×0 when not editing so keyboard never dismisses on focus transfer */}
                       <View
                         pointerEvents={isEditing ? 'auto' : 'none'}
                         style={[
-                          { flexDirection: 'row', flex: 1, alignItems: 'center', gap: 6, marginLeft: 6 },
-                          !isEditing && { height: 0, overflow: 'hidden', opacity: 0 },
+                          { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 6 },
+                          isEditing ? { flex: 1 } : { width: 0, height: 0, overflow: 'hidden', opacity: 0 },
                         ]}
                       >
                         <TextInput
