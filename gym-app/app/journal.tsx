@@ -644,7 +644,7 @@ function JournalDetail({
         </View>
       ))}
       {/* Change Exercise modal */}
-      <BottomSheetModal visible={!!changeExerciseTarget} onDismiss={() => { setChangeExerciseTarget(null); setNewExerciseName(''); }}>
+      <BottomSheetModal visible={!!changeExerciseTarget} onDismiss={() => { setChangeExerciseTarget(null); setNewExerciseName(''); }} sheetBackground={colors.modalBg}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={[styles.durationSheet, { backgroundColor: colors.modalBg }]}>
             <Text style={[styles.durationSheetTitle, { color: colors.primaryText }]}>Change Exercise</Text>
@@ -671,7 +671,7 @@ function JournalDetail({
       </BottomSheetModal>
 
       {/* Duration edit modal */}
-      <BottomSheetModal visible={showDurationEdit} onDismiss={() => setShowDurationEdit(false)}>
+      <BottomSheetModal visible={showDurationEdit} onDismiss={() => setShowDurationEdit(false)} sheetBackground={colors.modalBg}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={[styles.durationSheet, { backgroundColor: colors.modalBg }]}>
             <Text style={[styles.durationSheetTitle, { color: colors.primaryText }]}>Edit Duration</Text>
@@ -1154,7 +1154,7 @@ export default function JournalScreen() {
       })()}
 
       {/* Log Workout Modal */}
-      <BottomSheetModal visible={!!logState} onDismiss={() => setLogState(null)}>
+      <BottomSheetModal visible={!!logState} onDismiss={() => setLogState(null)} sheetBackground={colors.modalBg}>
         <View style={[styles.logSheet, { backgroundColor: colors.modalBg }]}>
           {logState !== null && (
             <>
