@@ -220,6 +220,14 @@ function JournalDetail({
     setConfirmRemoveKey(null);
   };
 
+  const toggleSetWarmup = (si: number, ei: number, setI: number) => {
+    const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
+    const s = newEntry.sessions[si].exercises[ei].sets[setI];
+    s.isWarmup = !s.isWarmup;
+    onUpdateEntry(newEntry);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
   const addSet = (si: number, ei: number) => {
     const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
     const ex = newEntry.sessions[si].exercises[ei];
@@ -408,12 +416,16 @@ function JournalDetail({
                       }}
                       activeOpacity={isEditing ? 1 : 0.55}
                     >
-                      {/* Set label */}
-                      <View style={[styles.setLabelBox, { borderColor: isWarmup ? '#F5A623' : (isDark ? colors.border : 'rgba(0,0,0,0.25)') }]}>
+                      {/* Set label — tap to toggle warmup/working */}
+                      <TouchableOpacity
+                        onPress={() => toggleSetWarmup(si, ei, si2)}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        style={[styles.setLabelBox, { borderColor: isWarmup ? '#F5A623' : (isDark ? colors.border : 'rgba(0,0,0,0.25)') }]}
+                      >
                         <Text style={[styles.setLabelText, { color: isWarmup ? '#F5A623' : colors.primaryText }]}>
                           {isWarmup ? 'W' : workingIdx}
                         </Text>
-                      </View>
+                      </TouchableOpacity>
                       {/* Always-mounted inputs — collapsed to 0×0 when not editing so keyboard never dismisses on focus transfer */}
                       <View
                         pointerEvents={isEditing ? 'auto' : 'none'}
