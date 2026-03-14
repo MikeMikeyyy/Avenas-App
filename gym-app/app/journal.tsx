@@ -279,12 +279,12 @@ function JournalDetail({
       s.reps = parseInt(editVal2) || 0;
     }
     onUpdateEntry(newEntry);
-    // Focus next weight input BEFORE state update so keyboard stays up
-    weightRefs.current[`${nextSi}-${nextEi}-${nextSetI}`]?.focus();
-    // Update state
+    // Update state first (makes next set's inputs editable=true)
     setEditTarget({ si: nextSi, ei: nextEi, setI: nextSetI, mode: nextMode });
     setEditVal1(nextSet.weight != null ? fmtW(nextSet.weight) : '');
     setEditVal2(nextMode === 'hold' ? (nextSet.hold > 0 ? String(nextSet.hold) : '') : (nextSet.reps > 0 ? String(nextSet.reps) : ''));
+    // Focus AFTER state update so the input is editable when focused
+    setTimeout(() => weightRefs.current[`${nextSi}-${nextEi}-${nextSetI}`]?.focus(), 50);
   };
 
   return (
@@ -429,6 +429,7 @@ function JournalDetail({
                           editable={isEditing}
                           keyboardType="decimal-pad"
                           returnKeyType="next"
+                          blurOnSubmit={false}
                           onSubmitEditing={() => {
                             if (isEditing) setTimeout(() => repsRefs.current[refKey]?.focus(), 50);
                           }}
@@ -445,6 +446,7 @@ function JournalDetail({
                           editable={isEditing}
                           keyboardType="decimal-pad"
                           returnKeyType={isLastSet ? 'done' : 'next'}
+                          blurOnSubmit={isLastSet}
                           onSubmitEditing={() => {
                             if (!isEditing) return;
                             if (!isLastSet) {
