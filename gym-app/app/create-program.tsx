@@ -89,6 +89,11 @@ export default function CreateProgramScreen() {
     selectedColor !== initialSnapshot.current.color ||
     JSON.stringify(splitDays) !== initialSnapshot.current.splitDays
   );
+  const hasCreateChanges = !editId && !isReturnMode && (
+    programName !== '' ||
+    selectedColor !== PROGRAM_COLORS[0] ||
+    splitDays.length > 0
+  );
   const [pickerTarget, setPickerTarget] = useState<{ dayIndex: number; sessionIndex: number; exerciseIndex?: number } | null>(null);
   const [returnData, setReturnData] = useState<{
     communityId: string; workoutId: string; memberName: string;
@@ -603,6 +608,23 @@ export default function CreateProgramScreen() {
                 {
                   text: 'Save', style: 'default', onPress: () => {
                     updateProgram(editId!, programName || 'Untitled Program', selectedColor, splitDays);
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    router.back();
+                  }
+                },
+                { text: 'Cancel', style: 'cancel' },
+              ]
+            );
+          } else if (hasCreateChanges) {
+            Alert.alert(
+              'Save Program?',
+              'You have an unsaved program. What would you like to do?',
+              [
+                { text: 'Discard', style: 'destructive', onPress: () => router.back() },
+                {
+                  text: 'Save', style: 'default', onPress: () => {
+                    const name = programName || 'Untitled Program';
+                    addProgram(name, selectedColor, splitDays);
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                     router.back();
                   }
