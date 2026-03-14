@@ -593,7 +593,7 @@ function JournalDetail({
                   if (isEditingNotes) {
                     return (
                       <View style={[styles.notesRow, { borderTopColor: divColor }]}>
-                        <Ionicons name="create-outline" size={13} color={colors.tertiaryText} style={{ marginTop: 2 }} />
+                        <Ionicons name="create-outline" size={13} color={colors.tertiaryText} />
                         <TextInput
                           style={[styles.notesInput, { color: colors.primaryText }]}
                           value={notesVal}
@@ -1497,7 +1497,7 @@ const styles = StyleSheet.create({
   },
   notesRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
