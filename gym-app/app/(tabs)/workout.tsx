@@ -310,18 +310,11 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
               <Text style={[styles.setText, styles.setCol, { color: isWarmup ? '#F5A623' : colors.primaryText }]}>{isWarmup ? 'W' : workingIndex}</Text>
             )}
             <View style={styles.prevCol}>
-              {hasPrev ? (
-                <>
-                  <Text style={[styles.prevValue, { color: colors.tertiaryText }]} numberOfLines={1}>
-                    {`${s.prevWeight != null ? fmtW(s.prevWeight) : '0'}${unit}`}
-                  </Text>
-                  <Text style={[styles.prevValue, { color: colors.tertiaryText }]} numberOfLines={1}>
-                    {isHold ? `× ${s.prevHold}s` : `× ${s.prevReps}`}
-                  </Text>
-                </>
-              ) : (
-                <Text style={[styles.prevValue, { color: colors.tertiaryText }]}>—</Text>
-              )}
+              <Text style={[styles.prevValue, { color: colors.tertiaryText, textAlign: 'center' }]}>
+                {isHold
+                  ? (s.prevHold != null && s.prevHold > 0 ? `${s.prevWeight != null ? fmtW(s.prevWeight) : '0'}${unit} × ${s.prevHold}s` : '—')
+                  : (s.prevReps != null && s.prevReps > 0 ? `${s.prevWeight != null ? fmtW(s.prevWeight) : '0'}${unit} × ${s.prevReps}` : '—')}
+              </Text>
             </View>
             <View style={styles.inputCell}>
               <View style={[styles.inputBox, { backgroundColor: isDark ? colors.inputBg : '#FFFFFF', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)' }]}>
