@@ -280,7 +280,6 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
         <View style={styles.prevCol}><Text style={[styles.prevColHeader, { color: colors.tertiaryText }]}>PREV</Text></View>
         <View style={styles.inputHeaderCol}><Text style={[styles.setHeaderText, { color: colors.secondaryText, letterSpacing: 0.5 }]} numberOfLines={1} adjustsFontSizeToFit>WEIGHT ({unit.toUpperCase()})</Text></View>
         <View style={styles.inputHeaderCol}>
-          <Text style={[styles.setHeaderText, { color: colors.secondaryText }]}>{isHold ? 'HOLD' : 'REPS'}</Text>
           {!isHold && !readOnly && (
             editingTarget ? (
               <TextInput
@@ -316,6 +315,7 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
           {!isHold && readOnly && targetReps ? (
             <Text style={{ fontSize: 10, color: accentColor, fontWeight: '600', textAlign: 'center' }}>{targetReps}</Text>
           ) : null}
+          <Text style={[styles.setHeaderText, { color: colors.secondaryText }]}>{isHold ? 'HOLD' : 'REPS'}</Text>
         </View>
         <View style={styles.checkCol} />
       </View>
@@ -2918,7 +2918,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingVertical: 5,
     paddingHorizontal: 4,
-    alignItems: 'center',
+    alignItems: 'flex-end',
   },
   dataRow: {
     flexDirection: 'row',
@@ -2953,6 +2953,7 @@ const styles = StyleSheet.create({
   inputHeaderCol: {
     flex: 1,
     alignItems: 'center',
+    justifyContent: 'flex-end',
     marginHorizontal: 4,
   },
   inputCell: {
