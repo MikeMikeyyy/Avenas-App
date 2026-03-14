@@ -176,12 +176,12 @@ function JournalDetail({
     setShowDurationEdit(false);
   };
 
-  const startEdit = (si: number, ei: number, setI: number, set: any, mode: 'reps' | 'hold') => {
+  const startEdit = (si: number, ei: number, setI: number, set: any, mode: 'reps' | 'hold', focusField: 'weight' | 'reps' = 'weight') => {
     setEditTarget({ si, ei, setI, mode });
     setEditVal1(set.weight != null ? fmtW(set.weight) : '');
     setEditVal2(mode === 'hold' ? (set.hold > 0 ? String(set.hold) : '') : (set.reps > 0 ? String(set.reps) : ''));
-    const wKey = `${si}-${ei}-${setI}`;
-    setTimeout(() => weightRefs.current[wKey]?.focus(), 50);
+    const key = `${si}-${ei}-${setI}`;
+    setTimeout(() => (focusField === 'reps' ? repsRefs.current[key] : weightRefs.current[key])?.focus(), 50);
   };
 
   const commitNotes = (si: number, ei: number) => {
@@ -481,13 +481,29 @@ function JournalDetail({
                         <>
                           {hasData ? (
                             exercise.mode === 'hold' ? (
-                              <Text style={[styles.setValue, { color: colors.primaryText, flex: 1, marginLeft: 6 }]}>
-                                {set.weight != null ? `${fmtW(set.weight)} ${unit}  ×  ` : ''}{set.hold}s
-                              </Text>
+                              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
+                                <TouchableOpacity onPress={() => { if (editTarget) commitEdit(); startEdit(si, ei, si2, set, 'hold', 'weight'); }} activeOpacity={0.5}>
+                                  <Text style={[styles.setValue, { color: colors.primaryText }]}>
+                                    {set.weight != null ? `${fmtW(set.weight)} ${unit}` : '—'}
+                                  </Text>
+                                </TouchableOpacity>
+                                {set.weight != null && <Text style={[styles.setValue, { color: colors.tertiaryText, marginHorizontal: 4 }]}>×</Text>}
+                                <TouchableOpacity onPress={() => { if (editTarget) commitEdit(); startEdit(si, ei, si2, set, 'hold', 'reps'); }} activeOpacity={0.5}>
+                                  <Text style={[styles.setValue, { color: colors.primaryText }]}>{set.hold}s</Text>
+                                </TouchableOpacity>
+                              </View>
                             ) : (
-                              <Text style={[styles.setValue, { color: colors.primaryText, flex: 1, marginLeft: 6 }]}>
-                                {set.weight != null ? `${fmtW(set.weight)} ${unit}  ×  ` : ''}{set.reps} reps
-                              </Text>
+                              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
+                                <TouchableOpacity onPress={() => { if (editTarget) commitEdit(); startEdit(si, ei, si2, set, 'reps', 'weight'); }} activeOpacity={0.5}>
+                                  <Text style={[styles.setValue, { color: colors.primaryText }]}>
+                                    {set.weight != null ? `${fmtW(set.weight)} ${unit}` : '—'}
+                                  </Text>
+                                </TouchableOpacity>
+                                {set.weight != null && <Text style={[styles.setValue, { color: colors.tertiaryText, marginHorizontal: 4 }]}>×</Text>}
+                                <TouchableOpacity onPress={() => { if (editTarget) commitEdit(); startEdit(si, ei, si2, set, 'reps', 'reps'); }} activeOpacity={0.5}>
+                                  <Text style={[styles.setValue, { color: colors.primaryText }]}>{set.reps} reps</Text>
+                                </TouchableOpacity>
+                              </View>
                             )
                           ) : (
                             <Text style={[styles.setValue, { color: colors.tertiaryText, flex: 1, marginLeft: 6 }]}>—</Text>
