@@ -558,27 +558,21 @@ export default function CreateProgramScreen() {
               </View>
             </BounceButton>
           </View>
-        ) : (
+        ) : !editId ? (
           <BounceButton
             style={[styles.saveButton, { backgroundColor: selectedColor }]}
             onPress={() => {
               const name = programName || 'Untitled Program';
-              if (editId) {
-                updateProgram(editId, name, selectedColor, splitDays);
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                router.back();
-              } else {
-                const newId = addProgram(name, selectedColor, splitDays);
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                Alert.alert(
-                  'Make Active Program?',
-                  `Would you like to make "${name}" your active program?`,
-                  [
-                    { text: 'No', onPress: () => router.back() },
-                    { text: 'Yes', style: 'default', onPress: () => { setActive(newId); router.back(); } },
-                  ]
-                );
-              }
+              const newId = addProgram(name, selectedColor, splitDays);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert(
+                'Make Active Program?',
+                `Would you like to make "${name}" your active program?`,
+                [
+                  { text: 'No', onPress: () => router.back() },
+                  { text: 'Yes', style: 'default', onPress: () => { setActive(newId); router.back(); } },
+                ]
+              );
             }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
