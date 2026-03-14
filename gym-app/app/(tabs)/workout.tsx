@@ -958,7 +958,9 @@ export default function WorkoutScreen() {
         })),
       })),
     };
-  }, [activeProgram?.id, selectedDayIndex, dayOverrides[selectedDayIndex], isLocked, lockedToday?.programId, cycleOffset]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProgram?.id, selectedDayIndex, dayOverrides[selectedDayIndex], isLocked, lockedToday?.programId, cycleOffset,
+    activeProgram?.splitDays.map(d => d.type === 'training' ? d.sessions.map(s => s.exercises.map(e => e.targetReps ?? '').join(',')).join('|') : '').join(';')]);
 
   const prevActiveId = useRef(activeId);
   const prevWorkoutLabelRef = useRef<string | null>(null);
