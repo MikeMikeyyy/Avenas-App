@@ -288,7 +288,7 @@ function JournalDetail({
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.detailScrollContent} showsVerticalScrollIndicator={false} automaticallyAdjustKeyboardInsets={true}>
+    <ScrollView contentContainerStyle={styles.detailScrollContent} showsVerticalScrollIndicator={false} automaticallyAdjustKeyboardInsets={true} keyboardShouldPersistTaps="handled">
       {/* Header */}
       <View style={styles.detailHeader}>
         <Text style={[styles.detailTitle, { color: colors.primaryText }]} numberOfLines={1}>
