@@ -580,7 +580,7 @@ export default function CreateProgramScreen() {
               <Ionicons name="checkmark" size={22} color={isLightColor(selectedColor) ? '#1C1C1E' : '#ffffff'} />
             </View>
           </BounceButton>
-        )}
+        ) : null}
       </ScrollView>
 
       <ExercisePicker
