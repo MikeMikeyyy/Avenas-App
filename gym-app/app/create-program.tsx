@@ -79,6 +79,16 @@ export default function CreateProgramScreen() {
   const [programName, setProgramName] = useState(editingProgram?.name || '');
   const [selectedColor, setSelectedColor] = useState(editingProgram?.color || PROGRAM_COLORS[0]);
   const [splitDays, setSplitDays] = useState<SplitDay[]>(editingProgram?.splitDays || []);
+  const initialSnapshot = useRef({
+    name: editingProgram?.name ?? '',
+    color: editingProgram?.color ?? PROGRAM_COLORS[0],
+    splitDays: JSON.stringify(editingProgram?.splitDays ?? []),
+  });
+  const hasChanges = !!editId && (
+    programName !== initialSnapshot.current.name ||
+    selectedColor !== initialSnapshot.current.color ||
+    JSON.stringify(splitDays) !== initialSnapshot.current.splitDays
+  );
   const [pickerTarget, setPickerTarget] = useState<{ dayIndex: number; sessionIndex: number; exerciseIndex?: number } | null>(null);
   const [returnData, setReturnData] = useState<{
     communityId: string; workoutId: string; memberName: string;
@@ -596,6 +606,23 @@ export default function CreateProgramScreen() {
       >
         <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
       </TouchableOpacity>
+
+      {/* Floating save button — appears when editing and changes have been made */}
+      {hasChanges && (
+        <TouchableOpacity
+          style={[styles.floatingSaveButton, { backgroundColor: selectedColor }]}
+          activeOpacity={0.85}
+          onPress={() => {
+            const name = programName || 'Untitled Program';
+            updateProgram(editId!, name, selectedColor, splitDays);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            router.back();
+          }}
+        >
+          <Ionicons name="checkmark" size={20} color={isLightColor(selectedColor) ? '#1C1C1E' : '#ffffff'} />
+          <Text style={[styles.saveButtonText, { color: isLightColor(selectedColor) ? '#1C1C1E' : '#ffffff' }]}>Save Changes</Text>
+        </TouchableOpacity>
+      )}
     </LinearGradient>
   );
 }
@@ -881,6 +908,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 32,
+  },
+  floatingSaveButton: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 40 : 24,
+    left: 24,
+    right: 24,
+    height: 52,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 20,
   },
   saveButtonText: {
     fontSize: 16,
