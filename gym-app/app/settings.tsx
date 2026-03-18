@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
-import { doc, updateDoc, deleteField } from 'firebase/firestore';
+import { doc, updateDoc, deleteField, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { useTheme } from '../themeStore';
@@ -152,6 +152,10 @@ export default function SettingsScreen() {
   const [changeEmailVisible, setChangeEmailVisible] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [emailCurrentPw, setEmailCurrentPw] = useState('');
+
+  // Clear data modal
+  const [clearDataVisible, setClearDataVisible] = useState(false);
+  const [keepCommunities, setKeepCommunities] = useState(true);
 
   // Shared modal state
   const [modalLoading, setModalLoading] = useState(false);
@@ -364,19 +368,10 @@ export default function SettingsScreen() {
           {SUPPORT_ITEMS.map((item, i) => renderSettingsItem(item, i, i === SUPPORT_ITEMS.length - 1))}
         </View>
 
-        {/* Dev — Clear All Data */}
-        <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>DEVELOPER</Text>
+        {/* Clear All Data */}
         <BounceButton
-          style={[styles.logoutButton, { backgroundColor: colors.cardSolid, marginBottom: 12 }]}
-          onPress={() => {
-            Alert.alert('Clear All Data', 'This will wipe all workouts, journal entries, history and programs. Cannot be undone.', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Clear Everything', style: 'destructive', onPress: async () => {
-                await AsyncStorage.clear();
-                Alert.alert('Done', 'All data cleared. Please restart the app.');
-              }},
-            ]);
-          }}
+          style={[styles.logoutButton, { backgroundColor: colors.cardSolid }]}
+          onPress={() => { setKeepCommunities(true); setClearDataVisible(true); }}
         >
           <Ionicons name="trash-outline" size={20} color="#FF3B30" />
           <Text style={styles.logoutText}>Clear All Data</Text>
@@ -403,7 +398,7 @@ export default function SettingsScreen() {
       </ScrollView>
 
       {/* ── Edit Profile Modal ── */}
-      <BottomSheetModal visible={editProfileVisible} onDismiss={closeModals}>
+      <BottomSheetModal visible={editProfileVisible} onDismiss={closeModals} sheetBackground={colors.modalBg}>
         <View style={[styles.modalContent, { backgroundColor: colors.modalBg }]}>
           <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Edit Username</Text>
           <View style={[styles.modalInputWrap, { backgroundColor: colors.inputBg }]}>
@@ -420,17 +415,17 @@ export default function SettingsScreen() {
           </View>
           {!!modalError && <Text style={styles.modalError}>{modalError}</Text>}
           <TouchableOpacity
-            style={[styles.modalBtn, modalLoading && { opacity: 0.6 }]}
+            style={[styles.modalBtn, { backgroundColor: '#47DDFF' }, modalLoading && { opacity: 0.6 }]}
             onPress={handleSaveName}
             disabled={modalLoading}
           >
-            {modalLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalBtnText}>Save</Text>}
+            {modalLoading ? <ActivityIndicator color="#000" /> : <Text style={[styles.modalBtnText, { color: '#000' }]}>Save</Text>}
           </TouchableOpacity>
         </View>
       </BottomSheetModal>
 
       {/* ── Change Password Modal ── */}
-      <BottomSheetModal visible={changePwVisible} onDismiss={closeModals}>
+      <BottomSheetModal visible={changePwVisible} onDismiss={closeModals} sheetBackground={colors.modalBg}>
         <View style={[styles.modalContent, { backgroundColor: colors.modalBg }]}>
           <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Change Password</Text>
 
@@ -491,17 +486,17 @@ export default function SettingsScreen() {
 
           {!!modalError && <Text style={styles.modalError}>{modalError}</Text>}
           <TouchableOpacity
-            style={[styles.modalBtn, modalLoading && { opacity: 0.6 }]}
+            style={[styles.modalBtn, { backgroundColor: '#47DDFF' }, modalLoading && { opacity: 0.6 }]}
             onPress={handleSavePassword}
             disabled={modalLoading}
           >
-            {modalLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalBtnText}>Update Password</Text>}
+            {modalLoading ? <ActivityIndicator color="#000" /> : <Text style={[styles.modalBtnText, { color: '#000' }]}>Update Password</Text>}
           </TouchableOpacity>
         </View>
       </BottomSheetModal>
 
       {/* ── Change Email Modal ── */}
-      <BottomSheetModal visible={changeEmailVisible} onDismiss={closeModals}>
+      <BottomSheetModal visible={changeEmailVisible} onDismiss={closeModals} sheetBackground={colors.modalBg}>
         <View style={[styles.modalContent, { backgroundColor: colors.modalBg }]}>
           <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Change Email</Text>
           <Text style={[styles.modalSubtitle, { color: colors.tertiaryText }]}>Current: {displayEmail}</Text>
@@ -537,11 +532,92 @@ export default function SettingsScreen() {
 
           {!!modalError && <Text style={styles.modalError}>{modalError}</Text>}
           <TouchableOpacity
-            style={[styles.modalBtn, modalLoading && { opacity: 0.6 }]}
+            style={[styles.modalBtn, { backgroundColor: '#47DDFF' }, modalLoading && { opacity: 0.6 }]}
             onPress={handleSaveEmail}
             disabled={modalLoading}
           >
-            {modalLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalBtnText}>Update Email</Text>}
+            {modalLoading ? <ActivityIndicator color="#000" /> : <Text style={[styles.modalBtnText, { color: '#000' }]}>Update Email</Text>}
+          </TouchableOpacity>
+        </View>
+      </BottomSheetModal>
+
+      {/* ── Clear Data Modal ── */}
+      <BottomSheetModal visible={clearDataVisible} onDismiss={() => setClearDataVisible(false)} sheetBackground={colors.modalBg}>
+        <View style={[styles.modalContent, { backgroundColor: colors.modalBg }]}>
+          <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Clear All Data</Text>
+          <Text style={[styles.modalSubtitle, { color: colors.tertiaryText }]}>
+            This will permanently delete your workouts, journal, programs and exercise history. This cannot be undone.
+          </Text>
+
+          {/* Keep communities toggle */}
+          <TouchableOpacity
+            style={styles.clearDataToggleRow}
+            onPress={() => setKeepCommunities(v => !v)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.clearDataCheckbox, { borderColor: colors.border, backgroundColor: keepCommunities ? '#47DDFF' : 'transparent' }]}>
+              {keepCommunities && <Ionicons name="checkmark" size={13} color="#fff" />}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.clearDataToggleLabel, { color: colors.primaryText }]}>Keep my communities</Text>
+              <Text style={[styles.clearDataToggleSub, { color: colors.tertiaryText }]}>Stay in all communities you own or are a member of</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Buttons */}
+          <TouchableOpacity
+            style={[styles.modalBtn, { backgroundColor: '#FF3B30' }]}
+            activeOpacity={0.8}
+            onPress={() => {
+              Alert.alert(
+                'Erase Your Data?',
+                'This will permanently delete your workout history, programs, journal, and progress data. This cannot be undone.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Erase',
+                    style: 'destructive',
+                    onPress: async () => {
+                      setClearDataVisible(false);
+                      if (user) {
+                        // Delete Firestore workout & program data
+                        await deleteDoc(doc(db, 'users', user.uid, 'data', 'workout')).catch(() => {});
+                        await deleteDoc(doc(db, 'users', user.uid, 'data', 'programs')).catch(() => {});
+                        if (!keepCommunities) {
+                          await deleteDoc(doc(db, 'users', user.uid, 'data', 'communityMemberships')).catch(() => {});
+                        }
+                        // Preserve community read-count keys if keeping communities
+                        if (keepCommunities) {
+                          const allKeys = await AsyncStorage.getAllKeys().catch(() => [] as string[]);
+                          const keep = allKeys.filter(k =>
+                            k.startsWith(`@readGroupCounts_${user.uid}`) ||
+                            k.startsWith(`@readPrivateCounts_${user.uid}`)
+                          );
+                          const remove = allKeys.filter(k => !keep.includes(k));
+                          if (remove.length > 0) await AsyncStorage.multiRemove(remove).catch(() => {});
+                        } else {
+                          await AsyncStorage.clear().catch(() => {});
+                        }
+                      } else {
+                        await AsyncStorage.clear().catch(() => {});
+                      }
+                      await signOut();
+                      router.replace('/');
+                    },
+                  },
+                ]
+              );
+            }}
+          >
+            <Text style={styles.modalBtnText}>Clear Everything</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.modalBtn, { backgroundColor: colors.cardTranslucent, borderWidth: 1, borderColor: colors.cardBorder }]}
+            activeOpacity={0.8}
+            onPress={() => setClearDataVisible(false)}
+          >
+            <Text style={[styles.modalBtnText, { color: colors.primaryText }]}>Cancel</Text>
           </TouchableOpacity>
         </View>
       </BottomSheetModal>
@@ -624,5 +700,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#1C1C1E', borderRadius: 14,
     height: 52, alignItems: 'center', justifyContent: 'center', marginTop: 4,
   },
-  modalBtnText: { color: '#fff', fontSize: 16, fontFamily: 'Arimo_700Bold' },
+  modalBtnText: { color: '#fff', fontSize: 16, fontFamily: 'Arimo_700Bold', textAlign: 'center' },
+  clearDataToggleRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 12, paddingHorizontal: 4,
+  },
+  clearDataCheckbox: {
+    width: 22, height: 22, borderRadius: 6, borderWidth: 2,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  clearDataToggleLabel: { fontSize: 15, fontFamily: 'Arimo_700Bold' },
+  clearDataToggleSub: { fontSize: 12, fontFamily: 'Arimo_400Regular', marginTop: 2 },
 });

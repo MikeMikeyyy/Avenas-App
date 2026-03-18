@@ -9,7 +9,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Platform,
   Animated,
   PanResponder,
   Image,
@@ -278,15 +277,25 @@ function LineChart({
   const PAD_X = 20;
   const Y_AXIS_W = 52;
   const DOT_SPACING = 60;
+  const MAX_DOT_SPACING = 80;
   const MIN_TICK_PX = 35;
   const axisColor = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.14)';
 
-  const ticks = data.length > 0 ? getNiceTicks(minW, maxW, 10) : [0, 5, 10];
+  // Pad the visible range so closely-clustered data doesn't produce micro-increments.
+  // Minimum span = larger of: actual range, 15% of the max value, or 5 units.
+  const range = maxW - minW;
+  const minSpan = Math.max(range, maxW * 0.15, 5);
+  const center = (minW + maxW) / 2;
+  const paddedMin = Math.max(0, center - minSpan / 2);
+  const paddedMax = center + minSpan / 2;
+  // Max ticks that physically fit in the fixed chart height — prevents vertical scrolling
+  const maxTickCount = Math.floor((CHART_HEIGHT - PAD_Y * 2) / MIN_TICK_PX) + 1;
+  const ticks = data.length > 0 ? getNiceTicks(paddedMin, paddedMax, maxTickCount) : [0, 5, 10];
   const niceMin = ticks[0];
   const niceMax = ticks[ticks.length - 1];
   const niceRange = niceMax - niceMin || 1;
 
-  const fullH = Math.min(500, Math.max(CHART_HEIGHT, (ticks.length - 1) * MIN_TICK_PX + PAD_Y * 2));
+  const fullH = CHART_HEIGHT; // Always fixed — maxY is always 0, no vertical panning
   const tickY = (v: number) => PAD_Y + (1 - (v - niceMin) / niceRange) * (fullH - PAD_Y * 2);
   const formatTick = (v: number) => v % 1 === 0 ? String(v) : v.toFixed(1);
 
@@ -295,8 +304,16 @@ function LineChart({
     ? Math.max(containerWidth, count * DOT_SPACING + PAD_X * 2)
     : 0;
 
+  // Cap spacing so points are never more than MAX_DOT_SPACING apart.
+  // When fewer points than needed to fill the container, centre them in the SVG.
+  const rawUsedWidth = count <= 1 ? 0 : (count - 1) * MAX_DOT_SPACING + PAD_X * 2;
+  const pointsWidth = Math.min(rawUsedWidth, svgWidth);
+  const pointsOffset = rawUsedWidth <= svgWidth ? (svgWidth - rawUsedWidth) / 2 : 0;
+
   const points = data.map((d, i) => ({
-    x: count === 1 ? svgWidth / 2 : PAD_X + (i / (count - 1)) * (svgWidth - PAD_X * 2),
+    x: count === 1
+      ? svgWidth / 2
+      : pointsOffset + PAD_X + (i / (count - 1)) * (pointsWidth - PAD_X * 2),
     y: tickY(d.weight),
     color: d.color || accentColor,
   }));
@@ -334,8 +351,16 @@ function LineChart({
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => {
+        const maxX = Math.max(0, svgWidthRef.current - containerWidthRef.current);
+        const maxY = Math.max(0, fullHRef.current - CHART_HEIGHT);
+        return maxX > 0 || maxY > 0;
+      },
+      onMoveShouldSetPanResponder: () => {
+        const maxX = Math.max(0, svgWidthRef.current - containerWidthRef.current);
+        const maxY = Math.max(0, fullHRef.current - CHART_HEIGHT);
+        return maxX > 0 || maxY > 0;
+      },
       onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => { onPanActiveRef.current?.(true); },
       onPanResponderMove: (_, { dx, dy }) => {
@@ -425,7 +450,9 @@ function LineChart({
             {svgWidth > 0 && (
               <View style={{ width: svgWidth, height: 20 }}>
                 {data.map((d, i) => {
-                  const labelX = count === 1 ? svgWidth / 2 : PAD_X + (i / (count - 1)) * (svgWidth - PAD_X * 2);
+                  const labelX = count === 1
+                    ? svgWidth / 2
+                    : pointsOffset + PAD_X + (i / (count - 1)) * (pointsWidth - PAD_X * 2);
                   return (
                     <Text key={i} style={[pvStyles.lineChartLabel, { color: colors.secondaryText, position: 'absolute', left: labelX - 20, width: 40, textAlign: 'center' }]}>
                       {d.date}
@@ -466,7 +493,7 @@ export function ProgressView({
   scrollRef,
   initialProgramName,
 }: Props) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { programs, activeId } = useProgramStore();
   const [chartPanning, setChartPanning] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodKey>('week');
@@ -638,15 +665,50 @@ export function ProgressView({
     return Array.from(byDay.values()).sort((a, b) => a.date - b.date);
   }, [filteredJournal, selectedExercise]);
 
+  // ── Body-weight reps history (0 kg sets, reps-only) ──────────────────────────
+  const bodyweightHistory = useMemo(() => {
+    if (!selectedExercise) return [];
+    const byDay = new Map<string, { date: number; maxReps: number; color: string; programName?: string }>();
+    for (const entry of filteredJournal) {
+      for (const session of entry.sessions) {
+        const ex = session.exercises.find(e => e.name === selectedExercise);
+        if (!ex || ex.mode === 'hold') continue;
+        const bwSets = ex.sets.filter(s => (s.weight ?? 0) === 0 && (s.reps ?? 0) > 0);
+        if (bwSets.length === 0) continue;
+        const maxReps = Math.max(...bwSets.map(s => s.reps));
+        const dayStr = new Date(entry.date).toDateString();
+        const existing = byDay.get(dayStr);
+        if (!existing || maxReps > existing.maxReps) {
+          byDay.set(dayStr, { date: entry.date, maxReps, color: entry.programColor, programName: entry.programName });
+        }
+      }
+    }
+    return Array.from(byDay.values()).sort((a, b) => a.date - b.date);
+  }, [filteredJournal, selectedExercise]);
+
   // ── Chart data ────────────────────────────────────────────────────────────────
   const THREE_MONTHS_AGO = Date.now() - 90 * 24 * 60 * 60 * 1000;
-  const rawHistory = historyForExercise.filter(e => e.date >= THREE_MONTHS_AGO);
+  // Fall back to all available data if nothing in the last 90 days (exercise not done recently)
+  const rawHistory90 = historyForExercise.filter(e => e.date >= THREE_MONTHS_AGO);
+  const rawHistory = rawHistory90.length > 0 ? rawHistory90 : historyForExercise;
   const repsHistory = rawHistory.filter(e => (e.repsWeight ?? 0) > 0);
   const exerciseData = repsHistory.map(entry => ({
     date: formatHistoryDate(entry.date),
     weight: toDisplay(exerciseMetric === 'heaviest' ? (entry.repsWeight ?? entry.weight) : entry.bestSetVolume),
     color: derivedPrograms.find(p => p.name === entry.programName)?.color ?? entry.programColor,
   }));
+
+  // Body-weight chart data (max reps per day, 0 kg)
+  const rawBw90 = bodyweightHistory.filter(e => e.date >= THREE_MONTHS_AGO);
+  const rawBw = rawBw90.length > 0 ? rawBw90 : bodyweightHistory;
+  const bodyweightData = rawBw.map(e => ({
+    date: formatHistoryDate(e.date),
+    weight: e.maxReps,
+    color: derivedPrograms.find(p => p.name === e.programName)?.color ?? e.color,
+  }));
+  const maxBwReps = bodyweightHistory.length > 0 ? Math.max(...bodyweightHistory.map(e => e.maxReps)) : undefined;
+  // Only use bodyweight display when the exercise has zero weighted history
+  const isBodyweightChart = repsHistory.length === 0 && bodyweightData.length > 0;
 
   const exerciseColor = trainingDays.find(d => d.exercises.includes(selectedExercise))?.color ?? accentColor;
 
@@ -823,84 +885,112 @@ export function ProgressView({
           {/* Selected exercise label */}
           {selectedExercise ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20, marginBottom: 4, paddingHorizontal: 2 }}>
-              <View style={{ flex: 1, height: 1, backgroundColor: exerciseColor, opacity: 0.3 }} />
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, backgroundColor: `${exerciseColor}18`, borderWidth: 1, borderColor: `${exerciseColor}40` }}>
-                <Ionicons name="barbell-outline" size={13} color={exerciseColor} />
-                <Text style={{ fontSize: 13, fontFamily: 'Arimo_700Bold', color: exerciseColor }} numberOfLines={1}>{selectedExercise}</Text>
+              <View style={{ flex: 1, height: 2, backgroundColor: exerciseColor, opacity: 0.6, borderRadius: 1 }} />
+              <View style={{ maxWidth: '70%', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, backgroundColor: `${exerciseColor}18`, borderWidth: 1.5, borderColor: exerciseColor }}>
+                <Ionicons name="barbell-outline" size={13} color={isDark ? '#fff' : colors.primaryText} style={{ flexShrink: 0 }} />
+                <Text style={{ fontSize: 13, fontFamily: 'Arimo_700Bold', color: isDark ? '#fff' : colors.primaryText, flexShrink: 1, textAlign: 'center' }}>{selectedExercise}</Text>
               </View>
-              <View style={{ flex: 1, height: 1, backgroundColor: exerciseColor, opacity: 0.3 }} />
+              <View style={{ flex: 1, height: 2, backgroundColor: exerciseColor, opacity: 0.6, borderRadius: 1 }} />
             </View>
           ) : null}
 
-          {/* Weight progression chart */}
+          {/* Weight / Reps progression chart */}
           <View style={[pvStyles.glassCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder, marginTop: 16 }]}>
-            <Text style={[pvStyles.cardLabel, { color: colors.secondaryText, marginBottom: 12 }]}>WEIGHT PROGRESSION</Text>
+            <Text style={[pvStyles.cardLabel, { color: colors.secondaryText, marginBottom: 12 }]}>
+              {isBodyweightChart ? 'REPS PROGRESSION (BODY WEIGHT)' : 'WEIGHT PROGRESSION'}
+            </Text>
             <Animated.View style={{ opacity: chartFade }}>
               {exerciseData.length > 0 ? (
                 <LineChart data={exerciseData} accentColor={exerciseColor} yUnit={unit} onPanActive={setChartPanning} />
-              ) : (
-                <Text style={[pvStyles.emptyText, { color: colors.secondaryText }]}>No data for this exercise yet</Text>
-              )}
-            </Animated.View>
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-              {([
-                { key: 'heaviest', label: 'Heaviest Weight' },
-                { key: 'setVolume', label: 'Best Set Volume' },
-              ] as const).map(opt => {
-                const isActive = exerciseMetric === opt.key;
-                return (
-                  <TouchableOpacity
-                    key={opt.key}
-                    onPress={() => handleMetricChange(opt.key)}
-                    style={[pvStyles.periodPill, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }, isActive && { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor }]}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[pvStyles.periodPillText, { color: colors.secondaryText }, isActive && { color: colors.primaryText }]}>{opt.label}</Text>
-                  </TouchableOpacity>
+              ) : isBodyweightChart ? (
+                <LineChart data={bodyweightData} accentColor={exerciseColor} yUnit=" reps" onPanActive={setChartPanning} />
+              ) : (() => {
+                const inJournalNoWeight = filteredJournal.some(entry =>
+                  entry.sessions.some(session =>
+                    session.exercises.some(ex => ex.name === selectedExercise && ex.sets.some(s => s.reps > 0))
+                  )
                 );
-              })}
-            </View>
+                return (
+                  <Text style={[pvStyles.emptyText, { color: colors.secondaryText }]}>
+                    {inJournalNoWeight
+                      ? 'No weight recorded for this exercise. Enter weight in the journal to track progress.'
+                      : 'No data for this exercise yet'}
+                  </Text>
+                );
+              })()}
+            </Animated.View>
+            {!isBodyweightChart && (
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                {([
+                  { key: 'heaviest', label: 'Heaviest Weight' },
+                  { key: 'setVolume', label: 'Best Set Volume' },
+                ] as const).map(opt => {
+                  const isActive = exerciseMetric === opt.key;
+                  return (
+                    <TouchableOpacity
+                      key={opt.key}
+                      onPress={() => handleMetricChange(opt.key)}
+                      style={[pvStyles.periodPill, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }, isActive && { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor }]}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[pvStyles.periodPillText, { color: colors.secondaryText }, isActive && { color: colors.primaryText }]}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
           </View>
 
           {/* Personal records */}
-          {rawHistory.length > 0 && (
+          {(rawHistory.length > 0 || (repsHistory.length === 0 && maxBwReps !== undefined)) && (
             <View style={[pvStyles.glassCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
               <Text style={[pvStyles.cardLabel, { color: colors.secondaryText, marginBottom: 12 }]}>PERSONAL RECORDS</Text>
               <View style={{ flexDirection: 'column', gap: 10 }}>
-                <View style={[pvStyles.prStatCell, { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor }]}>
-                  <Ionicons name="barbell-outline" size={16} color={exerciseColor} />
-                  <Text style={[pvStyles.prStatValue, { color: colors.primaryText }]}>
-                    {heaviestPR !== undefined ? `${formatWeight(heaviestPR)}${unit}` : '—'}
-                  </Text>
-                  <Text style={[pvStyles.prStatLabel, { color: colors.secondaryText }]}>Heaviest Weight</Text>
-                </View>
-                {bestVolumeEntry && (
-                  <View style={[pvStyles.prStatCell, { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor }]}>
-                    <Ionicons name="layers-outline" size={16} color={exerciseColor} />
-                    <Text style={[pvStyles.prStatValue, { color: colors.primaryText }]}>
-                      {`${formatWeight(toDisplay(bestVolumeEntry.bestSetWeight!))}${unit} × ${bestVolumeEntry.bestSetReps ?? 0}`}
-                    </Text>
-                    <Text style={[pvStyles.prStatLabel, { color: colors.secondaryText }]}>Best Set Volume</Text>
-                  </View>
-                )}
-                {bestMultiRepPR !== undefined && (
+                {repsHistory.length === 0 && maxBwReps !== undefined && (
                   <View style={[pvStyles.prStatCell, { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor }]}>
                     <Ionicons name="trophy-outline" size={16} color={exerciseColor} />
                     <Text style={[pvStyles.prStatValue, { color: colors.primaryText }]}>
-                      {`${formatWeight(bestMultiRepPR)}${unit}`}
+                      {`${maxBwReps} reps`}
                     </Text>
-                    <Text style={[pvStyles.prStatLabel, { color: colors.secondaryText }]}>Heaviest 2+ Reps</Text>
+                    <Text style={[pvStyles.prStatLabel, { color: colors.secondaryText }]}>Max Reps (Body Weight)</Text>
                   </View>
                 )}
-                {bestIsometricEntry && (
+                {rawHistory.length > 0 && (<>
                   <View style={[pvStyles.prStatCell, { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor }]}>
-                    <Ionicons name="timer-outline" size={16} color={exerciseColor} />
+                    <Ionicons name="barbell-outline" size={16} color={exerciseColor} />
                     <Text style={[pvStyles.prStatValue, { color: colors.primaryText }]}>
-                      {`${formatWeight(toDisplay(bestIsometricEntry.bestIsometricWeight!))}${unit} × ${bestIsometricEntry.bestIsometricHold ?? 0}s`}
+                      {heaviestPR !== undefined ? `${formatWeight(heaviestPR)}${unit}` : '—'}
                     </Text>
-                    <Text style={[pvStyles.prStatLabel, { color: colors.secondaryText }]}>Best Isometric Hold</Text>
+                    <Text style={[pvStyles.prStatLabel, { color: colors.secondaryText }]}>Heaviest Weight</Text>
                   </View>
-                )}
+                  {bestVolumeEntry && (
+                    <View style={[pvStyles.prStatCell, { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor }]}>
+                      <Ionicons name="layers-outline" size={16} color={exerciseColor} />
+                      <Text style={[pvStyles.prStatValue, { color: colors.primaryText }]}>
+                        {`${formatWeight(toDisplay(bestVolumeEntry.bestSetWeight!))}${unit} × ${bestVolumeEntry.bestSetReps ?? 0}`}
+                      </Text>
+                      <Text style={[pvStyles.prStatLabel, { color: colors.secondaryText }]}>Best Set Volume</Text>
+                    </View>
+                  )}
+                  {bestMultiRepPR !== undefined && (
+                    <View style={[pvStyles.prStatCell, { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor }]}>
+                      <Ionicons name="trophy-outline" size={16} color={exerciseColor} />
+                      <Text style={[pvStyles.prStatValue, { color: colors.primaryText }]}>
+                        {`${formatWeight(bestMultiRepPR)}${unit}`}
+                      </Text>
+                      <Text style={[pvStyles.prStatLabel, { color: colors.secondaryText }]}>Heaviest 2+ Reps</Text>
+                    </View>
+                  )}
+                  {bestIsometricEntry && (
+                    <View style={[pvStyles.prStatCell, { backgroundColor: `${exerciseColor}25`, borderColor: exerciseColor }]}>
+                      <Ionicons name="timer-outline" size={16} color={exerciseColor} />
+                      <Text style={[pvStyles.prStatValue, { color: colors.primaryText }]}>
+                        {`${formatWeight(toDisplay(bestIsometricEntry.bestIsometricWeight!))}${unit} × ${bestIsometricEntry.bestIsometricHold ?? 0}s`}
+                      </Text>
+                      <Text style={[pvStyles.prStatLabel, { color: colors.secondaryText }]}>Best Isometric Hold</Text>
+                    </View>
+                  )}
+                </>)}
               </View>
             </View>
           )}

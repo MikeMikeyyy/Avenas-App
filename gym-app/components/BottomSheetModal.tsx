@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Modal, Animated, TouchableOpacity, StyleSheet, View, KeyboardAvoidingView, Platform } from 'react-native';
+import { Modal, Animated, TouchableOpacity, StyleSheet, View, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 
 interface Props {
   visible: boolean;
@@ -26,8 +26,21 @@ export function BottomSheetModal({
   children,
 }: Props) {
   const [showing, setShowing] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const overlayOpacity = useRef(new Animated.Value(0)).current;
   const sheetOffset = useRef(new Animated.Value(700)).current;
+
+  useEffect(() => {
+    const show = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setKeyboardVisible(true)
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardVisible(false)
+    );
+    return () => { show.remove(); hide.remove(); };
+  }, []);
 
   useEffect(() => {
     if (visible) {
@@ -49,7 +62,7 @@ export function BottomSheetModal({
   return (
     <Modal visible={showing} transparent animationType="none" onRequestClose={onDismiss}>
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
+        style={{ flex: 1, backgroundColor: 'transparent' }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <Animated.View
@@ -61,7 +74,7 @@ export function BottomSheetModal({
           {children}
           {/* Extension area — fills the gap between sheet content and physical screen bottom.
               When a footer is provided it renders here so buttons sit at the bottom. */}
-          <View style={{ backgroundColor: sheetBackground, paddingHorizontal: 20, paddingTop: footer ? 12 : 0, paddingBottom: 34 }}>
+          <View style={{ backgroundColor: sheetBackground, paddingHorizontal: 20, paddingTop: footer ? 12 : 0, paddingBottom: keyboardVisible ? 8 : 34 }}>
             {footer}
           </View>
         </Animated.View>
