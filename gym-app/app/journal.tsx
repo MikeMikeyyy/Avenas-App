@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -22,13 +22,14 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
-import { workoutState, WorkoutJournalEntry, LoggedSession } from '../workoutState';
+import { workoutState, WorkoutJournalEntry, LoggedSession, LoggedExercise } from '../workoutState';
 import { useTheme } from '../themeStore';
 import { useUnits } from '../unitsStore';
 import { useProgramStore, getDayLabel, getDayExerciseCount } from '../programStore';
 import type { Program } from '../programStore';
 import { BottomSheetModal } from '../components/BottomSheetModal';
 import { ExerciseInfoModal } from '../components/ExerciseInfoModal';
+import { ExercisePicker } from '../components/ExercisePicker';
 import exerciseDbRaw from '../assets/data/exercises.json';
 
 const IMAGE_BASE = 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/';
@@ -114,6 +115,7 @@ function buildMonths(entries: WorkoutJournalEntry[]): MonthData[] {
 }
 
 const CELL_SIZE = Math.floor((Dimensions.get('window').width - 72) / 7);
+const PICK_ITEM_H = 50;
 const DAY_HEADERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 // ─── Detail View ────────────────────────────────────────────────────────────
@@ -144,6 +146,14 @@ function JournalDetail({
   const repsRefs = useRef<Record<string, TextInput | null>>({});
   const notesRefs = useRef<Record<string, TextInput | null>>({});
 
+  // Refs so keyboard listener always sees the latest values without re-subscribing
+  const editTargetRef = useRef(editTarget);
+  editTargetRef.current = editTarget;
+  const editVal1Ref = useRef(editVal1);
+  editVal1Ref.current = editVal1;
+  const editVal2Ref = useRef(editVal2);
+  editVal2Ref.current = editVal2;
+
   const [editingNotesKey, setEditingNotesKey] = useState<string | null>(null);
   const [notesVal, setNotesVal] = useState('');
 
@@ -151,30 +161,55 @@ function JournalDetail({
   const [infoExerciseName, setInfoExerciseName] = useState<string | null>(null);
   const [confirmRemoveKey, setConfirmRemoveKey] = useState<string | null>(null);
   const [changeExerciseTarget, setChangeExerciseTarget] = useState<{ si: number; ei: number } | null>(null);
-  const [newExerciseName, setNewExerciseName] = useState('');
+  const [addExerciseSessionIndex, setAddExerciseSessionIndex] = useState<number | null>(null);
 
   const [showDurationEdit, setShowDurationEdit] = useState(false);
-  const [durationH, setDurationH] = useState('');
-  const [durationM, setDurationM] = useState('');
+  const [journalStartTime, setJournalStartTime] = useState<Date | null>(null);
+  const [journalEndTime, setJournalEndTime] = useState<Date | null>(null);
+  const [editingJournalTime, setEditingJournalTime] = useState<'start' | 'end' | null>(null);
+  const [pickerHour, setPickerHour] = useState(12);
+  const [pickerMinute, setPickerMinute] = useState(0);
+  const [pickerAmPm, setPickerAmPm] = useState<'AM' | 'PM'>('AM');
+  const hourScrollRef = useRef<ScrollView | null>(null);
+  const minuteScrollRef = useRef<ScrollView | null>(null);
+  const ampmScrollRef = useRef<ScrollView | null>(null);
 
   const openDurationEdit = () => {
-    const h = Math.floor(entry.durationSecs / 3600);
-    const m = Math.floor((entry.durationSecs % 3600) / 60);
-    setDurationH(h > 0 ? String(h) : '');
-    setDurationM(m > 0 ? String(m) : '');
+    const now = new Date();
+    const endTime = new Date(now);
+    const startTime = new Date(now.getTime() - (entry.durationSecs || 3600) * 1000);
+    setJournalEndTime(endTime);
+    setJournalStartTime(startTime);
     setShowDurationEdit(true);
   };
 
-  const commitDuration = () => {
-    const h = parseInt(durationH) || 0;
-    const m = parseInt(durationM) || 0;
-    const secs = h * 3600 + m * 60;
-    if (secs <= 0) {
-      Alert.alert('Invalid Duration', 'Please enter at least 1 minute.');
-      return;
-    }
-    onUpdateEntry({ ...entry, durationSecs: secs });
-    setShowDurationEdit(false);
+  useEffect(() => {
+    if (!editingJournalTime) return;
+    const time = editingJournalTime === 'start' ? (journalStartTime ?? new Date()) : (journalEndTime ?? new Date());
+    const h24 = time.getHours();
+    const ampm: 'AM' | 'PM' = h24 >= 12 ? 'PM' : 'AM';
+    const h12 = h24 % 12 || 12;
+    const min = time.getMinutes();
+    setPickerHour(h12);
+    setPickerMinute(min);
+    setPickerAmPm(ampm);
+    setTimeout(() => {
+      hourScrollRef.current?.scrollTo({ y: (h12 - 1) * PICK_ITEM_H, animated: false });
+      minuteScrollRef.current?.scrollTo({ y: min * PICK_ITEM_H, animated: false });
+      ampmScrollRef.current?.scrollTo({ y: (ampm === 'PM' ? 1 : 0) * PICK_ITEM_H, animated: false });
+    }, 120);
+  }, [editingJournalTime]);
+
+  const applyJournalTimePick = () => {
+    const h24 = pickerAmPm === 'PM'
+      ? (pickerHour === 12 ? 12 : pickerHour + 12)
+      : (pickerHour === 12 ? 0 : pickerHour);
+    const base = editingJournalTime === 'start' ? (journalStartTime ?? new Date()) : (journalEndTime ?? new Date());
+    const date = new Date(base);
+    date.setHours(h24, pickerMinute, 0, 0);
+    if (editingJournalTime === 'start') setJournalStartTime(date);
+    else setJournalEndTime(date);
+    setEditingJournalTime(null);
   };
 
   const startEdit = (si: number, ei: number, setI: number, set: any, mode: 'reps' | 'hold', focusField: 'weight' | 'reps' = 'weight') => {
@@ -247,17 +282,8 @@ function JournalDetail({
     onUpdateEntry(newEntry);
   };
 
-  const commitChangeExercise = () => {
-    if (!changeExerciseTarget || !newExerciseName.trim()) return;
-    const { si, ei } = changeExerciseTarget;
-    const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
-    newEntry.sessions[si].exercises[ei].name = newExerciseName.trim();
-    onUpdateEntry(newEntry);
-    setChangeExerciseTarget(null);
-    setNewExerciseName('');
-  };
 
-  const commitEdit = () => {
+  const commitEdit = (dismissKeyboard = true) => {
     if (!editTarget) return;
     const { si, ei, setI, mode } = editTarget;
     const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
@@ -271,8 +297,30 @@ function JournalDetail({
     }
     onUpdateEntry(newEntry);
     setEditTarget(null);
-    Keyboard.dismiss();
+    if (dismissKeyboard) Keyboard.dismiss();
   };
+
+  // When the keyboard is dismissed by tapping outside (not via the tick button),
+  // save the current edit and clear the tick icon.
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidHide', () => {
+      if (!editTargetRef.current) return;
+      const { si, ei, setI, mode } = editTargetRef.current;
+      const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
+      const s = newEntry.sessions[si].exercises[ei].sets[setI];
+      const w = editVal1Ref.current === '' ? null : parseFloat(editVal1Ref.current);
+      s.weight = (w === null || isNaN(w)) ? null : toKg(w);
+      if (mode === 'hold') {
+        s.hold = parseFloat(editVal2Ref.current) || 0;
+      } else {
+        s.reps = parseInt(editVal2Ref.current) || 0;
+      }
+      onUpdateEntry(newEntry);
+      setEditTarget(null);
+    });
+    return () => sub.remove();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry, toKg, onUpdateEntry]);
 
   const advanceToSet = (nextSi: number, nextEi: number, nextSetI: number, nextSet: any, nextMode: 'reps' | 'hold') => {
     if (!editTarget) return;
@@ -288,11 +336,9 @@ function JournalDetail({
       s.reps = parseInt(editVal2) || 0;
     }
     onUpdateEntry(newEntry);
-    // Update state first (makes next set's inputs editable=true)
     setEditTarget({ si: nextSi, ei: nextEi, setI: nextSetI, mode: nextMode });
     setEditVal1(nextSet.weight != null ? fmtW(nextSet.weight) : '');
     setEditVal2(nextMode === 'hold' ? (nextSet.hold > 0 ? String(nextSet.hold) : '') : (nextSet.reps > 0 ? String(nextSet.reps) : ''));
-    // Focus AFTER state update so the input is editable when focused
     setTimeout(() => weightRefs.current[`${nextSi}-${nextEi}-${nextSetI}`]?.focus(), 50);
   };
 
@@ -411,7 +457,7 @@ function JournalDetail({
                       style={[styles.setRow, si2 < exercise.sets.length - 1 && { borderBottomWidth: 1, borderBottomColor: rowDividerColor }]}
                       onPress={() => {
                         if (isEditing) return;
-                        if (editTarget) commitEdit();
+                        if (editTarget) commitEdit(false);
                         startEdit(si, ei, si2, set, exercise.mode ?? 'reps');
                       }}
                       activeOpacity={isEditing ? 1 : 0.55}
@@ -426,26 +472,26 @@ function JournalDetail({
                           {isWarmup ? 'W' : workingIdx}
                         </Text>
                       </TouchableOpacity>
-                      {/* Always-mounted inputs — collapsed to 0×0 when not editing so keyboard never dismisses on focus transfer */}
-                      <View
-                        pointerEvents={isEditing ? 'auto' : 'none'}
-                        style={[
-                          { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-                          isEditing ? { flex: 1 } : { width: 0, height: 0, overflow: 'hidden', opacity: 0 },
-                        ]}
-                      >
+                      {/* Always-visible inputs — like workout page, keyboard never dismisses between sets */}
+                      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                         <TextInput
                           ref={r => { weightRefs.current[refKey] = r; }}
                           style={[styles.editInput, { color: colors.primaryText, borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', backgroundColor: colors.inputBg }]}
-                          value={isEditing ? editVal1 : ''}
+                          value={isEditing ? editVal1 : (set.weight != null ? fmtW(set.weight) : '')}
                           onChangeText={isEditing ? setEditVal1 : () => {}}
-                          editable={isEditing}
+                          editable={true}
                           keyboardType="decimal-pad"
                           returnKeyType="next"
                           blurOnSubmit={false}
-                          onSubmitEditing={() => {
-                            if (isEditing) setTimeout(() => repsRefs.current[refKey]?.focus(), 50);
+                          onFocus={() => {
+                            if (isEditing) return;
+                            if (editTarget) commitEdit(false);
+                            const mode = (exercise.mode ?? 'reps') as 'reps' | 'hold';
+                            setEditTarget({ si, ei, setI: si2, mode });
+                            setEditVal1(set.weight != null ? fmtW(set.weight) : '');
+                            setEditVal2(mode === 'hold' ? (set.hold > 0 ? String(set.hold) : '') : (set.reps > 0 ? String(set.reps) : ''));
                           }}
+                          onSubmitEditing={() => setTimeout(() => repsRefs.current[refKey]?.focus(), 50)}
                           placeholder="0"
                           placeholderTextColor={colors.tertiaryText}
                           selectTextOnFocus
@@ -454,14 +500,21 @@ function JournalDetail({
                         <TextInput
                           ref={r => { repsRefs.current[refKey] = r; }}
                           style={[styles.editInput, { color: colors.primaryText, borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', backgroundColor: colors.inputBg }]}
-                          value={isEditing ? editVal2 : ''}
+                          value={isEditing ? editVal2 : (exercise.mode === 'hold' ? (set.hold > 0 ? String(set.hold) : '') : (set.reps > 0 ? String(set.reps) : ''))}
                           onChangeText={isEditing ? setEditVal2 : () => {}}
-                          editable={isEditing}
+                          editable={true}
                           keyboardType="decimal-pad"
                           returnKeyType={isLastSet ? 'done' : 'next'}
                           blurOnSubmit={isLastSet}
+                          onFocus={() => {
+                            if (isEditing) return;
+                            if (editTarget) commitEdit(false);
+                            const mode = (exercise.mode ?? 'reps') as 'reps' | 'hold';
+                            setEditTarget({ si, ei, setI: si2, mode });
+                            setEditVal1(set.weight != null ? fmtW(set.weight) : '');
+                            setEditVal2(mode === 'hold' ? (set.hold > 0 ? String(set.hold) : '') : (set.reps > 0 ? String(set.reps) : ''));
+                          }}
                           onSubmitEditing={() => {
-                            if (!isEditing) return;
                             if (!isLastSet) {
                               advanceToSet(si, ei, si2 + 1, exercise.sets[si2 + 1], exercise.mode ?? 'reps');
                             } else {
@@ -479,7 +532,7 @@ function JournalDetail({
                       {/* Checkmark — only when editing */}
                       {isEditing && (
                         <TouchableOpacity
-                          onPress={commitEdit}
+                          onPress={() => commitEdit()}
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                           style={styles.rowIconSlot}
                         >
@@ -489,39 +542,9 @@ function JournalDetail({
                           </View>
                         </TouchableOpacity>
                       )}
-                      {/* Display — two fixed columns so all rows align like a table */}
+                      {/* Pencil icon when not editing */}
                       {!isEditing && (
                         <>
-                          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
-                            {/* Weight column — right-aligned, fixed width */}
-                            <TouchableOpacity
-                              onPress={() => { if (editTarget) commitEdit(); startEdit(si, ei, si2, set, exercise.mode ?? 'reps', 'weight'); }}
-                              activeOpacity={0.5}
-                              style={{ width: 80, alignItems: 'flex-end' }}
-                            >
-                              <Text style={[styles.setValue, { color: set.weight != null ? colors.primaryText : colors.tertiaryText }]}>
-                                {set.weight != null ? `${fmtW(set.weight)} ${unit}` : '—'}
-                              </Text>
-                            </TouchableOpacity>
-                            {/* Separator */}
-                            <Text style={[styles.setValue, { color: colors.tertiaryText, marginHorizontal: 10 }]}>×</Text>
-                            {/* Reps / hold column — left-aligned, flex */}
-                            <TouchableOpacity
-                              onPress={() => { if (editTarget) commitEdit(); startEdit(si, ei, si2, set, exercise.mode ?? 'reps', 'reps'); }}
-                              activeOpacity={0.5}
-                              style={{ flex: 1 }}
-                            >
-                              {exercise.mode === 'hold' ? (
-                                <Text style={[styles.setValue, { color: set.hold > 0 ? colors.primaryText : colors.tertiaryText }]}>
-                                  {set.hold > 0 ? `${set.hold}s` : '—'}
-                                </Text>
-                              ) : (
-                                <Text style={[styles.setValue, { color: set.reps > 0 ? colors.primaryText : colors.tertiaryText }]}>
-                                  {set.reps > 0 ? `${set.reps} reps` : '—'}
-                                </Text>
-                              )}
-                            </TouchableOpacity>
-                          </View>
                           <View style={styles.rowIconSlot}>
                             <Ionicons name="pencil-outline" size={13} color={colors.tertiaryText} style={{ opacity: 0.5 }} />
                           </View>
@@ -568,7 +591,7 @@ function JournalDetail({
                         </View>
                       )}
                       {/* Change Exercise */}
-                      <TouchableOpacity style={[styles.exerciseMenuBtn, { backgroundColor: colors.inputBg }]} onPress={() => { setNewExerciseName(exercise.name); setChangeExerciseTarget({ si, ei }); }} activeOpacity={0.7}>
+                      <TouchableOpacity style={[styles.exerciseMenuBtn, { backgroundColor: colors.inputBg }]} onPress={() => { setChangeExerciseTarget({ si, ei }); }} activeOpacity={0.7}>
                         <Ionicons name="swap-horizontal" size={16} color={colors.primaryText} />
                         <Text style={[styles.exerciseMenuText, { color: colors.primaryText }]}>Change Exercise</Text>
                       </TouchableOpacity>
@@ -612,7 +635,7 @@ function JournalDetail({
                       style={[styles.notesRow, { borderTopColor: divColor }]}
                       onPress={() => {
                         if (isEditingNotes) return;
-                        if (editTarget) commitEdit();
+                        if (editTarget) commitEdit(false);
                         setEditingNotesKey(notesKey);
                         setNotesVal(exercise.notes || '');
                         setTimeout(() => notesRefs.current[notesKey]?.focus(), 50);
@@ -641,79 +664,173 @@ function JournalDetail({
               </View>
             );
           })}
+          <TouchableOpacity
+            style={[styles.addExerciseBtn, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)' }]}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setAddExerciseSessionIndex(si); }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add" size={18} color={colors.primaryText} />
+            <Text style={[styles.addExerciseBtnText, { color: colors.primaryText }]}>Add Exercise</Text>
+          </TouchableOpacity>
         </View>
       ))}
-      {/* Change Exercise modal */}
-      <BottomSheetModal visible={!!changeExerciseTarget} onDismiss={() => { setChangeExerciseTarget(null); setNewExerciseName(''); }} sheetBackground={colors.modalBg}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <ExercisePicker
+        visible={addExerciseSessionIndex !== null}
+        onDismiss={() => setAddExerciseSessionIndex(null)}
+        onSelect={(name: string) => {
+          if (addExerciseSessionIndex === null) return;
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
+          const newExercise: LoggedExercise = { name, mode: 'reps', sets: [{ reps: 0, weight: null, hold: 0, isWarmup: false }] };
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          newEntry.sessions[addExerciseSessionIndex].exercises.push(newExercise);
+          onUpdateEntry(newEntry);
+          setAddExerciseSessionIndex(null);
+        }}
+      />
+      {/* Change Exercise picker */}
+      <ExercisePicker
+        visible={!!changeExerciseTarget}
+        onDismiss={() => setChangeExerciseTarget(null)}
+        onSelect={(name: string) => {
+          if (!changeExerciseTarget) return;
+          const { si, ei } = changeExerciseTarget;
+          const newEntry: WorkoutJournalEntry = JSON.parse(JSON.stringify(entry));
+          newEntry.sessions[si].exercises[ei].name = name;
+          onUpdateEntry(newEntry);
+          setChangeExerciseTarget(null);
+        }}
+      />
+
+      {/* Duration edit modal — shows card view or time picker within the same sheet */}
+      <BottomSheetModal
+        visible={showDurationEdit}
+        onDismiss={() => { setShowDurationEdit(false); setEditingJournalTime(null); }}
+        sheetBackground={colors.modalBg}
+      >
+        {editingJournalTime ? (
+          <View style={[styles.timePickerSheet, { backgroundColor: colors.modalBg }]}>
+            <View style={[styles.timePickerHeader, { borderBottomColor: colors.border }]}>
+              <TouchableOpacity onPress={() => setEditingJournalTime(null)}>
+                <Text style={{ fontSize: 16, fontFamily: 'Arimo_400Regular', color: colors.secondaryText }}>Back</Text>
+              </TouchableOpacity>
+              <Text style={[styles.timePickerTitle, { color: colors.primaryText }]}>
+                {editingJournalTime === 'start' ? 'Start Time' : 'End Time'}
+              </Text>
+              <TouchableOpacity onPress={applyJournalTimePick}>
+                <Text style={[styles.timePickerDone, { color: entryColor }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Scroll-wheel columns */}
+            <View style={{ flexDirection: 'row', height: PICK_ITEM_H * 5, position: 'relative', marginVertical: 12 }}>
+              <View style={{ position: 'absolute', top: PICK_ITEM_H * 2, left: 16, right: 16, height: PICK_ITEM_H, backgroundColor: colors.inputBg, borderRadius: 12 }} />
+
+              <ScrollView
+                ref={hourScrollRef}
+                style={{ flex: 2 }}
+                snapToInterval={PICK_ITEM_H}
+                decelerationRate="fast"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingVertical: PICK_ITEM_H * 2 }}
+                onMomentumScrollEnd={e => setPickerHour(Math.max(1, Math.min(Math.round(e.nativeEvent.contentOffset.y / PICK_ITEM_H) + 1, 12)))}
+                onScrollEndDrag={e => setPickerHour(Math.max(1, Math.min(Math.round(e.nativeEvent.contentOffset.y / PICK_ITEM_H) + 1, 12)))}
+              >
+                {Array.from({ length: 12 }, (_, i) => (
+                  <View key={i} style={{ height: PICK_ITEM_H, justifyContent: 'center', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 26, fontFamily: 'Arimo_700Bold', color: (i + 1) === pickerHour ? colors.primaryText : colors.tertiaryText, opacity: (i + 1) === pickerHour ? 1 : 0.45 }}>{i + 1}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+
+              <ScrollView
+                ref={minuteScrollRef}
+                style={{ flex: 2 }}
+                snapToInterval={PICK_ITEM_H}
+                decelerationRate="fast"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingVertical: PICK_ITEM_H * 2 }}
+                onMomentumScrollEnd={e => setPickerMinute(Math.max(0, Math.min(Math.round(e.nativeEvent.contentOffset.y / PICK_ITEM_H), 59)))}
+                onScrollEndDrag={e => setPickerMinute(Math.max(0, Math.min(Math.round(e.nativeEvent.contentOffset.y / PICK_ITEM_H), 59)))}
+              >
+                {Array.from({ length: 60 }, (_, i) => (
+                  <View key={i} style={{ height: PICK_ITEM_H, justifyContent: 'center', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 26, fontFamily: 'Arimo_700Bold', color: i === pickerMinute ? colors.primaryText : colors.tertiaryText, opacity: i === pickerMinute ? 1 : 0.45 }}>{String(i).padStart(2, '0')}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+
+              <ScrollView
+                ref={ampmScrollRef}
+                style={{ flex: 1.5 }}
+                snapToInterval={PICK_ITEM_H}
+                decelerationRate="fast"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingVertical: PICK_ITEM_H * 2 }}
+                onMomentumScrollEnd={e => setPickerAmPm(Math.round(e.nativeEvent.contentOffset.y / PICK_ITEM_H) === 0 ? 'AM' : 'PM')}
+                onScrollEndDrag={e => setPickerAmPm(Math.round(e.nativeEvent.contentOffset.y / PICK_ITEM_H) === 0 ? 'AM' : 'PM')}
+              >
+                {(['AM', 'PM'] as const).map(v => (
+                  <View key={v} style={{ height: PICK_ITEM_H, justifyContent: 'center', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 26, fontFamily: 'Arimo_700Bold', color: v === pickerAmPm ? colors.primaryText : colors.tertiaryText, opacity: v === pickerAmPm ? 1 : 0.45 }}>{v}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        ) : (
           <View style={[styles.durationSheet, { backgroundColor: colors.modalBg }]}>
-            <Text style={[styles.durationSheetTitle, { color: colors.primaryText }]}>Change Exercise</Text>
-            <TextInput
-              style={[styles.changeExInput, { color: colors.primaryText, backgroundColor: colors.inputBg, borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)' }]}
-              value={newExerciseName}
-              onChangeText={setNewExerciseName}
-              placeholder="Exercise name"
-              placeholderTextColor={colors.tertiaryText}
-              returnKeyType="done"
-              onSubmitEditing={commitChangeExercise}
-              autoFocus
-            />
-            <View style={styles.durationSheetActions}>
-              <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]} onPress={() => { setChangeExerciseTarget(null); setNewExerciseName(''); }} activeOpacity={0.7}>
+            <Text style={[styles.durationSheetTitle, { color: colors.primaryText }]}>Edit Duration</Text>
+            <View style={[styles.durationTimeCard, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+              <TouchableOpacity
+                style={styles.durationTimeRow}
+                onPress={() => setEditingJournalTime('start')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="play-circle-outline" size={16} color={colors.secondaryText} />
+                <Text style={[styles.durationTimeLabel, { color: colors.secondaryText }]}>Started</Text>
+                <Text style={[styles.durationTimeValue, { color: colors.primaryText }]}>
+                  {(journalStartTime ?? new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+                <Ionicons name="pencil-outline" size={13} color={colors.tertiaryText} />
+              </TouchableOpacity>
+              <View style={[styles.durationTimeDivider, { backgroundColor: colors.border }]} />
+              <TouchableOpacity
+                style={styles.durationTimeRow}
+                onPress={() => setEditingJournalTime('end')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="stop-circle-outline" size={16} color={colors.secondaryText} />
+                <Text style={[styles.durationTimeLabel, { color: colors.secondaryText }]}>Ended</Text>
+                <Text style={[styles.durationTimeValue, { color: colors.primaryText }]}>
+                  {(journalEndTime ?? new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+                <Ionicons name="pencil-outline" size={13} color={colors.tertiaryText} />
+              </TouchableOpacity>
+            </View>
+            <View style={[styles.durationSheetActions, { marginTop: 20 }]}>
+              <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]} onPress={() => setShowDurationEdit(false)}>
                 <Text style={[styles.durationActionText, { color: colors.secondaryText }]}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: entryColor }]} onPress={commitChangeExercise} activeOpacity={0.7}>
+              <TouchableOpacity
+                style={[styles.durationActionBtn, { backgroundColor: entryColor }]}
+                onPress={() => {
+                  const start = journalStartTime ?? new Date();
+                  const end = journalEndTime ?? new Date();
+                  if (end.getTime() <= start.getTime()) {
+                    Alert.alert('Invalid Time', 'End time must be after start time.');
+                    return;
+                  }
+                  const secs = Math.floor((end.getTime() - start.getTime()) / 1000);
+                  onUpdateEntry({ ...entry, durationSecs: secs });
+                  setShowDurationEdit(false);
+                }}
+              >
                 <Text style={[styles.durationActionText, { color: '#fff' }]}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </KeyboardAvoidingView>
-      </BottomSheetModal>
-
-      {/* Duration edit modal */}
-      <BottomSheetModal visible={showDurationEdit} onDismiss={() => setShowDurationEdit(false)} sheetBackground={colors.modalBg}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={[styles.durationSheet, { backgroundColor: colors.modalBg }]}>
-            <Text style={[styles.durationSheetTitle, { color: colors.primaryText }]}>Edit Duration</Text>
-            <View style={styles.durationInputRow}>
-              <View style={styles.durationInputGroup}>
-                <TextInput
-                  style={[styles.durationInput, { color: colors.primaryText, backgroundColor: colors.inputBg, borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)' }]}
-                  value={durationH}
-                  onChangeText={setDurationH}
-                  keyboardType="number-pad"
-                  placeholder="0"
-                  placeholderTextColor={colors.tertiaryText}
-                  maxLength={2}
-                  selectTextOnFocus
-                />
-                <Text style={[styles.durationInputLabel, { color: colors.secondaryText }]}>hrs</Text>
-              </View>
-              <Text style={[styles.durationColon, { color: colors.tertiaryText }]}>:</Text>
-              <View style={styles.durationInputGroup}>
-                <TextInput
-                  style={[styles.durationInput, { color: colors.primaryText, backgroundColor: colors.inputBg, borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)' }]}
-                  value={durationM}
-                  onChangeText={v => { const n = parseInt(v); setDurationM(isNaN(n) ? '' : String(Math.min(n, 59))); }}
-                  keyboardType="number-pad"
-                  placeholder="00"
-                  placeholderTextColor={colors.tertiaryText}
-                  maxLength={2}
-                  selectTextOnFocus
-                />
-                <Text style={[styles.durationInputLabel, { color: colors.secondaryText }]}>min</Text>
-              </View>
-            </View>
-            <View style={styles.durationSheetActions}>
-              <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]} onPress={() => setShowDurationEdit(false)}>
-                <Text style={[styles.durationActionText, { color: colors.secondaryText }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.durationActionBtn, { backgroundColor: entryColor }]} onPress={commitDuration}>
-                <Text style={[styles.durationActionText, { color: '#fff' }]}>Done</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
+        )}
       </BottomSheetModal>
 
       <ExerciseInfoModal exerciseName={infoExerciseName} onClose={() => setInfoExerciseName(null)} />
@@ -910,7 +1027,7 @@ function JournalCalendar({
                   </View>
                   <View style={styles.cardMeta}>
                     <View style={[styles.programBadge, { backgroundColor: `${eColor}25`, borderWidth: 1, borderColor: eColor }]}>
-                      <Text style={[styles.programBadgeText, { color: eColor }]}>{entry.programName}</Text>
+                      <Text style={[styles.programBadgeText, { color: isDark ? '#fff' : colors.primaryText }]}>{entry.programName}</Text>
                     </View>
                     <Text style={[styles.cardDate, { color: colors.tertiaryText }]}>{formatDate(entry.date)}</Text>
                   </View>
@@ -1414,6 +1531,12 @@ const styles = StyleSheet.create({
   sessionBlock: {
     marginBottom: 20,
   },
+  addExerciseBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, marginTop: 8, paddingVertical: 12, borderRadius: 12,
+    borderWidth: 1, borderStyle: 'dashed',
+  },
+  addExerciseBtnText: { fontSize: 14, fontFamily: 'Arimo_700Bold' },
   sessionLabel: {
     fontSize: 11,
     fontFamily: 'Arimo_700Bold',
@@ -1699,34 +1822,32 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
   },
-  durationInputRow: {
+  durationTimeCard: {
+    width: '100%',
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  durationTimeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     gap: 8,
-    marginBottom: 24,
   },
-  durationInputGroup: {
-    alignItems: 'center',
-    gap: 6,
-  },
-  durationInput: {
-    width: 80,
-    height: 54,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    fontSize: 26,
-    fontFamily: 'Arimo_700Bold',
-    textAlign: 'center',
-  },
-  durationInputLabel: {
-    fontSize: 12,
+  durationTimeLabel: {
+    fontSize: 14,
     fontFamily: 'Arimo_400Regular',
+    flex: 1,
   },
-  durationColon: {
-    fontSize: 26,
+  durationTimeValue: {
+    fontSize: 14,
     fontFamily: 'Arimo_700Bold',
-    marginBottom: 18,
+    marginRight: 4,
+  },
+  durationTimeDivider: {
+    height: 1,
+    marginHorizontal: 14,
   },
   durationSheetActions: {
     flexDirection: 'row',
@@ -1740,6 +1861,27 @@ const styles = StyleSheet.create({
   },
   durationActionText: {
     fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
+  },
+  timePickerSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 34,
+  },
+  timePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  timePickerTitle: {
+    fontSize: 16,
+    fontFamily: 'Arimo_700Bold',
+  },
+  timePickerDone: {
+    fontSize: 16,
     fontFamily: 'Arimo_700Bold',
   },
 

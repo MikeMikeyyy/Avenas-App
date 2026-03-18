@@ -108,11 +108,11 @@ export default function HelpSupportScreen() {
           </Text>
           <TouchableOpacity
             style={[styles.emailBtn, { backgroundColor: isDark ? 'rgba(71,221,255,0.12)' : 'rgba(71,221,255,0.1)', borderColor: '#47DDFF' }]}
-            onPress={() => Linking.openURL('mailto:support@gymapp.com')}
+            onPress={() => Linking.openURL('mailto:avenasfitness@gmail.com')}
             activeOpacity={0.7}
           >
             <Ionicons name="mail" size={16} color="#47DDFF" />
-            <Text style={[styles.emailBtnText, { color: '#47DDFF' }]}>support@gymapp.com</Text>
+            <Text style={[styles.emailBtnText, { color: '#47DDFF' }]}>avenasfitness@gmail.com</Text>
           </TouchableOpacity>
         </View>
 

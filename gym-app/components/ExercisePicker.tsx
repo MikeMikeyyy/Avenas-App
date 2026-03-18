@@ -6,13 +6,13 @@ import {
   TouchableOpacity,
   Modal,
   ScrollView,
+  FlatList,
   StyleSheet,
   Platform,
   KeyboardAvoidingView,
   Keyboard,
   Dimensions,
 } from 'react-native';
-import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -359,12 +359,10 @@ export function ExercisePicker({ visible, onDismiss, onSelect }: Props) {
         </View>
 
         {/* Exercise list */}
-        <FlashList
+        <FlatList
           data={listItems}
           renderItem={renderItem}
           keyExtractor={keyExtractor}
-          getItemType={getItemType}
-
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
         />

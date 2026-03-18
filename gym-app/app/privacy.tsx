@@ -56,7 +56,7 @@ const SECTIONS = [
   },
   {
     title: '6. Data Deletion',
-    body: 'You can clear your local app data at any time through the Settings screen using the Clear All Data option. To request full deletion of your account and cloud data, please contact us at support@gymapp.com.',
+    body: 'You can clear your local app data at any time through the Settings screen using the Clear All Data option. To request full deletion of your account and cloud data, please contact us at avenasfitness@gmail.com.',
   },
   {
     title: '7. Children\'s Privacy',
@@ -72,7 +72,7 @@ const SECTIONS = [
   },
   {
     title: '10. Contact',
-    body: 'If you have any questions about this Privacy Policy or how we handle your data, please get in touch at support@gymapp.com.',
+    body: 'If you have any questions about this Privacy Policy or how we handle your data, please get in touch at avenasfitness@gmail.com.',
   },
 ];
 

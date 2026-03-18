@@ -223,7 +223,7 @@ function CalendarStrip({ selectedIndex, onSelect, accentColor, days, todayIndex,
   );
 }
 
-function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onToggleWarmup, onMoveUp, onMoveDown, isFirst, isLast: isLastExercise, accentColor = '#47DDFF', note, onNoteChange, mode, onToggleMode, onShowExerciseList, onRemoveExercise, readOnly, onFillPrev, onShowInfo, targetReps }: { exercise: Exercise; index: number; onAddSet: () => void; onRemoveSet: () => void; onUpdateSet: (setIndex: number, field: 'reps' | 'weight' | 'hold', value: string) => void; onToggleWarmup: (setIndex: number) => void; onMoveUp?: () => void; onMoveDown?: () => void; isFirst?: boolean; isLast?: boolean; accentColor?: string; note?: string; onNoteChange?: (text: string) => void; mode: 'reps' | 'hold'; onToggleMode: () => void; onShowExerciseList: () => void; onRemoveExercise: () => void; readOnly?: boolean; onFillPrev: (setIndex: number) => void; onShowInfo?: () => void; targetReps?: string }) {
+function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onToggleWarmup, onMoveUp, onMoveDown, isFirst, isLast: isLastExercise, accentColor = '#47DDFF', note, onNoteChange, mode, onToggleMode, onShowExerciseList, onRemoveExercise, readOnly, notesEditable, onFillPrev, onShowInfo, targetReps }: { exercise: Exercise; index: number; onAddSet: () => void; onRemoveSet: () => void; onUpdateSet: (setIndex: number, field: 'reps' | 'weight' | 'hold', value: string) => void; onToggleWarmup: (setIndex: number) => void; onMoveUp?: () => void; onMoveDown?: () => void; isFirst?: boolean; isLast?: boolean; accentColor?: string; note?: string; onNoteChange?: (text: string) => void; mode: 'reps' | 'hold'; onToggleMode: () => void; onShowExerciseList: () => void; onRemoveExercise: () => void; readOnly?: boolean; notesEditable?: boolean; onFillPrev: (setIndex: number) => void; onShowInfo?: () => void; targetReps?: string }) {
   const [editing, setEditing] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -324,6 +324,7 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
                   style={[styles.inputBoxText, { color: colors.primaryText }]}
                   keyboardType="decimal-pad"
                   returnKeyType="next"
+                  blurOnSubmit={false}
                   onSubmitEditing={() => setTimeout(() => repsRefs.current[si]?.focus(), 50)}
                   defaultValue={s.weight != null ? fmtW(s.weight) : ''}
                   placeholder="—"
@@ -349,6 +350,7 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
                   style={[styles.inputBoxText, { color: colors.primaryText }]}
                   keyboardType="decimal-pad"
                   returnKeyType={si < exercise.sets.length - 1 ? 'next' : 'done'}
+                  blurOnSubmit={si === exercise.sets.length - 1}
                   onSubmitEditing={() => {
                     if (si < exercise.sets.length - 1) {
                       setTimeout(() => weightRefs.current[si + 1]?.focus(), 50);
@@ -500,19 +502,21 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
         </>
       )}
 
-      <TouchableOpacity
-        style={[styles.notesToggleBtn, { backgroundColor: colors.inputBg }, showNotes && styles.notesToggleBtnActive]}
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          setShowNotes(!showNotes);
-        }}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="document-text-outline" size={16} color={showNotes ? colors.primaryText : colors.secondaryText} />
-        <Text style={[styles.notesToggleText, { color: colors.secondaryText }, showNotes && { color: colors.primaryText, fontFamily: 'Arimo_700Bold' }]}>
-          {note ? 'View Note' : 'Add Note'}
-        </Text>
-      </TouchableOpacity>
+      {(notesEditable !== false || !!note) && (
+        <TouchableOpacity
+          style={[styles.notesToggleBtn, { backgroundColor: colors.inputBg }, showNotes && styles.notesToggleBtnActive]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowNotes(!showNotes);
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="document-text-outline" size={16} color={showNotes ? colors.primaryText : colors.secondaryText} />
+          <Text style={[styles.notesToggleText, { color: colors.secondaryText }, showNotes && { color: colors.primaryText, fontFamily: 'Arimo_700Bold' }]}>
+            {note ? 'View Note' : 'Add Note'}
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {showNotes && (
         <TextInput
@@ -526,7 +530,7 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
             Keyboard.dismiss();
             setShowNotes(false);
           }}
-          editable={!readOnly}
+          editable={notesEditable ?? !readOnly}
         />
       )}
 
@@ -827,7 +831,7 @@ export default function WorkoutScreen() {
         if (prev <= 1) {
           setCountdownActive(false);
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          return countdownDuration;
+          return 0;
         }
         return prev - 1;
       });
@@ -880,24 +884,31 @@ export default function WorkoutScreen() {
     return workoutState.subscribeJournalUpdate((entry) => {
       const todayStr = new Date().toDateString();
       if (new Date(entry.date).toDateString() !== todayStr) return;
+      const updatedNotes: Record<string, string> = {};
       for (let si = 0; si < entry.sessions.length; si++) {
         const cacheKey = `0-${si}`;
         const cached = exerciseCache[cacheKey];
-        if (!cached) continue;
         const sessionData = entry.sessions[si];
-        exerciseCache[cacheKey] = cached.map(ex => {
-          const jEx = sessionData.exercises.find(e => e.name === ex.name);
-          if (!jEx) return ex;
-          return {
-            ...ex,
-            sets: ex.sets.map((s, si2) => {
-              const js = jEx.sets[si2];
-              if (!js) return s;
-              return { ...s, reps: js.reps, weight: js.weight, hold: js.hold ?? 0 };
-            }),
-          };
+        if (cached) {
+          exerciseCache[cacheKey] = cached.map(ex => {
+            const jEx = sessionData.exercises.find(e => e.name === ex.name);
+            if (!jEx) return ex;
+            return {
+              ...ex,
+              sets: ex.sets.map((s, si2) => {
+                const js = jEx.sets[si2];
+                if (!js) return s;
+                return { ...s, reps: js.reps, weight: js.weight, hold: js.hold ?? 0 };
+              }),
+            };
+          });
+        }
+        // Sync notes from journal → workout exerciseNotes
+        sessionData.exercises.forEach((jEx, ei) => {
+          updatedNotes[`0-${si}-${ei}`] = jEx.notes ?? '';
         });
       }
+      setExerciseNotes(prev => ({ ...prev, ...updatedNotes }));
       setPrevVersion(v => v + 1);
     });
   }, []);
@@ -1021,11 +1032,30 @@ export default function WorkoutScreen() {
       // and use the PREVIOUS journal entry (before today) for the "prev" column
       let todaySessionData: ReturnType<typeof workoutState.getJournalLog>[number]['sessions'][number] | undefined;
       let prevExercises = currentSession ? workoutState.getPrev(currentSession.label) : undefined;
+      // Fallback: if _prevData has no entry for this label, search the journal directly
+      if (!prevExercises && currentSession) {
+        const journalFallback = workoutState.getJournalLog().find(e => e.sessions.some(s => s.label === currentSession.label));
+        const fallbackSession = journalFallback?.sessions.find(s => s.label === currentSession.label);
+        if (fallbackSession) {
+          prevExercises = fallbackSession.exercises.map(ex => ({
+            name: ex.name, mode: ex.mode,
+            sets: ex.sets.map(s => ({ reps: s.reps, weight: s.weight ?? 0, hold: s.hold ?? 0 })),
+          }));
+        }
+      }
       if (workoutState.finished && selectedDayIndex === 0 && currentSession) {
         const todayStr = new Date().toDateString();
         const journal = workoutState.getJournalLog(); // newest first
         const todayEntry = journal.find(e => new Date(e.date).toDateString() === todayStr);
         todaySessionData = todayEntry?.sessions.find(s => s.label === currentSession.label);
+        // Load notes from today's journal entry into exerciseNotes state
+        if (todaySessionData) {
+          const notesFromJournal: Record<string, string> = {};
+          todaySessionData.exercises.forEach((ex, ei) => {
+            if (ex.notes) notesFromJournal[`0-${selectedSessionIndex}-${ei}`] = ex.notes;
+          });
+          if (Object.keys(notesFromJournal).length > 0) setExerciseNotes(prev => ({ ...prev, ...notesFromJournal }));
+        }
         // Find the most recent journal entry BEFORE today for this session label, so "prev"
         // shows last week's data rather than today's just-completed workout
         const prevEntry = journal.find(e => new Date(e.date).toDateString() !== todayStr && e.sessions.some(s => s.label === currentSession.label));
@@ -1147,6 +1177,7 @@ export default function WorkoutScreen() {
         ref={scrollRef}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.screenTitle}>Workout</Text>
         <Text style={styles.dateLabel}>{dateLabel}</Text>
@@ -1181,10 +1212,10 @@ export default function WorkoutScreen() {
 
               {/* Duration / volume row */}
               <View style={[styles.timerRow, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}>
-                <Ionicons name="checkmark-circle" size={18} color={resolveEntryColor(pastEntryForDate)} />
+                <Ionicons name="checkmark-circle" size={16} color={resolveEntryColor(pastEntryForDate)} />
                 <Text style={[styles.timerStartText, { color: resolveEntryColor(pastEntryForDate) }]}>Workout Complete</Text>
                 {pastEntryForDate.durationSecs > 0 && (
-                  <Text style={[styles.timerText, { color: colors.primaryText }]}>
+                  <Text style={[styles.timerStartText, { color: colors.primaryText }]}>
                     {(() => { const s = pastEntryForDate.durationSecs; const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = s % 60; return h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` : `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`; })()}
                   </Text>
                 )}
@@ -1226,11 +1257,22 @@ export default function WorkoutScreen() {
               {(() => {
                 const session = pastEntryForDate.sessions[Math.min(pastSessionIndex, pastEntryForDate.sessions.length - 1)];
                 if (!session) return null;
+                // Find the most recent journal entry BEFORE this date with the same session label
+                const pastDate = new Date(pastEntryForDate.date);
+                const allJournal = workoutState.getJournalLog();
+                const priorEntry = allJournal.find(e => new Date(e.date) < pastDate && e.sessions.some(s => s.label === session.label));
+                const priorSession = priorEntry?.sessions.find(s => s.label === session.label);
                 return session.exercises.map((ex, i) => {
+                  const priorEx = priorSession?.exercises.find(pe => pe.name === ex.name);
                   const exData: Exercise = {
                     name: ex.name,
                     mode: ex.mode,
-                    sets: ex.sets.map((s, si) => ({ set: si + 1, reps: s.reps, weight: s.weight, hold: s.hold, isWarmup: s.isWarmup })),
+                    sets: ex.sets.map((s, si) => ({
+                      set: si + 1, reps: s.reps, weight: s.weight, hold: s.hold, isWarmup: s.isWarmup,
+                      prevReps: priorEx?.sets[si]?.reps,
+                      prevWeight: priorEx?.sets[si]?.weight ?? undefined,
+                      prevHold: priorEx?.sets[si]?.hold,
+                    })),
                   };
                   return (
                     <ExerciseCard
@@ -1393,7 +1435,7 @@ export default function WorkoutScreen() {
                   <Text style={[styles.timerStartText, { color: colors.secondaryText }]}>Reset workout</Text>
                 </TouchableOpacity>
               </View>
-            ) : !workoutFinished ? (
+            ) : !workoutFinished || selectedDayIndex > 0 ? (
               anotherDayActive ? (
                 <View style={[styles.timerRow, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}>
                   <Ionicons name="lock-closed" size={14} color={colors.tertiaryText} />
@@ -1438,9 +1480,9 @@ export default function WorkoutScreen() {
 
                 {/* Workout Complete + duration */}
                 <View style={[styles.timerRow, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}>
-                  <Ionicons name="checkmark-circle" size={18} color={accentColor} />
+                  <Ionicons name="checkmark-circle" size={16} color={accentColor} />
                   <Text style={[styles.timerStartText, { color: accentColor }]}>Workout Complete</Text>
-                  <Text style={[styles.timerText, { color: colors.primaryText }]}>{timerText}</Text>
+                  <Text style={[styles.timerStartText, { color: colors.primaryText }]}>{timerText}</Text>
                 </View>
 
                 {/* Reset workout */}
@@ -1549,8 +1591,8 @@ export default function WorkoutScreen() {
                   }}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="refresh" size={18} color={colors.secondaryText} />
-                  <Text style={[styles.timerText, { color: colors.secondaryText }]}>Reset workout</Text>
+                  <Ionicons name="refresh" size={16} color={colors.primaryText} />
+                  <Text style={[styles.timerStartText, { color: colors.primaryText }]}>Reset workout</Text>
                 </TouchableOpacity>
               </>
             )
@@ -1693,6 +1735,7 @@ export default function WorkoutScreen() {
                 accentColor={accentColor}
                 targetReps={exercise.targetReps}
                 readOnly={futureReadOnly || (workoutFinished && isToday && !isViewingPast)}
+                notesEditable={!futureReadOnly && !(workoutFinished && isToday && !isViewingPast)}
                 note={exerciseNotes[`${selectedDayIndex}-${selectedSessionIndex}-${i}`] || ''}
                 onNoteChange={(text) => setExerciseNotes(prev => ({ ...prev, [`${selectedDayIndex}-${selectedSessionIndex}-${i}`]: text }))}
                 onMoveUp={() => {
@@ -1743,7 +1786,7 @@ export default function WorkoutScreen() {
               />
             ))}
 
-            {!futureReadOnly && (
+            {!futureReadOnly && !(workoutFinished && isToday && !isViewingPast) && (
               <TouchableOpacity
                 style={[styles.addExerciseBtn, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)' }]}
                 onPress={() => {
@@ -1757,7 +1800,7 @@ export default function WorkoutScreen() {
               </TouchableOpacity>
             )}
 
-            {!futureReadOnly && <BounceButton style={[styles.finishButton, { backgroundColor: accentColor }, !timerRunning && !timerPaused && !workoutFinished && finishedDurations[selectedDayIndex] === undefined && { opacity: 0.4 }]} onPress={() => {
+            {!futureReadOnly && !(workoutFinished && isToday && !isViewingPast) && <BounceButton style={[styles.finishButton, { backgroundColor: accentColor }, !timerRunning && !timerPaused && !workoutFinished && finishedDurations[selectedDayIndex] === undefined && { opacity: 0.4 }]} onPress={() => {
               if (!workout) return;
               const currentSession = workout.sessions[selectedSessionIndex];
 
@@ -1828,34 +1871,44 @@ export default function WorkoutScreen() {
                 const startTime = workoutStartTime ?? new Date(Date.now() - workoutState.getElapsed(selectedDayIndex) * 1000);
                 if (!workoutStartTime) setWorkoutStartTime(startTime);
                 const durationSecs = Math.max(0, Math.floor((endTime.getTime() - startTime.getTime()) / 1000));
-                const entryId = String(Date.now());
-                setLastEntryId(entryId);
-                workoutState.logJournalEntry({
-                  id: entryId,
-                  date: Date.now(),
-                  programName: workout.program,
-                  programId: isViewingLockedToday ? lockedToday!.programId : activeId,
-                  programColor: accentColor,
-                  dayLabel: workout.dayLabel,
-                  durationSecs,
-                  totalVolume,
-                  sessions: workout.sessions.map((s, si) => {
-                    const cached = exerciseCache[`${selectedDayIndex}-${si}`];
-                    return {
-                      label: s.label,
-                      exercises: (cached ?? s.exercises).map(e => ({
-                        name: e.name,
-                        mode: e.mode ?? 'reps',
-                        sets: e.sets.map(set => ({
-                          reps: set.reps,
-                          weight: set.weight,
-                          hold: set.hold ?? 0,
-                          isWarmup: set.isWarmup ?? false,
-                        })),
+                const builtSessions = workout.sessions.map((s, si) => {
+                  const cached = exerciseCache[`${selectedDayIndex}-${si}`];
+                  return {
+                    label: s.label,
+                    exercises: (cached ?? s.exercises).map((e, ei) => ({
+                      name: e.name,
+                      mode: e.mode ?? 'reps',
+                      notes: exerciseNotes[`${selectedDayIndex}-${si}-${ei}`] || undefined,
+                      sets: e.sets.map(set => ({
+                        reps: set.reps,
+                        weight: set.weight,
+                        hold: set.hold ?? 0,
+                        isWarmup: set.isWarmup ?? false,
                       })),
-                    };
-                  }),
+                    })),
+                  };
                 });
+                const todayStr2 = new Date().toDateString();
+                const existingEntry = lastEntryId
+                  ? workoutState.getJournalEntry(lastEntryId)
+                  : workoutState.getJournalLog().find(e => new Date(e.date).toDateString() === todayStr2);
+                if (workoutFinished && existingEntry) {
+                  workoutState.updateJournalEntry({ ...existingEntry, durationSecs, totalVolume, sessions: builtSessions });
+                } else {
+                  const entryId = String(Date.now());
+                  setLastEntryId(entryId);
+                  workoutState.logJournalEntry({
+                    id: entryId,
+                    date: Date.now(),
+                    programName: workout.program,
+                    programId: isViewingLockedToday ? lockedToday!.programId : activeId,
+                    programColor: accentColor,
+                    dayLabel: workout.dayLabel,
+                    durationSecs,
+                    totalVolume,
+                    sessions: builtSessions,
+                  });
+                }
                 setFinishedDurations(prev => ({ ...prev, [selectedDayIndex]: durationSecs }));
                 workoutState.stopTimer(selectedDayIndex);
                 workoutState.setFinished(true);
@@ -1872,16 +1925,7 @@ export default function WorkoutScreen() {
                 Animated.parallel([
                   Animated.spring(completeScale, { toValue: 1, useNativeDriver: true, speed: 12, bounciness: 8 }),
                   Animated.timing(completeOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-                ]).start(isResave ? () => {
-                  setTimeout(() => {
-                    Animated.timing(completeOpacity, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
-                      setShowComplete(false);
-                      completeScale.setValue(0);
-                      completeOpacity.setValue(0);
-                      setIsSaveChangesToast(false);
-                    });
-                  }, 1500);
-                } : undefined);
+                ]).start();
               } else {
                 // Switch to next unfinished session
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -1944,34 +1988,44 @@ export default function WorkoutScreen() {
                         setWorkoutEndTime(endTime2);
                         const startTime2 = workoutStartTime ?? new Date(Date.now() - workoutState.getElapsed(selectedDayIndex) * 1000);
                         const durationSecs = Math.max(0, Math.floor((endTime2.getTime() - startTime2.getTime()) / 1000));
-                        const entryId2 = String(Date.now());
-                        setLastEntryId(entryId2);
-                        workoutState.logJournalEntry({
-                          id: entryId2,
-                          date: Date.now(),
-                          programName: workout.program,
-                          programId: isViewingLockedToday ? lockedToday!.programId : activeId,
-                          programColor: accentColor,
-                          dayLabel: workout.dayLabel,
-                          durationSecs,
-                          totalVolume,
-                          sessions: workout.sessions.map((s, si) => {
-                            const cached = exerciseCache[`${selectedDayIndex}-${si}`];
-                            return {
-                              label: s.label,
-                              exercises: (cached ?? s.exercises).map(e => ({
-                                name: e.name,
-                                mode: e.mode ?? 'reps',
-                                sets: e.sets.map(set => ({
-                                  reps: set.reps,
-                                  weight: set.weight,
-                                  hold: set.hold ?? 0,
-                                  isWarmup: set.isWarmup ?? false,
-                                })),
+                        const builtSessions2 = workout.sessions.map((s, si) => {
+                          const cached = exerciseCache[`${selectedDayIndex}-${si}`];
+                          return {
+                            label: s.label,
+                            exercises: (cached ?? s.exercises).map((e, ei) => ({
+                              name: e.name,
+                              mode: e.mode ?? 'reps',
+                              notes: exerciseNotes[`${selectedDayIndex}-${si}-${ei}`] || undefined,
+                              sets: e.sets.map(set => ({
+                                reps: set.reps,
+                                weight: set.weight,
+                                hold: set.hold ?? 0,
+                                isWarmup: set.isWarmup ?? false,
                               })),
-                            };
-                          }),
+                            })),
+                          };
                         });
+                        const todayStr3 = new Date().toDateString();
+                        const existingEntry2 = lastEntryId
+                          ? workoutState.getJournalEntry(lastEntryId)
+                          : workoutState.getJournalLog().find(e => new Date(e.date).toDateString() === todayStr3);
+                        if (workoutFinished && existingEntry2) {
+                          workoutState.updateJournalEntry({ ...existingEntry2, durationSecs, totalVolume, sessions: builtSessions2 });
+                        } else {
+                          const entryId2 = String(Date.now());
+                          setLastEntryId(entryId2);
+                          workoutState.logJournalEntry({
+                            id: entryId2,
+                            date: Date.now(),
+                            programName: workout.program,
+                            programId: isViewingLockedToday ? lockedToday!.programId : activeId,
+                            programColor: accentColor,
+                            dayLabel: workout.dayLabel,
+                            durationSecs,
+                            totalVolume,
+                            sessions: builtSessions2,
+                          });
+                        }
                         setFinishedDurations(prev => ({ ...prev, [selectedDayIndex]: durationSecs }));
                         workoutState.stopTimer(selectedDayIndex);
                         workoutState.setFinished(true);
@@ -2227,20 +2281,34 @@ export default function WorkoutScreen() {
               {/* Action buttons */}
               {restMode === 'timer' ? (
                 <>
-                  <TouchableOpacity
-                    style={[styles.restTimerAction, { backgroundColor: countdownActive ? colors.inputBg : accentColor }]}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      setCountdownActive(!countdownActive);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name={countdownActive ? 'pause' : 'play'} size={20} color={countdownActive ? colors.primaryText : '#1C1C1E'} />
-                    <Text style={[styles.restTimerActionText, { color: countdownActive ? colors.primaryText : '#1C1C1E' }]}>
-                      {countdownActive ? 'Pause' : 'Start'}
-                    </Text>
-                  </TouchableOpacity>
-                  {!countdownActive && countdownRemaining !== countdownDuration && (
+                  {!countdownActive && countdownRemaining === 0 ? (
+                    <TouchableOpacity
+                      style={[styles.restTimerAction, { backgroundColor: accentColor }]}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        setCountdownRemaining(countdownDuration);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="refresh" size={20} color="#1C1C1E" />
+                      <Text style={[styles.restTimerActionText, { color: '#1C1C1E' }]}>Reset</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.restTimerAction, { backgroundColor: countdownActive ? colors.inputBg : accentColor }]}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        setCountdownActive(!countdownActive);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name={countdownActive ? 'pause' : 'play'} size={20} color={countdownActive ? colors.primaryText : '#1C1C1E'} />
+                      <Text style={[styles.restTimerActionText, { color: countdownActive ? colors.primaryText : '#1C1C1E' }]}>
+                        {countdownActive ? 'Pause' : 'Start'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  {!countdownActive && countdownRemaining > 0 && countdownRemaining !== countdownDuration && (
                     <TouchableOpacity
                       style={styles.restTimerSecondary}
                       onPress={() => {
@@ -2315,6 +2383,15 @@ export default function WorkoutScreen() {
               <>
                 <Text style={[styles.completeTitle, { color: colors.primaryText }]}>Changes Saved!</Text>
                 <Text style={[styles.completeSubtitle, { color: colors.secondaryText }]}>Your workout has been updated</Text>
+                <BounceButton style={[styles.completeDoneBtn, { backgroundColor: accentColor, marginTop: 24 }]} onPress={() => {
+                  setShowComplete(false);
+                  completeScale.setValue(0);
+                  completeOpacity.setValue(0);
+                  setIsSaveChangesToast(false);
+                  router.navigate('/(tabs)/home');
+                }}>
+                  <Text style={styles.completeDoneBtnText}>Done</Text>
+                </BounceButton>
               </>
             ) : (
               <>
