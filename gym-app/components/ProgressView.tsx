@@ -675,7 +675,7 @@ export function ProgressView({
         if (!ex || ex.mode === 'hold') continue;
         const bwSets = ex.sets.filter(s => (s.weight ?? 0) === 0 && (s.reps ?? 0) > 0);
         if (bwSets.length === 0) continue;
-        const maxReps = Math.max(...bwSets.map(s => s.reps));
+        const maxReps = Math.max(...bwSets.map(s => s.reps ?? 0));
         const dayStr = new Date(entry.date).toDateString();
         const existing = byDay.get(dayStr);
         if (!existing || maxReps > existing.maxReps) {

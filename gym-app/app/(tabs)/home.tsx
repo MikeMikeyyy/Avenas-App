@@ -30,9 +30,9 @@ let _streakAnimPlayed = false;
 type StreakData = {
   streak: number;
   lastOpenDate: string;
-  lastWorkoutDate: string | null; // last date user opened on a workout day
-  anchorDate: string;             // reference date the cycle was established from
-  splitPattern: boolean[];        // cycle starting at anchorDate; true=workout, false=rest
+  lastWorkoutDate: string | null;
+  cycleRef: { date: string; offset: number }; // known cycle position at a known date
+  splitPattern: boolean[];                     // canonical unrotated program pattern
   programId: string;
 };
 
@@ -45,33 +45,38 @@ function daysBetween(a: string, b: string): number {
   return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
 }
 
-// Was the date `targetDate` a workout day, given the cycle anchored at `anchorDate`?
-function isWorkoutOnDate(anchorDate: string, splitPattern: boolean[], targetDate: string): boolean {
+function toDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Was targetDate a workout day, given a known cycle reference point?
+function isWorkoutOnDate(cycleRef: { date: string; offset: number }, splitPattern: boolean[], targetDate: string): boolean {
   const len = splitPattern.length;
-  if (len === 0) return false;
-  const diff = daysBetween(anchorDate, targetDate);
-  return splitPattern[((diff % len) + len) % len];
+  if (len === 0) return true; // no program = every day counts
+  const diff = daysBetween(cycleRef.date, targetDate);
+  return splitPattern[((cycleRef.offset + diff) % len + len) % len];
 }
 
 // Count workout days strictly between fromDate and toDate (exclusive of both ends)
-function countMissedWorkouts(anchorDate: string, splitPattern: boolean[], fromDate: string, toDate: string): number {
+function countMissedWorkouts(cycleRef: { date: string; offset: number }, splitPattern: boolean[], fromDate: string, toDate: string): number {
   const gap = daysBetween(fromDate, toDate);
   let missed = 0;
   for (let i = 1; i < gap; i++) {
     const d = new Date(fromDate);
     d.setDate(d.getDate() + i);
-    const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    if (isWorkoutOnDate(anchorDate, splitPattern, ds)) missed++;
+    if (isWorkoutOnDate(cycleRef, splitPattern, toDateStr(d))) missed++;
   }
   return missed;
 }
 
 async function loadAndUpdateStreak(
   programId: string,
-  splitPattern: boolean[], // index 0 = today's type in the cycle
+  splitPattern: boolean[],  // canonical unrotated program pattern
   isTodayWorkout: boolean,
+  cycleOffsetToday: number, // which index in splitPattern corresponds to today
 ): Promise<number> {
   const today = getTodayStr();
+  const cycleRefToday = { date: today, offset: cycleOffsetToday };
   try {
     const raw = await AsyncStorage.getItem(STREAK_KEY);
     if (!raw) {
@@ -79,7 +84,7 @@ async function loadAndUpdateStreak(
         streak: 1,
         lastOpenDate: today,
         lastWorkoutDate: isTodayWorkout ? today : null,
-        anchorDate: today,
+        cycleRef: cycleRefToday,
         splitPattern,
         programId,
       };
@@ -87,36 +92,38 @@ async function loadAndUpdateStreak(
       return 1;
     }
 
-    const stored: StreakData = JSON.parse(raw);
-    if (stored.lastOpenDate === today) return stored.streak;
+    const storedRaw: any = JSON.parse(raw);
+    if (storedRaw.lastOpenDate === today) return storedRaw.streak;
 
     const programChanged =
-      stored.programId !== programId ||
-      JSON.stringify(stored.splitPattern) !== JSON.stringify(splitPattern);
+      storedRaw.programId !== programId ||
+      JSON.stringify(storedRaw.splitPattern) !== JSON.stringify(splitPattern);
 
-    let { streak, lastWorkoutDate, anchorDate } = stored;
+    // Migrate old format (anchorDate) or use stored cycleRef
+    const storedCycleRef: { date: string; offset: number } =
+      storedRaw.cycleRef ?? cycleRefToday;
+
+    const activeCycleRef = programChanged ? cycleRefToday : storedCycleRef;
+
+    let streak: number = storedRaw.streak;
+    let lastWorkoutDate: string | null = storedRaw.lastWorkoutDate;
 
     if (programChanged) {
-      // Can't reliably infer missed days under a different cycle — keep streak, reset anchor
       if (isTodayWorkout) {
         streak += 1;
         lastWorkoutDate = today;
       }
-      anchorDate = today;
     } else {
       if (isTodayWorkout) {
-        const fromDate = lastWorkoutDate ?? stored.lastOpenDate;
-        const missed = countMissedWorkouts(anchorDate, stored.splitPattern, fromDate, today);
+        const fromDate = lastWorkoutDate ?? storedRaw.lastOpenDate;
+        const missed = countMissedWorkouts(activeCycleRef, storedRaw.splitPattern, fromDate, today);
         streak = missed === 0 ? streak + 1 : 1;
         lastWorkoutDate = today;
       } else {
-        // Rest day — check whether any workout days slipped past since last workout
+        // Rest day — check if any workout days slipped past since last workout
         if (lastWorkoutDate !== null) {
-          const missed = countMissedWorkouts(anchorDate, stored.splitPattern, lastWorkoutDate, today);
-          if (missed > 0) {
-            streak = 1;
-            lastWorkoutDate = null;
-          }
+          const missed = countMissedWorkouts(activeCycleRef, storedRaw.splitPattern, lastWorkoutDate, today);
+          if (missed > 0) { streak = 1; lastWorkoutDate = null; }
         }
       }
     }
@@ -125,7 +132,7 @@ async function loadAndUpdateStreak(
       streak,
       lastOpenDate: today,
       lastWorkoutDate,
-      anchorDate,
+      cycleRef: activeCycleRef,
       splitPattern,
       programId,
     };
@@ -258,7 +265,7 @@ export default function HomeScreen() {
   const profileInitials = user?.displayName
     ? user.displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join('')
     : '?';
-  const activeProgram = programs.find(p => p.id === activeId);
+  const activeProgram = programs.find(p => p.id === activeId && !p.archived);
   const accentColor = activeProgram?.color || '#47DDFF';
   const todayDayIndex = 0; // today is always index 0 in the calendar
   const [streak, setStreak] = useState(1);
@@ -272,10 +279,18 @@ export default function HomeScreen() {
 
   useEffect(() => {
     const splitPattern = activeProgram?.splitDays.map(sd => sd.type === 'training') ?? [];
-    const isTodayWorkout = splitPattern[0] ?? false;
     const programId = activeProgram?.id ?? 'none';
-    loadAndUpdateStreak(programId, splitPattern, isTodayWorkout).then(setStreak);
-  }, []);
+    if (!activeProgram || splitPattern.length === 0) {
+      loadAndUpdateStreak(programId, [], true, 0).then(setStreak);
+      return;
+    }
+    workoutState.getCycleOffset(programId, splitPattern.length).then(cycleOffset => {
+      const n = splitPattern.length;
+      const todayPos = ((cycleOffset % n) + n) % n;
+      const isTodayWorkout = splitPattern[todayPos];
+      loadAndUpdateStreak(programId, splitPattern, isTodayWorkout, cycleOffset).then(setStreak);
+    });
+  }, [activeId]);
 
   useEffect(() => {
     return workoutState.subscribe((done) => {
