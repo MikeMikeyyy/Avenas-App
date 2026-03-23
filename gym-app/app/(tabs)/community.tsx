@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   Platform,
   StatusBar,
   Animated,
@@ -1662,6 +1663,7 @@ export default function CommunityScreen() {
 
       {/* Create Community Modal */}
       <Modal visible={showCreateModal} transparent animationType="fade">
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={[styles.joinModalOverlay, { backgroundColor: colors.overlayBg }]}>
           <View style={[styles.joinModalContent, { backgroundColor: colors.modalBg }]}>
             <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Create Community</Text>
@@ -1674,6 +1676,8 @@ export default function CommunityScreen() {
               value={newCommunityName}
               onChangeText={setNewCommunityName}
               maxLength={30}
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
             />
             <TextInput
               style={[styles.modalInput, styles.modalInputMulti, { backgroundColor: colors.inputBg, color: colors.primaryText }]}
@@ -1681,9 +1685,9 @@ export default function CommunityScreen() {
               placeholderTextColor={colors.tertiaryText}
               value={newCommunityDesc}
               onChangeText={setNewCommunityDesc}
-              multiline
-              numberOfLines={4}
               maxLength={150}
+              multiline
+              blurOnSubmit
             />
 
             <Text style={[styles.colorPickerLabel, { color: colors.secondaryText }]}>COLOUR THEME</Text>
@@ -1729,6 +1733,7 @@ export default function CommunityScreen() {
             </BounceButton>
           </View>
         </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
       {/* Join Community Modal */}
@@ -1787,6 +1792,7 @@ export default function CommunityScreen() {
 
           {showEditInSheet ? (
             /* ── Edit form (shown inline in the same sheet) ── */
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 8 }}>
                 <TouchableOpacity onPress={() => setShowEditInSheet(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
@@ -1802,6 +1808,8 @@ export default function CommunityScreen() {
                 value={editName}
                 onChangeText={setEditName}
                 maxLength={30}
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
               />
               <TextInput
                 style={[styles.modalInput, styles.modalInputMulti, { backgroundColor: colors.inputBg, color: colors.primaryText }]}
@@ -1809,9 +1817,9 @@ export default function CommunityScreen() {
                 placeholderTextColor={colors.tertiaryText}
                 value={editDesc}
                 onChangeText={setEditDesc}
-                multiline
-                numberOfLines={3}
                 maxLength={150}
+                multiline
+                blurOnSubmit
               />
 
               <Text style={[styles.colorPickerLabel, { color: colors.secondaryText }]}>COLOUR THEME</Text>
@@ -1852,6 +1860,7 @@ export default function CommunityScreen() {
                 <Text style={[styles.joinSearchBtnText, { color: '#fff' }]}>Save Changes</Text>
               </BounceButton>
             </>
+            </TouchableWithoutFeedback>
           ) : showDeleteConfirm ? (
             /* ── Delete confirmation ── */
             <>
