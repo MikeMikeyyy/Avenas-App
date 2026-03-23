@@ -1,4 +1,5 @@
 import React, { useRef, useState, useMemo, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
@@ -1084,6 +1085,14 @@ export default function JournalScreen() {
     return null;
   });
 
+  const [prevDataNotice, setPrevDataNotice] = useState<string | null>(null);
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem('@prev_fill_notice_dismissed').then(val => {
+      if (val === 'true') setNoticeDismissed(true);
+    });
+  }, []);
+
   if (!fontsLoaded) return null;
 
   const handleSelectEntry = (entry: WorkoutJournalEntry) => {
@@ -1110,17 +1119,25 @@ export default function JournalScreen() {
     const splitDay = program.splitDays[dayIndex];
     if (!splitDay || splitDay.type === 'rest') return;
     const ts = new Date(date).setHours(12, 0, 0, 0);
-    const sessions: LoggedSession[] = splitDay.sessions.map(s => ({
-      label: s.label,
-      exercises: s.exercises.map(e => ({
-        name: e.name,
-        mode: e.mode ?? 'reps',
-        sets: Array.from({ length: e.sets }, (_, i) => ({
-          reps: 0, weight: null, hold: 0,
-          isWarmup: i < (e.warmupSets ?? 0),
-        })),
-      })),
-    }));
+    const sessions: LoggedSession[] = splitDay.sessions.map(s => {
+      const prevExercises = workoutState.getPrev(s.label);
+      return {
+        label: s.label,
+        exercises: s.exercises.map(e => {
+          const prevEx = prevExercises?.find(p => p.name === e.name);
+          return {
+            name: e.name,
+            mode: e.mode ?? 'reps',
+            sets: Array.from({ length: e.sets }, (_, i) => ({
+              reps: prevEx?.sets[i]?.reps ?? 0,
+              weight: prevEx?.sets[i]?.weight || null,
+              hold: prevEx?.sets[i]?.hold ?? 0,
+              isWarmup: i < (e.warmupSets ?? 0),
+            })),
+          };
+        }),
+      };
+    });
     const entry: WorkoutJournalEntry = {
       id: `manual-${Date.now()}`,
       date: ts,
@@ -1132,10 +1149,15 @@ export default function JournalScreen() {
       totalVolume: 0,
       sessions,
     };
+    const hasPrevData = splitDay.sessions.some(s => !!workoutState.getPrev(s.label));
     workoutState.logJournalEntry(entry);
     setEntries(workoutState.getJournalLog());
     setLogState(null);
     handleSelectEntry(entry);
+    if (hasPrevData && !noticeDismissed) {
+      // Delay until after the log sheet modal finishes closing (~220ms)
+      setTimeout(() => setPrevDataNotice(getDayLabel(splitDay)), 280);
+    }
   };
 
   const handleBack = () => {
@@ -1340,6 +1362,40 @@ export default function JournalScreen() {
           )}
         </View>
       </BottomSheetModal>
+
+      {/* Previous data filled notice — inline overlay to avoid native Modal stacking */}
+      {!!prevDataNotice && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 999 }]}>
+          <TouchableOpacity style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]} activeOpacity={1} onPress={() => setPrevDataNotice(null)} />
+          <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 }]} pointerEvents="box-none">
+            <View style={[styles.prevNoticeCard, { backgroundColor: colors.modalBg }]}>
+              <View style={styles.prevNoticeIconRow}>
+                <Ionicons name="time-outline" size={30} color="#47DDFF" />
+              </View>
+              <Text style={[styles.prevNoticeTitle, { color: colors.primaryText }]}>Previous data filled in</Text>
+              <Text style={[styles.prevNoticeBody, { color: colors.secondaryText }]}>
+                Your last <Text style={{ fontFamily: 'Arimo_700Bold', color: colors.primaryText }}>{prevDataNotice}</Text> weights and reps have been pre-filled. Update them with today's actual numbers.
+              </Text>
+              <BounceButton
+                style={[styles.prevNoticeGotIt, { backgroundColor: '#47DDFF' }]}
+                onPress={() => setPrevDataNotice(null)}
+              >
+                <Text style={styles.prevNoticeGotItText}>Got it</Text>
+              </BounceButton>
+              <TouchableOpacity
+                style={[styles.prevNoticeDismiss, { borderColor: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.25)' }]}
+                onPress={() => {
+                  AsyncStorage.setItem('@prev_fill_notice_dismissed', 'true');
+                  setNoticeDismissed(true);
+                  setPrevDataNotice(null);
+                }}
+              >
+                <Text style={[styles.prevNoticeDismissText, { color: colors.secondaryText }]}>Don't show this again</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
 
     </LinearGradient>
   );
@@ -1947,6 +2003,49 @@ const styles = StyleSheet.create({
   },
   logSheetCancelText: {
     fontSize: 13,
+    fontFamily: 'Arimo_700Bold',
+  },
+  prevNoticeCard: {
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+  },
+  prevNoticeIconRow: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  prevNoticeTitle: {
+    fontSize: 18,
+    fontFamily: 'Arimo_700Bold',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  prevNoticeBody: {
+    fontSize: 14,
+    fontFamily: 'Arimo_400Regular',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  prevNoticeGotIt: {
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  prevNoticeGotItText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_700Bold',
+    color: '#1C1C1E',
+  },
+  prevNoticeDismiss: {
+    alignItems: 'center',
+    paddingVertical: 13,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  prevNoticeDismissText: {
+    fontSize: 15,
     fontFamily: 'Arimo_700Bold',
   },
 });
