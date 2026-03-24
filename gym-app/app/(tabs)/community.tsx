@@ -164,6 +164,10 @@ export default function CommunityScreen() {
     getPrivateChat,
     deletedCommunityName,
     clearDeletedNotification,
+    blockedUserIds,
+    pendingReportedUserIds,
+    reportContent,
+    blockUser,
   } = useCommunityStore();
   const { programs, addProgram, addSharedProgram } = useProgramStore();
   const { isDark, colors } = useTheme();
@@ -261,6 +265,39 @@ export default function CommunityScreen() {
   const [memberJournalData, setMemberJournalData] = useState<WorkoutJournalEntry[] | null>(null);
   const [memberActiveProgramName, setMemberActiveProgramName] = useState<string | null>(null);
   const [memberProgressLoading, setMemberProgressLoading] = useState(false);
+
+  // EULA / Community Terms acceptance
+  const [communityTermsAccepted, setCommunityTermsAccepted] = useState<boolean | null>(null);
+  const checkCommunityTerms = () => {
+    if (!currentUserId) return;
+    AsyncStorage.getItem(`@communityTermsAccepted_${currentUserId}`).then(v => {
+      setCommunityTermsAccepted(v === 'true');
+    });
+  };
+  useEffect(checkCommunityTerms, [currentUserId]);
+  // Re-check whenever the screen comes back into focus (e.g. returning from terms page)
+  useFocusEffect(React.useCallback(() => { checkCommunityTerms(); }, [currentUserId]));
+
+  // Message action (report / block) state
+  type PendingAction = { senderId: string; senderName: string; messagePreview: string; communityId: string; communityName: string; chatType: 'group' | 'private' };
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [showMessageActions, setShowMessageActions] = useState(false);
+  const [reportSent, setReportSent] = useState(false);
+  const [reportComment, setReportComment] = useState('');
+  const [showBlockConfirm, setShowBlockConfirm] = useState(false);
+
+  // User tap action (tap on member name/avatar)
+  type PendingUserAction = { userId: string; userName: string; communityId: string; communityName: string };
+  const [pendingUserAction, setPendingUserAction] = useState<PendingUserAction | null>(null);
+  const [showUserActions, setShowUserActions] = useState(false);
+  const [userReportSent, setUserReportSent] = useState(false);
+  const [showUserBlockConfirm, setShowUserBlockConfirm] = useState(false);
+  const [reportedOwnerCommunities, setReportedOwnerCommunities] = useState<Community[]>([]);
+
+  // Owner-block warning
+  const [ownerBlockInfo, setOwnerBlockInfo] = useState<{ userId: string; userName: string; communities: Community[] } | null>(null);
+  const [showOwnerBlockWarning, setShowOwnerBlockWarning] = useState(false);
+
 
   // Keyboard height for chat input positioning
   const [chatKeyboardHeight, setChatKeyboardHeight] = useState(0);
@@ -445,6 +482,98 @@ export default function CommunityScreen() {
       setChatMessage('');
       Keyboard.dismiss();
     }
+  };
+
+  const handleLongPressMessage = (senderId: string, senderName: string, messagePreview: string, chatType: 'group' | 'private') => {
+    if (!selectedCommunity) return;
+    setPendingAction({ senderId, senderName, messagePreview, communityId: selectedCommunity.id, communityName: selectedCommunity.name, chatType });
+    setReportSent(false);
+    setReportComment('');
+    setShowMessageActions(true);
+  };
+
+  const handleReportMessage = async () => {
+    if (!pendingAction) return;
+    await reportContent({
+      reportedUserId: pendingAction.senderId,
+      reportedUserName: pendingAction.senderName,
+      communityId: pendingAction.communityId,
+      communityName: pendingAction.communityName,
+      contentType: pendingAction.chatType === 'group' ? 'groupMessage' : 'privateMessage',
+      contentPreview: pendingAction.messagePreview.slice(0, 300),
+      ...(reportComment.trim() ? { reportComment: reportComment.trim() } : {}),
+    });
+    setReportSent(true);
+  };
+
+  const closeAllBlockModals = () => {
+    setShowBlockConfirm(false);
+    setShowMessageActions(false);
+    setShowUserBlockConfirm(false);
+    setShowUserActions(false);
+  };
+
+  const checkAndBlock = async (userId: string, userName: string, communityId: string, communityName: string) => {
+    const ownedByTarget = joinedCommunities.filter(c => c.ownerId === userId);
+    closeAllBlockModals();
+    if (ownedByTarget.length > 0) {
+      setOwnerBlockInfo({ userId, userName, communities: ownedByTarget });
+      setShowOwnerBlockWarning(true);
+      return;
+    }
+    await blockUser(userId, userName, communityId, communityName);
+    // Automatically remove them from any communities the current user owns
+    const ownedWithMember = ownedCommunities.filter(c => c.members.some(m => m.id === userId));
+    for (const c of ownedWithMember) removeMember(c.id, userId);
+  };
+
+  const handleConfirmBlock = () => {
+    if (!pendingAction) return;
+    checkAndBlock(pendingAction.senderId, pendingAction.senderName, pendingAction.communityId, pendingAction.communityName);
+  };
+
+  const handleConfirmOwnerBlock = async () => {
+    if (!ownerBlockInfo) return;
+    const { userId, userName, communities } = ownerBlockInfo;
+    await blockUser(userId, userName, communities[0].id, communities[0].name);
+    for (const c of communities) {
+      leaveCommunity(c.id);
+    }
+    setShowOwnerBlockWarning(false);
+    setOwnerBlockInfo(null);
+    setPendingAction(null);
+    setPendingUserAction(null);
+    setViewMode('list');
+    setSelectedCommunity(null);
+  };
+
+  const handleTapMember = (userId: string, userName: string) => {
+    if (!selectedCommunity || userId === currentUserId) return;
+    setPendingUserAction({ userId, userName, communityId: selectedCommunity.id, communityName: selectedCommunity.name });
+    setUserReportSent(false);
+    setReportComment('');
+    setShowUserActions(true);
+  };
+
+  const handleReportUser = async () => {
+    if (!pendingUserAction) return;
+    await reportContent({
+      reportedUserId: pendingUserAction.userId,
+      reportedUserName: pendingUserAction.userName,
+      communityId: pendingUserAction.communityId,
+      communityName: pendingUserAction.communityName,
+      contentType: 'user',
+      contentPreview: `User profile reported`,
+      ...(reportComment.trim() ? { reportComment: reportComment.trim() } : {}),
+    });
+    const owned = joinedCommunities.filter(c => c.ownerId === pendingUserAction.userId);
+    setReportedOwnerCommunities(owned);
+    setUserReportSent(true);
+  };
+
+  const handleConfirmBlockUser = () => {
+    if (!pendingUserAction) return;
+    checkAndBlock(pendingUserAction.userId, pendingUserAction.userName, pendingUserAction.communityId, pendingUserAction.communityName);
   };
 
   const handleShareWorkout = () => {
@@ -1124,7 +1253,7 @@ export default function CommunityScreen() {
           {/* Members List */}
           <>
             <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24, marginBottom: 0 }]}>MEMBERS · {selectedCommunity.members.length}</Text>
+              <Text style={[styles.sectionLabel, { color: colors.secondaryText, marginTop: 24, marginBottom: 0 }]}>MEMBERS · {selectedCommunity.members.filter(m => !blockedUserIds.includes(m.id)).length}</Text>
               {isOwnerView && selectedCommunity.members.filter(m => m.role !== 'owner').length > 0 && (
                 <TouchableOpacity
                   style={styles.sectionMenuBtn}
@@ -1135,50 +1264,56 @@ export default function CommunityScreen() {
                 </TouchableOpacity>
               )}
             </View>
-            {selectedCommunity.members.map(member => (
-              <View key={member.id} style={[styles.memberCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
-                <View style={[styles.memberAvatar, { backgroundColor: getMemberColor(member.id) }]}>
-                  <Text style={styles.memberAvatarText}>
-                    {getInitials(member.name)}
-                  </Text>
+            {selectedCommunity.members.filter(m => !blockedUserIds.includes(m.id)).map(member => (
+              <TouchableOpacity
+                key={member.id}
+                activeOpacity={member.id === currentUserId ? 1 : 0.7}
+                onPress={() => handleTapMember(member.id, member.name)}
+              >
+                <View style={[styles.memberCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
+                  <View style={[styles.memberAvatar, { backgroundColor: getMemberColor(member.id) }]}>
+                    <Text style={styles.memberAvatarText}>
+                      {getInitials(member.name)}
+                    </Text>
+                  </View>
+                  <View style={styles.memberInfo}>
+                    <Text style={[styles.memberName, { color: colors.primaryText }]}>{member.name}</Text>
+                    <Text style={[styles.memberJoined, { color: colors.secondaryText }]}>
+                      {member.role === 'owner' ? 'Owner' : `Joined ${formatDate(member.joinedAt)}`}
+                    </Text>
+                  </View>
+                  {isOwnerView && member.role !== 'owner' && (() => {
+                    const unreadPM = getUnreadPrivateCount(selectedCommunity.id, member.id);
+                    return (
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <BounceButton
+                          style={styles.memberProgressBtn}
+                          onPress={() => openMemberProgress(member)}
+                        >
+                          <Ionicons name="stats-chart" size={16} color="#34D399" />
+                        </BounceButton>
+                        <BounceButton
+                          style={styles.memberChatBtn}
+                          onPress={() => {
+                            const chat = selectedCommunity.privateChats.find(pc => pc.memberId === member.id);
+                            const otherCount = chat ? chat.messages.filter(m => m.senderId !== currentUserId).length : 0;
+                            const key = `${selectedCommunity.id}-${member.id}`;
+                            setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherCount }));
+                            openPrivateChat(member);
+                          }}
+                        >
+                          <Ionicons name="chatbubble-outline" size={18} color="#47DDFF" />
+                          {unreadPM > 0 && (
+                            <View style={styles.chatNotifBadge}>
+                              <Text style={styles.chatNotifBadgeText}>{unreadPM > 9 ? '9+' : unreadPM}</Text>
+                            </View>
+                          )}
+                        </BounceButton>
+                      </View>
+                    );
+                  })()}
                 </View>
-                <View style={styles.memberInfo}>
-                  <Text style={[styles.memberName, { color: colors.primaryText }]}>{member.name}</Text>
-                  <Text style={[styles.memberJoined, { color: colors.secondaryText }]}>
-                    {member.role === 'owner' ? 'Owner' : `Joined ${formatDate(member.joinedAt)}`}
-                  </Text>
-                </View>
-                {isOwnerView && member.role !== 'owner' && (() => {
-                  const unreadPM = getUnreadPrivateCount(selectedCommunity.id, member.id);
-                  return (
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                      <BounceButton
-                        style={styles.memberProgressBtn}
-                        onPress={() => openMemberProgress(member)}
-                      >
-                        <Ionicons name="stats-chart" size={16} color="#34D399" />
-                      </BounceButton>
-                      <BounceButton
-                        style={styles.memberChatBtn}
-                        onPress={() => {
-                          const chat = selectedCommunity.privateChats.find(pc => pc.memberId === member.id);
-                          const otherCount = chat ? chat.messages.filter(m => m.senderId !== currentUserId).length : 0;
-                          const key = `${selectedCommunity.id}-${member.id}`;
-                          setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherCount }));
-                          openPrivateChat(member);
-                        }}
-                      >
-                        <Ionicons name="chatbubble-outline" size={18} color="#47DDFF" />
-                        {unreadPM > 0 && (
-                          <View style={styles.chatNotifBadge}>
-                            <Text style={styles.chatNotifBadgeText}>{unreadPM > 9 ? '9+' : unreadPM}</Text>
-                          </View>
-                        )}
-                      </BounceButton>
-                    </View>
-                  );
-                })()}
-              </View>
+              </TouchableOpacity>
             ))}
           </>
 
@@ -1235,7 +1370,7 @@ export default function CommunityScreen() {
     const currentCommunity = isOwnerView
       ? ownedCommunities.find(c => c.id === selectedCommunity.id)
       : joinedCommunities.find(c => c.id === selectedCommunity.id);
-    const messages = currentCommunity?.chatMessages || [];
+    const messages = (currentCommunity?.chatMessages || []).filter(m => !blockedUserIds.includes(m.senderId));
 
     return (
       <View style={{ flex: 1 }}>
@@ -1260,22 +1395,34 @@ export default function CommunityScreen() {
           renderItem={({ item }) => {
             const isMe = item.senderId === currentUserId;
             return (
-              <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
-                {!isMe && (
-                  <View style={[styles.messageAvatar, { backgroundColor: getMemberColor(item.senderId) }]}>
-                    <Text style={styles.messageAvatarText}>
-                      {getInitials(item.senderName)}
+              <TouchableOpacity
+                activeOpacity={1}
+                onLongPress={!isMe ? () => handleLongPressMessage(item.senderId, item.senderName, item.message, 'group') : undefined}
+                delayLongPress={400}
+              >
+                <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
+                  {!isMe && (
+                    <TouchableOpacity onPress={() => handleTapMember(item.senderId, item.senderName)} activeOpacity={0.7}>
+                      <View style={[styles.messageAvatar, { backgroundColor: getMemberColor(item.senderId) }]}>
+                        <Text style={styles.messageAvatarText}>
+                          {getInitials(item.senderName)}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+                  <View style={[styles.messageBubble, isMe ? styles.messageBubbleMe : [styles.messageBubbleOther, { backgroundColor: colors.cardSolid }]]}>
+                    {!isMe && (
+                      <TouchableOpacity onPress={() => handleTapMember(item.senderId, item.senderName)} activeOpacity={0.7}>
+                        <Text style={[styles.messageSender, { color: colors.secondaryText }]}>{item.senderName}</Text>
+                      </TouchableOpacity>
+                    )}
+                    <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>{item.message}</Text>
+                    <Text style={[styles.messageTime, { color: colors.secondaryText }, isMe && styles.messageTimeMe]}>
+                      {formatTime(item.timestamp)}
                     </Text>
                   </View>
-                )}
-                <View style={[styles.messageBubble, isMe ? styles.messageBubbleMe : [styles.messageBubbleOther, { backgroundColor: colors.cardSolid }]]}>
-                  {!isMe && <Text style={[styles.messageSender, { color: colors.secondaryText }]}>{item.senderName}</Text>}
-                  <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>{item.message}</Text>
-                  <Text style={[styles.messageTime, { color: colors.secondaryText }, isMe && styles.messageTimeMe]}>
-                    {formatTime(item.timestamp)}
-                  </Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           }}
         />
@@ -1471,7 +1618,7 @@ export default function CommunityScreen() {
     // sides read/write the same Firestore path.
     const privateChatKey = isOwnerView ? privateChatMember.id : currentUserId;
     const privateChat = getPrivateChat(selectedCommunity.id, privateChatKey);
-    const messages = privateChat?.messages || [];
+    const messages = (privateChat?.messages || []).filter(m => !blockedUserIds.includes(m.senderId));
 
     const handleSendPrivate = () => {
       if (privateMessage.trim()) {
@@ -1492,7 +1639,7 @@ export default function CommunityScreen() {
           <TouchableOpacity style={[styles.heroBannerBtn, { backgroundColor: colors.backButtonBg }]} onPress={handleBack}>
             <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
           </TouchableOpacity>
-          <View style={styles.privateChatHeaderInfo}>
+          <TouchableOpacity style={styles.privateChatHeaderInfo} onPress={() => handleTapMember(privateChatMember.id, privateChatMember.name)}>
             <View style={[styles.privateChatHeaderAvatar, { backgroundColor: getMemberColor(privateChatMember.id) }]}>
               <Text style={styles.privateChatHeaderAvatarText}>
                 {getInitials(privateChatMember.name)}
@@ -1502,7 +1649,7 @@ export default function CommunityScreen() {
               <Text style={[styles.privateChatHeaderName, { color: colors.primaryText }]}>{privateChatMember.name}</Text>
               <Text style={[styles.privateChatHeaderSubtitle, { color: colors.secondaryText }]}>Private Chat</Text>
             </View>
-          </View>
+          </TouchableOpacity>
           <View style={{ width: 28 }} />
         </View>
 
@@ -1520,35 +1667,42 @@ export default function CommunityScreen() {
           }
           renderItem={({ item }) => {
             const isMe = item.senderId === currentUserId;
+            const msgPreview = item.sharedWorkout ? `[Program: ${item.sharedWorkout.programName}]` : item.message;
             return (
-              <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
-                {!isMe && (
-                  <View style={[styles.messageAvatar, { backgroundColor: getMemberColor(item.senderId) }]}>
-                    <Text style={styles.messageAvatarText}>
-                      {getInitials(item.senderName)}
+              <TouchableOpacity
+                activeOpacity={1}
+                onLongPress={!isMe ? () => handleLongPressMessage(item.senderId, item.senderName, msgPreview, 'private') : undefined}
+                delayLongPress={400}
+              >
+                <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
+                  {!isMe && (
+                    <View style={[styles.messageAvatar, { backgroundColor: getMemberColor(item.senderId) }]}>
+                      <Text style={styles.messageAvatarText}>
+                        {getInitials(item.senderName)}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={[styles.messageBubble, isMe ? styles.messageBubbleMe : [styles.messageBubbleOther, { backgroundColor: colors.cardSolid }]]}>
+                    {item.sharedWorkout ? (
+                      <View style={styles.sharedWorkoutMessage}>
+                        <View style={[styles.sharedWorkoutIcon, { backgroundColor: item.sharedWorkout.color }, isMe && styles.sharedWorkoutIconMe]}>
+                          <Ionicons name="barbell" size={18} color="#fff" />
+                        </View>
+                        <View style={styles.sharedWorkoutInfo}>
+                          <Text style={[styles.sharedWorkoutLabel, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.secondaryText }]}>PROGRAM</Text>
+                          <Text style={[styles.sharedWorkoutName, { color: isMe ? '#fff' : colors.primaryText }]}>{item.sharedWorkout.programName}</Text>
+                          <Text style={[styles.sharedWorkoutMeta, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.secondaryText }]}>{item.sharedWorkout.splitDays} day split</Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>{item.message}</Text>
+                    )}
+                    <Text style={[styles.messageTime, { color: colors.secondaryText }, isMe && styles.messageTimeMe]}>
+                      {formatTime(item.timestamp)}
                     </Text>
                   </View>
-                )}
-                <View style={[styles.messageBubble, isMe ? styles.messageBubbleMe : [styles.messageBubbleOther, { backgroundColor: colors.cardSolid }]]}>
-                  {item.sharedWorkout ? (
-                    <View style={styles.sharedWorkoutMessage}>
-                      <View style={[styles.sharedWorkoutIcon, { backgroundColor: item.sharedWorkout.color }, isMe && styles.sharedWorkoutIconMe]}>
-                        <Ionicons name="barbell" size={18} color="#fff" />
-                      </View>
-                      <View style={styles.sharedWorkoutInfo}>
-                        <Text style={[styles.sharedWorkoutLabel, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.secondaryText }]}>PROGRAM</Text>
-                        <Text style={[styles.sharedWorkoutName, { color: isMe ? '#fff' : colors.primaryText }]}>{item.sharedWorkout.programName}</Text>
-                        <Text style={[styles.sharedWorkoutMeta, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.secondaryText }]}>{item.sharedWorkout.splitDays} day split</Text>
-                      </View>
-                    </View>
-                  ) : (
-                    <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>{item.message}</Text>
-                  )}
-                  <Text style={[styles.messageTime, { color: colors.secondaryText }, isMe && styles.messageTimeMe]}>
-                    {formatTime(item.timestamp)}
-                  </Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           }}
         />
@@ -2132,6 +2286,304 @@ export default function CommunityScreen() {
           </View>
         </View>
       )}
+
+      {/* Community Terms / EULA Gate */}
+      <Modal visible={communityTermsAccepted === false} transparent animationType="fade">
+        <View style={[styles.joinModalOverlay, { backgroundColor: colors.overlayBg }]}>
+          <View style={[styles.joinModalContent, { backgroundColor: colors.modalBg }]}>
+            <Ionicons name="shield-checkmark-outline" size={40} color={colors.accent ?? '#47DDFF'} style={{ alignSelf: 'center', marginBottom: 14 }} />
+            <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Terms of Service</Text>
+            <Text style={[styles.modalSubtitle, { color: colors.secondaryText, marginBottom: 20 }]}>
+              To access the Community you must read and agree to our Terms of Service, including the Community Guidelines.
+            </Text>
+            <BounceButton
+              style={[styles.joinSearchBtn, { backgroundColor: colors.accent ?? '#47DDFF' }]}
+              onPress={() => {
+                setCommunityTermsAccepted(null);
+                router.push({ pathname: '/terms', params: { accept: '1' } } as any);
+              }}
+            >
+              <Ionicons name="document-text-outline" size={20} color="#fff" />
+              <Text style={[styles.joinSearchBtnText, { color: '#fff' }]}>Read & Accept Terms</Text>
+            </BounceButton>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Message Actions Modal (Report / Block) */}
+      <Modal visible={showMessageActions} transparent animationType="fade" onRequestClose={() => setShowMessageActions(false)}>
+        <TouchableWithoutFeedback onPress={() => setShowMessageActions(false)}>
+          <View style={[styles.joinModalOverlay, { backgroundColor: colors.overlayBg }]}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.joinModalContent, { backgroundColor: colors.modalBg }]}>
+                {!reportSent ? (
+                  <>
+                    <Text style={[styles.modalTitle, { color: colors.primaryText }]}>
+                      {pendingAction?.senderName ?? 'Message'}
+                    </Text>
+                    <Text style={[styles.modalSubtitle, { color: colors.secondaryText }]} numberOfLines={2}>
+                      "{pendingAction?.messagePreview}"
+                    </Text>
+                    {pendingReportedUserIds.includes(pendingAction?.senderId ?? '') ? (
+                      <View style={[styles.eulaBox, { backgroundColor: colors.inputBg, borderColor: colors.border, marginBottom: 10 }]}>
+                        <Text style={[styles.eulaText, { color: colors.secondaryText, textAlign: 'center' }]}>
+                          A review of this user is already underway.
+                        </Text>
+                      </View>
+                    ) : (
+                      <>
+                        <TextInput
+                          style={[styles.reportCommentInput, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.primaryText }]}
+                          placeholder="Leave a note for the reviewer (optional)"
+                          placeholderTextColor={colors.tertiaryText}
+                          value={reportComment}
+                          onChangeText={setReportComment}
+                          returnKeyType="done"
+                          onSubmitEditing={Keyboard.dismiss}
+                          maxLength={300}
+                        />
+                        <BounceButton
+                          style={[styles.joinSearchBtn, { backgroundColor: '#FF9500', marginBottom: 10 }]}
+                          onPress={() => { Keyboard.dismiss(); handleReportMessage(); }}
+                        >
+                          <Ionicons name="flag-outline" size={20} color="#fff" />
+                          <Text style={[styles.joinSearchBtnText, { color: '#fff' }]}>Report Message</Text>
+                        </BounceButton>
+                      </>
+                    )}
+                    <BounceButton
+                      style={[styles.joinSearchBtn, { backgroundColor: '#FF3B30', marginBottom: 10 }]}
+                      onPress={() => { setShowBlockConfirm(true); setShowMessageActions(false); }}
+                    >
+                      <Ionicons name="ban-outline" size={20} color="#fff" />
+                      <Text style={[styles.joinSearchBtnText, { color: '#fff' }]}>Block User</Text>
+                    </BounceButton>
+                    <BounceButton
+                      style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
+                      onPress={() => setShowMessageActions(false)}
+                    >
+                      <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>Cancel</Text>
+                    </BounceButton>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={40} color="#34C759" style={{ alignSelf: 'center', marginBottom: 10 }} />
+                    <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Report Sent</Text>
+                    <Text style={[styles.modalSubtitle, { color: colors.secondaryText }]}>
+                      Thank you. We will review this report within 24 hours.
+                    </Text>
+                    <BounceButton
+                      style={[styles.joinSearchBtn, { backgroundColor: colors.accent ?? '#47DDFF' }]}
+                      onPress={() => setShowMessageActions(false)}
+                    >
+                      <Text style={[styles.joinSearchBtnText, { color: '#fff' }]}>Done</Text>
+                    </BounceButton>
+                  </>
+                )}
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* User Tap Actions Modal (Report / Block user by name) */}
+      <Modal visible={showUserActions} transparent animationType="fade" onRequestClose={() => setShowUserActions(false)}>
+        <TouchableWithoutFeedback onPress={() => setShowUserActions(false)}>
+          <View style={[styles.joinModalOverlay, { backgroundColor: colors.overlayBg }]}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.joinModalContent, { backgroundColor: colors.modalBg }]}>
+                {!userReportSent ? (
+                  <>
+                    <View style={[styles.memberAvatar, { backgroundColor: pendingUserAction ? getMemberColor(pendingUserAction.userId) : '#ccc', alignSelf: 'center', marginBottom: 10, width: 52, height: 52, borderRadius: 26 }]}>
+                      <Text style={[styles.memberAvatarText, { fontSize: 20 }]}>{pendingUserAction ? getInitials(pendingUserAction.userName) : '?'}</Text>
+                    </View>
+                    <Text style={[styles.modalTitle, { color: colors.primaryText }]}>{pendingUserAction?.userName}</Text>
+                    <Text style={[styles.modalSubtitle, { color: colors.secondaryText }]}>Community member</Text>
+                    {pendingReportedUserIds.includes(pendingUserAction?.userId ?? '') ? (
+                      <View style={[styles.eulaBox, { backgroundColor: colors.inputBg, borderColor: colors.border, marginBottom: 10 }]}>
+                        <Text style={[styles.eulaText, { color: colors.secondaryText, textAlign: 'center' }]}>
+                          A review of this user is already underway.
+                        </Text>
+                      </View>
+                    ) : (
+                      <>
+                        <TextInput
+                          style={[styles.reportCommentInput, { backgroundColor: colors.inputBg, borderColor: colors.border, color: colors.primaryText }]}
+                          placeholder="Leave a note for the reviewer (optional)"
+                          placeholderTextColor={colors.tertiaryText}
+                          value={reportComment}
+                          onChangeText={setReportComment}
+                          returnKeyType="done"
+                          onSubmitEditing={Keyboard.dismiss}
+                          maxLength={300}
+                        />
+                        <BounceButton
+                          style={[styles.joinSearchBtn, { backgroundColor: '#FF9500', marginBottom: 10 }]}
+                          onPress={() => { Keyboard.dismiss(); handleReportUser(); }}
+                        >
+                          <Ionicons name="flag-outline" size={20} color="#fff" />
+                          <Text style={[styles.joinSearchBtnText, { color: '#fff' }]}>Report User</Text>
+                        </BounceButton>
+                      </>
+                    )}
+                    <BounceButton
+                      style={[styles.joinSearchBtn, { backgroundColor: '#FF3B30', marginBottom: 10 }]}
+                      onPress={() => { setShowUserBlockConfirm(true); setShowUserActions(false); }}
+                    >
+                      <Ionicons name="ban-outline" size={20} color="#fff" />
+                      <Text style={[styles.joinSearchBtnText, { color: '#fff' }]}>Block User</Text>
+                    </BounceButton>
+                    <BounceButton
+                      style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
+                      onPress={() => setShowUserActions(false)}
+                    >
+                      <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>Cancel</Text>
+                    </BounceButton>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={40} color="#34C759" style={{ alignSelf: 'center', marginBottom: 10 }} />
+                    <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Report Sent</Text>
+                    <Text style={[styles.modalSubtitle, { color: colors.secondaryText }]}>
+                      Thank you. We will review this report within 24 hours.
+                    </Text>
+                    {reportedOwnerCommunities.length > 0 && (
+                      <>
+                        <View style={[styles.eulaBox, { backgroundColor: colors.inputBg, borderColor: colors.border, marginTop: 8 }]}>
+                          <Text style={[styles.eulaText, { color: colors.secondaryText }]}>
+                            {reportedOwnerCommunities.length === 1
+                              ? `Would you also like to leave "${reportedOwnerCommunities[0].name}"?`
+                              : `Would you also like to leave the ${reportedOwnerCommunities.length} communities owned by this user?`}
+                          </Text>
+                        </View>
+                        <BounceButton
+                          style={[styles.joinSearchBtn, { backgroundColor: '#FF3B30', marginBottom: 10 }]}
+                          onPress={() => {
+                            for (const c of reportedOwnerCommunities) leaveCommunity(c.id);
+                            setReportedOwnerCommunities([]);
+                            setViewMode('list');
+                            setSelectedCommunity(null);
+                            setShowUserActions(false);
+                          }}
+                        >
+                          <Text style={[styles.joinSearchBtnText, { color: '#fff' }]}>Yes, Leave</Text>
+                        </BounceButton>
+                        <BounceButton
+                          style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
+                          onPress={() => { setReportedOwnerCommunities([]); setShowUserActions(false); }}
+                        >
+                          <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>No, Stay</Text>
+                        </BounceButton>
+                      </>
+                    )}
+                    {reportedOwnerCommunities.length === 0 && (
+                      <BounceButton
+                        style={[styles.joinSearchBtn, { backgroundColor: colors.accent ?? '#47DDFF' }]}
+                        onPress={() => setShowUserActions(false)}
+                      >
+                        <Text style={[styles.joinSearchBtnText, { color: '#fff' }]}>Done</Text>
+                      </BounceButton>
+                    )}
+                  </>
+                )}
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* User Block Confirm Modal */}
+      <Modal visible={showUserBlockConfirm} transparent animationType="fade" onRequestClose={() => setShowUserBlockConfirm(false)}>
+        <TouchableWithoutFeedback onPress={() => setShowUserBlockConfirm(false)}>
+          <View style={[styles.joinModalOverlay, { backgroundColor: colors.overlayBg }]}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.joinModalContent, { backgroundColor: colors.modalBg }]}>
+                <Ionicons name="ban" size={36} color="#FF3B30" style={{ alignSelf: 'center', marginBottom: 12 }} />
+                <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Block {pendingUserAction?.userName}?</Text>
+                <Text style={[styles.modalSubtitle, { color: colors.secondaryText }]}>
+                  They will be hidden from your community view and their messages will no longer appear. This will also notify our team.
+                  {ownedCommunities.some(c => c.members.some(m => m.id === pendingUserAction?.userId)) &&
+                    ' They will also be removed from your community.'}
+                </Text>
+                <BounceButton
+                  style={[styles.joinSearchBtn, { backgroundColor: '#FF3B30', marginBottom: 10 }]}
+                  onPress={handleConfirmBlockUser}
+                >
+                  <Text style={[styles.joinSearchBtnText, { color: '#fff' }]}>Block User</Text>
+                </BounceButton>
+                <BounceButton
+                  style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
+                  onPress={() => { setShowUserBlockConfirm(false); setShowUserActions(true); }}
+                >
+                  <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>Cancel</Text>
+                </BounceButton>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Owner Block Warning Modal */}
+      <Modal visible={showOwnerBlockWarning} transparent animationType="fade" onRequestClose={() => setShowOwnerBlockWarning(false)}>
+        <TouchableWithoutFeedback onPress={() => setShowOwnerBlockWarning(false)}>
+          <View style={[styles.joinModalOverlay, { backgroundColor: colors.overlayBg }]}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.joinModalContent, { backgroundColor: colors.modalBg }]}>
+                <Ionicons name="warning" size={36} color="#FF9500" style={{ alignSelf: 'center', marginBottom: 12 }} />
+                <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Leave Community?</Text>
+                <Text style={[styles.modalSubtitle, { color: colors.secondaryText }]}>
+                  {ownerBlockInfo && ownerBlockInfo.communities.length === 1
+                    ? `You are blocking the owner of "${ownerBlockInfo.communities[0].name}". You will be removed from this community.`
+                    : `You are blocking the owner of ${ownerBlockInfo?.communities.length ?? 0} communities you are in. You will be removed from all of them.`}
+                </Text>
+                <BounceButton
+                  style={[styles.joinSearchBtn, { backgroundColor: '#FF3B30', marginBottom: 10 }]}
+                  onPress={handleConfirmOwnerBlock}
+                >
+                  <Text style={[styles.joinSearchBtnText, { color: '#fff' }]}>Block & Leave</Text>
+                </BounceButton>
+                <BounceButton
+                  style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
+                  onPress={() => setShowOwnerBlockWarning(false)}
+                >
+                  <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>Cancel</Text>
+                </BounceButton>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Remove Member Prompt (shown after owner blocks a member) */}
+      {/* Block Confirm Modal */}
+      <Modal visible={showBlockConfirm} transparent animationType="fade" onRequestClose={() => setShowBlockConfirm(false)}>
+        <TouchableWithoutFeedback onPress={() => setShowBlockConfirm(false)}>
+          <View style={[styles.joinModalOverlay, { backgroundColor: colors.overlayBg }]}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.joinModalContent, { backgroundColor: colors.modalBg }]}>
+                <Ionicons name="ban" size={36} color="#FF3B30" style={{ alignSelf: 'center', marginBottom: 12 }} />
+                <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Block {pendingAction?.senderName}?</Text>
+                <Text style={[styles.modalSubtitle, { color: colors.secondaryText }]}>
+                  Their messages will be removed from your view immediately. This will also notify our team for review.
+                </Text>
+                <BounceButton
+                  style={[styles.joinSearchBtn, { backgroundColor: '#FF3B30', marginBottom: 10 }]}
+                  onPress={handleConfirmBlock}
+                >
+                  <Text style={[styles.joinSearchBtnText, { color: '#fff' }]}>Block User</Text>
+                </BounceButton>
+                <BounceButton
+                  style={[styles.joinCancelBtn, { backgroundColor: isDark ? '#252538' : '#f5f5f5', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#d0d0d0' }]}
+                  onPress={() => { setShowBlockConfirm(false); setShowMessageActions(true); }}
+                >
+                  <Text style={[styles.joinCancelBtnText, { color: colors.secondaryText }]}>Cancel</Text>
+                </BounceButton>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
     </LinearGradient>
   );
 }
@@ -3016,6 +3468,31 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: 'Arimo_700Bold',
     color: '#5a6c7d',
+  },
+  eulaBox: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 14,
+  },
+  eulaText: {
+    fontSize: 13,
+    fontFamily: 'Arimo_400Regular',
+    lineHeight: 20,
+  },
+  eulaLink: {
+    fontSize: 14,
+    fontFamily: 'Arimo_700Bold',
+    textDecorationLine: 'underline',
+  },
+  reportCommentInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 44,
+    fontSize: 14,
+    fontFamily: 'Arimo_400Regular',
+    marginBottom: 10,
   },
   emptyChatState: {
     alignItems: 'center',

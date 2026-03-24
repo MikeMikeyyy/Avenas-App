@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import {
   collection, doc, getDoc, setDoc, updateDoc, deleteDoc,
   addDoc, getDocs, onSnapshot, query, where, orderBy,
-  arrayUnion, arrayRemove, serverTimestamp, Timestamp,
+  arrayUnion, arrayRemove, serverTimestamp, Timestamp, deleteField, writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { useAuth } from './authStore';
@@ -106,6 +106,20 @@ type CommunityStoreState = {
   syncUserName: (newName: string) => Promise<void>;
   deletedCommunityName: string | null;
   clearDeletedNotification: () => void;
+  blockedUserIds: string[];
+  blockedUsersMap: Record<string, string>;
+  pendingReportedUserIds: string[];
+  reportContent: (data: {
+    reportedUserId: string;
+    reportedUserName: string;
+    communityId: string;
+    communityName: string;
+    contentType: 'groupMessage' | 'privateMessage' | 'user';
+    contentPreview: string;
+    reportComment?: string;
+  }) => Promise<void>;
+  blockUser: (targetUserId: string, targetName: string, communityId: string, communityName: string) => Promise<void>;
+  unblockUser: (targetUserId: string) => Promise<void>;
 };
 
 const CommunityStoreContext = createContext<CommunityStoreState | null>(null);
@@ -188,6 +202,8 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
   const [ownedCommunities, setOwnedCommunities] = useState<Community[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletedCommunityName, setDeletedCommunityName] = useState<string | null>(null);
+  const [blockedUsersMap, setBlockedUsersMap] = useState<Record<string, string>>({});
+  const [pendingReportedMap, setPendingReportedMap] = useState<Record<string, boolean>>({});
   const docUnsubs = useRef<Record<string, () => void>>({});
   const msgUnsubs = useRef<Record<string, () => void>>({});
   // Keep a current-user ref so onSnapshot closures can access uid without stale closure issues
@@ -401,6 +417,13 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
   const deleteCommunity = useCallback(async (communityId: string) => {
     if (!user) return;
     try {
+      // Delete all messages in the subcollection first (Firestore doesn't cascade-delete)
+      const msgsSnap = await getDocs(collection(db, 'communities', communityId, 'messages'));
+      if (!msgsSnap.empty) {
+        const batch = writeBatch(db);
+        msgsSnap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
       await deleteDoc(doc(db, 'communities', communityId));
       await setDoc(
         doc(db, 'users', user.uid, 'data', 'communityMemberships'),
@@ -669,6 +692,111 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
     return undefined;
   }, [ownedCommunities, joinedCommunities]);
 
+  // Load blocked user IDs for the current user
+  useEffect(() => {
+    if (!user?.uid) {
+      setBlockedUsersMap({});
+      setPendingReportedMap({});
+      return;
+    }
+    getDoc(doc(db, 'users', user.uid, 'data', 'blockedUsers')).then(snap => {
+      if (snap.exists()) setBlockedUsersMap(snap.data().usersMap ?? {});
+    }).catch(() => {});
+    getDoc(doc(db, 'users', user.uid, 'data', 'pendingReports')).then(snap => {
+      if (snap.exists()) setPendingReportedMap(snap.data() as Record<string, boolean>);
+    }).catch(() => {});
+  }, [user?.uid]);
+
+  const reportContent = useCallback(async (data: {
+    reportedUserId: string;
+    reportedUserName: string;
+    communityId: string;
+    communityName: string;
+    contentType: 'groupMessage' | 'privateMessage' | 'user';
+    contentPreview: string;
+    reportComment?: string;
+  }) => {
+    if (!user) return;
+    await addDoc(collection(db, 'reports'), {
+      reporterId: user.uid,
+      reporterName: user.displayName ?? user.email ?? 'Unknown',
+      ...data,
+      timestamp: serverTimestamp(),
+      status: 'pending',
+    });
+    // Send email notification to developer
+    const reporterName = user.displayName ?? user.email ?? 'Unknown';
+    const commentLine = data.reportComment ? `<p><strong>Note:</strong> ${data.reportComment}</p>` : '';
+    addDoc(collection(db, 'mail'), {
+      to: 'michael.baccucu@gmail.com',
+      message: {
+        subject: `New Report — ${data.reportedUserName} in ${data.communityName}`,
+        html: `
+          <p>A new report has been submitted in your app.</p>
+          <p><strong>Reported user:</strong> ${data.reportedUserName}</p>
+          <p><strong>Reported by:</strong> ${reporterName}</p>
+          <p><strong>Community:</strong> ${data.communityName}</p>
+          <p><strong>Type:</strong> ${data.contentType}</p>
+          <p><strong>Content:</strong> ${data.contentPreview}</p>
+          ${commentLine}
+          <p>Please review and take action within 24 hours.</p>
+        `,
+      },
+    }).catch(() => {});
+    // Mark this user as having a pending report so they can't be double-reported
+    setPendingReportedMap(prev => ({ ...prev, [data.reportedUserId]: true }));
+    const pendingRef = doc(db, 'users', user.uid, 'data', 'pendingReports');
+    try {
+      await updateDoc(pendingRef, { [data.reportedUserId]: true });
+    } catch {
+      await setDoc(pendingRef, { [data.reportedUserId]: true });
+    }
+  }, [user]);
+
+  const blockUser = useCallback(async (
+    targetUserId: string,
+    targetName: string,
+    communityId: string,
+    communityName: string,
+  ) => {
+    if (!user) return;
+    setBlockedUsersMap(prev => ({ ...prev, [targetUserId]: targetName }));
+    const blockedRef = doc(db, 'users', user.uid, 'data', 'blockedUsers');
+    try {
+      await updateDoc(blockedRef, { [`usersMap.${targetUserId}`]: targetName });
+    } catch {
+      await setDoc(blockedRef, { usersMap: { [targetUserId]: targetName } });
+    }
+    await addDoc(collection(db, 'reports'), {
+      reporterId: user.uid,
+      reporterName: user.displayName ?? user.email ?? 'Unknown',
+      reportedUserId: targetUserId,
+      reportedUserName: targetName,
+      communityId,
+      communityName,
+      contentType: 'user',
+      contentPreview: `User "${targetName}" was blocked`,
+      timestamp: serverTimestamp(),
+      status: 'pending',
+      triggeredBy: 'block',
+    });
+  }, [user]);
+
+  const unblockUser = useCallback(async (targetUserId: string) => {
+    if (!user) return;
+    setBlockedUsersMap(prev => {
+      const next = { ...prev };
+      delete next[targetUserId];
+      return next;
+    });
+    try {
+      await updateDoc(
+        doc(db, 'users', user.uid, 'data', 'blockedUsers'),
+        { [`usersMap.${targetUserId}`]: deleteField() },
+      );
+    } catch {}
+  }, [user]);
+
   const syncUserName = useCallback(async (newName: string) => {
     if (!user) return;
     const allCommunities = [
@@ -701,6 +829,9 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         respondToMemberShare, returnWorkoutToMember, sendMessage, removeMember, updateCommunity,
         removeSharedWorkout, dismissSharedWorkout, sendPrivateMessage, shareWorkoutPrivately, getPrivateChat, syncUserName,
         deletedCommunityName, clearDeletedNotification: () => setDeletedCommunityName(null),
+        blockedUsersMap, blockedUserIds: Object.keys(blockedUsersMap),
+        pendingReportedUserIds: Object.keys(pendingReportedMap),
+        reportContent, blockUser, unblockUser,
       }}
     >
       {children}

@@ -91,7 +91,7 @@ export default function SettingsScreen() {
   const { isDark, colors, toggleTheme } = useTheme();
   const { unit, setUnit } = useUnits();
   const { user, isGuest, signOut, updateDisplayName, updateUserPassword, updateUserEmail, sendPasswordReset } = useAuth();
-  const { syncUserName } = useCommunityStore();
+  const { syncUserName, blockedUsersMap, unblockUser } = useCommunityStore();
   const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold });
 
   const displayName = user?.displayName || (isGuest ? 'Guest' : '');
@@ -156,6 +156,10 @@ export default function SettingsScreen() {
   // Clear data modal
   const [clearDataVisible, setClearDataVisible] = useState(false);
   const [keepCommunities, setKeepCommunities] = useState(true);
+
+  // Blocked users sheet
+  const [blockedUsersVisible, setBlockedUsersVisible] = useState(false);
+  const blockedEntries = Object.entries(blockedUsersMap); // [[uid, name], ...]
 
   // Shared modal state
   const [modalLoading, setModalLoading] = useState(false);
@@ -362,6 +366,33 @@ export default function SettingsScreen() {
           {PREFERENCES_ITEMS.map((item, i) => renderSettingsItem(item, i, i === PREFERENCES_ITEMS.length - 1))}
         </View>
 
+        {/* Community Section */}
+        {!isGuest && (
+          <>
+            <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>COMMUNITY</Text>
+            <View style={[styles.sectionCard, { backgroundColor: colors.cardSolid }]}>
+              <TouchableOpacity
+                style={styles.settingsItem}
+                activeOpacity={0.6}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setBlockedUsersVisible(true); }}
+              >
+                <View style={[styles.settingsItemIcon, { backgroundColor: isDark ? 'rgba(255,59,48,0.15)' : 'rgba(255,59,48,0.1)' }]}>
+                  <Ionicons name="ban-outline" size={20} color="#FF3B30" />
+                </View>
+                <View style={styles.settingsItemContent}>
+                  <Text style={[styles.settingsItemLabel, { color: colors.primaryText }]}>Blocked Users</Text>
+                  {blockedEntries.length > 0 && (
+                    <Text style={[styles.settingsItemSubtitle, { color: colors.tertiaryText }]}>
+                      {blockedEntries.length} {blockedEntries.length === 1 ? 'user' : 'users'} blocked
+                    </Text>
+                  )}
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.tertiaryText} />
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
         {/* Support Section */}
         <Text style={[styles.sectionLabel, { color: colors.secondaryText }]}>SUPPORT</Text>
         <View style={[styles.sectionCard, { backgroundColor: colors.cardSolid }]}>
@@ -396,6 +427,34 @@ export default function SettingsScreen() {
 
         <Text style={[styles.versionText, { color: colors.tertiaryText }]}>Version 1.0.0</Text>
       </ScrollView>
+
+      {/* ── Blocked Users Sheet ── */}
+      <BottomSheetModal visible={blockedUsersVisible} onDismiss={() => setBlockedUsersVisible(false)} sheetBackground={colors.modalBg}>
+        <View style={[styles.modalContent, { backgroundColor: colors.modalBg }]}>
+          <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Blocked Users</Text>
+          {blockedEntries.length === 0 ? (
+            <View style={{ alignItems: 'center', paddingVertical: 24 }}>
+              <Ionicons name="checkmark-circle-outline" size={40} color={colors.tertiaryText} />
+              <Text style={[styles.modalSubtitle, { color: colors.secondaryText, marginTop: 8 }]}>No blocked users</Text>
+            </View>
+          ) : (
+            blockedEntries.map(([uid, name]) => (
+              <View key={uid} style={[styles.blockedUserRow, { borderBottomColor: colors.border }]}>
+                <View style={[styles.blockedUserAvatar, { backgroundColor: '#8e8e93' }]}>
+                  <Text style={styles.blockedUserAvatarText}>{getInitials(name)}</Text>
+                </View>
+                <Text style={[styles.blockedUserName, { color: colors.primaryText }]}>{name}</Text>
+                <TouchableOpacity
+                  style={[styles.unblockBtn, { borderColor: colors.accent ?? '#47DDFF' }]}
+                  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); unblockUser(uid); }}
+                >
+                  <Text style={[styles.unblockBtnText, { color: colors.accent ?? '#47DDFF' }]}>Unblock</Text>
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+        </View>
+      </BottomSheetModal>
 
       {/* ── Edit Profile Modal ── */}
       <BottomSheetModal visible={editProfileVisible} onDismiss={closeModals} sheetBackground={colors.modalBg}>
@@ -711,4 +770,19 @@ const styles = StyleSheet.create({
   },
   clearDataToggleLabel: { fontSize: 15, fontFamily: 'Arimo_700Bold' },
   clearDataToggleSub: { fontSize: 12, fontFamily: 'Arimo_400Regular', marginTop: 2 },
+  blockedUserRow: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 12,
+    borderBottomWidth: 1, gap: 12,
+  },
+  blockedUserAvatar: {
+    width: 38, height: 38, borderRadius: 19,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  blockedUserAvatarText: { fontSize: 14, fontFamily: 'Arimo_700Bold', color: '#fff' },
+  blockedUserName: { flex: 1, fontSize: 15, fontFamily: 'Arimo_400Regular' },
+  unblockBtn: {
+    paddingHorizontal: 14, paddingVertical: 6,
+    borderRadius: 20, borderWidth: 1.5,
+  },
+  unblockBtnText: { fontSize: 13, fontFamily: 'Arimo_700Bold' },
 });
