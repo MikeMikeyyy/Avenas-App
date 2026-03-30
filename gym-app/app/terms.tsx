@@ -10,6 +10,8 @@ import {
   Animated,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -90,6 +92,8 @@ export default function TermsScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (user?.uid) {
       await AsyncStorage.setItem(`@communityTermsAccepted_${user.uid}`, 'true');
+      // Also persist to Firestore so it survives reinstalls and new devices
+      setDoc(doc(db, 'users', user.uid, 'data', 'preferences'), { communityTermsAccepted: true }, { merge: true }).catch(() => {});
     }
     router.back();
   };

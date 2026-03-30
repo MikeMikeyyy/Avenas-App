@@ -268,13 +268,26 @@ export default function CommunityScreen() {
 
   // EULA / Community Terms acceptance
   const [communityTermsAccepted, setCommunityTermsAccepted] = useState<boolean | null>(null);
-  const checkCommunityTerms = () => {
+  const checkCommunityTerms = async () => {
     if (!currentUserId) return;
-    AsyncStorage.getItem(`@communityTermsAccepted_${currentUserId}`).then(v => {
-      setCommunityTermsAccepted(v === 'true');
-    });
+    const local = await AsyncStorage.getItem(`@communityTermsAccepted_${currentUserId}`);
+    if (local === 'true') {
+      setCommunityTermsAccepted(true);
+      return;
+    }
+    // Fallback: check Firestore in case AsyncStorage was cleared (reinstall, new device, etc.)
+    try {
+      const snap = await getDoc(doc(db, 'users', currentUserId, 'data', 'preferences'));
+      if (snap.exists() && snap.data()?.communityTermsAccepted === true) {
+        // Re-cache locally so future checks are instant
+        AsyncStorage.setItem(`@communityTermsAccepted_${currentUserId}`, 'true').catch(() => {});
+        setCommunityTermsAccepted(true);
+        return;
+      }
+    } catch {}
+    setCommunityTermsAccepted(false);
   };
-  useEffect(checkCommunityTerms, [currentUserId]);
+  useEffect(() => { checkCommunityTerms(); }, [currentUserId]);
   // Re-check whenever the screen comes back into focus (e.g. returning from terms page)
   useFocusEffect(React.useCallback(() => { checkCommunityTerms(); }, [currentUserId]));
 
@@ -672,6 +685,29 @@ export default function CommunityScreen() {
   const formatTime = (date: Date) => {
     const d = new Date(date);
     return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  };
+
+  const isSameDay = (a: Date, b: Date): boolean => {
+    const da = new Date(a);
+    const db = new Date(b);
+    return da.getFullYear() === db.getFullYear() &&
+      da.getMonth() === db.getMonth() &&
+      da.getDate() === db.getDate();
+  };
+
+  const formatDateSeparator = (date: Date): string => {
+    const d = new Date(date);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const diffDays = Math.round((today.getTime() - msgDay.getTime()) / 86400000);
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    const dayName = d.toLocaleDateString('en-AU', { weekday: 'long' });
+    const month = d.toLocaleDateString('en-AU', { month: 'long' });
+    const day = d.getDate();
+    if (d.getFullYear() !== now.getFullYear()) return `${dayName}, ${day} ${month} ${d.getFullYear()}`;
+    return `${dayName}, ${day} ${month}`;
   };
 
   // Render List View
@@ -1392,37 +1428,46 @@ export default function CommunityScreen() {
           keyExtractor={item => item.id}
           contentContainerStyle={styles.chatContent}
           inverted={false}
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             const isMe = item.senderId === currentUserId;
+            const prevMsg = messages[index - 1];
+            const showDateSep = !prevMsg || !isSameDay(prevMsg.timestamp, item.timestamp);
             return (
-              <TouchableOpacity
-                activeOpacity={1}
-                onLongPress={!isMe ? () => handleLongPressMessage(item.senderId, item.senderName, item.message, 'group') : undefined}
-                delayLongPress={400}
-              >
-                <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
-                  {!isMe && (
-                    <TouchableOpacity onPress={() => handleTapMember(item.senderId, item.senderName)} activeOpacity={0.7}>
-                      <View style={[styles.messageAvatar, { backgroundColor: getMemberColor(item.senderId) }]}>
-                        <Text style={styles.messageAvatarText}>
-                          {getInitials(item.senderName)}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  )}
-                  <View style={[styles.messageBubble, isMe ? styles.messageBubbleMe : [styles.messageBubbleOther, { backgroundColor: colors.cardSolid }]]}>
+              <>
+                {showDateSep && (
+                  <View style={styles.dateSeparator}>
+                    <Text style={[styles.dateSeparatorText, { color: colors.border }]}>{formatDateSeparator(item.timestamp)}</Text>
+                  </View>
+                )}
+                <TouchableOpacity
+                  activeOpacity={1}
+                  onLongPress={!isMe ? () => handleLongPressMessage(item.senderId, item.senderName, item.message, 'group') : undefined}
+                  delayLongPress={400}
+                >
+                  <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
                     {!isMe && (
                       <TouchableOpacity onPress={() => handleTapMember(item.senderId, item.senderName)} activeOpacity={0.7}>
-                        <Text style={[styles.messageSender, { color: colors.secondaryText }]}>{item.senderName}</Text>
+                        <View style={[styles.messageAvatar, { backgroundColor: getMemberColor(item.senderId) }]}>
+                          <Text style={styles.messageAvatarText}>
+                            {getInitials(item.senderName)}
+                          </Text>
+                        </View>
                       </TouchableOpacity>
                     )}
-                    <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>{item.message}</Text>
-                    <Text style={[styles.messageTime, { color: colors.secondaryText }, isMe && styles.messageTimeMe]}>
-                      {formatTime(item.timestamp)}
-                    </Text>
+                    <View style={[styles.messageBubble, isMe ? styles.messageBubbleMe : [styles.messageBubbleOther, { backgroundColor: colors.cardSolid }]]}>
+                      {!isMe && (
+                        <TouchableOpacity onPress={() => handleTapMember(item.senderId, item.senderName)} activeOpacity={0.7}>
+                          <Text style={[styles.messageSender, { color: colors.secondaryText }]}>{item.senderName}</Text>
+                        </TouchableOpacity>
+                      )}
+                      <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>{item.message}</Text>
+                      <Text style={[styles.messageTime, { color: colors.secondaryText }, isMe && styles.messageTimeMe]}>
+                        {formatTime(item.timestamp)}
+                      </Text>
+                    </View>
                   </View>
-                </View>
-              </TouchableOpacity>
+                </TouchableOpacity>
+              </>
             );
           }}
         />
@@ -1665,44 +1710,53 @@ export default function CommunityScreen() {
               <Text style={[styles.emptyChatSubtext, { color: colors.secondaryText }]}>Start a conversation with {privateChatMember.name}</Text>
             </View>
           }
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             const isMe = item.senderId === currentUserId;
             const msgPreview = item.sharedWorkout ? `[Program: ${item.sharedWorkout.programName}]` : item.message;
+            const prevMsg = messages[index - 1];
+            const showDateSep = !prevMsg || !isSameDay(prevMsg.timestamp, item.timestamp);
             return (
-              <TouchableOpacity
-                activeOpacity={1}
-                onLongPress={!isMe ? () => handleLongPressMessage(item.senderId, item.senderName, msgPreview, 'private') : undefined}
-                delayLongPress={400}
-              >
-                <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
-                  {!isMe && (
-                    <View style={[styles.messageAvatar, { backgroundColor: getMemberColor(item.senderId) }]}>
-                      <Text style={styles.messageAvatarText}>
-                        {getInitials(item.senderName)}
+              <>
+                {showDateSep && (
+                  <View style={styles.dateSeparator}>
+                    <Text style={[styles.dateSeparatorText, { color: colors.border }]}>{formatDateSeparator(item.timestamp)}</Text>
+                  </View>
+                )}
+                <TouchableOpacity
+                  activeOpacity={1}
+                  onLongPress={!isMe ? () => handleLongPressMessage(item.senderId, item.senderName, msgPreview, 'private') : undefined}
+                  delayLongPress={400}
+                >
+                  <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
+                    {!isMe && (
+                      <View style={[styles.messageAvatar, { backgroundColor: getMemberColor(item.senderId) }]}>
+                        <Text style={styles.messageAvatarText}>
+                          {getInitials(item.senderName)}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={[styles.messageBubble, isMe ? styles.messageBubbleMe : [styles.messageBubbleOther, { backgroundColor: colors.cardSolid }]]}>
+                      {item.sharedWorkout ? (
+                        <View style={styles.sharedWorkoutMessage}>
+                          <View style={[styles.sharedWorkoutIcon, { backgroundColor: item.sharedWorkout.color }, isMe && styles.sharedWorkoutIconMe]}>
+                            <Ionicons name="barbell" size={18} color="#fff" />
+                          </View>
+                          <View style={styles.sharedWorkoutInfo}>
+                            <Text style={[styles.sharedWorkoutLabel, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.secondaryText }]}>PROGRAM</Text>
+                            <Text style={[styles.sharedWorkoutName, { color: isMe ? '#fff' : colors.primaryText }]}>{item.sharedWorkout.programName}</Text>
+                            <Text style={[styles.sharedWorkoutMeta, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.secondaryText }]}>{item.sharedWorkout.splitDays} day split</Text>
+                          </View>
+                        </View>
+                      ) : (
+                        <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>{item.message}</Text>
+                      )}
+                      <Text style={[styles.messageTime, { color: colors.secondaryText }, isMe && styles.messageTimeMe]}>
+                        {formatTime(item.timestamp)}
                       </Text>
                     </View>
-                  )}
-                  <View style={[styles.messageBubble, isMe ? styles.messageBubbleMe : [styles.messageBubbleOther, { backgroundColor: colors.cardSolid }]]}>
-                    {item.sharedWorkout ? (
-                      <View style={styles.sharedWorkoutMessage}>
-                        <View style={[styles.sharedWorkoutIcon, { backgroundColor: item.sharedWorkout.color }, isMe && styles.sharedWorkoutIconMe]}>
-                          <Ionicons name="barbell" size={18} color="#fff" />
-                        </View>
-                        <View style={styles.sharedWorkoutInfo}>
-                          <Text style={[styles.sharedWorkoutLabel, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.secondaryText }]}>PROGRAM</Text>
-                          <Text style={[styles.sharedWorkoutName, { color: isMe ? '#fff' : colors.primaryText }]}>{item.sharedWorkout.programName}</Text>
-                          <Text style={[styles.sharedWorkoutMeta, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.secondaryText }]}>{item.sharedWorkout.splitDays} day split</Text>
-                        </View>
-                      </View>
-                    ) : (
-                      <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>{item.message}</Text>
-                    )}
-                    <Text style={[styles.messageTime, { color: colors.secondaryText }, isMe && styles.messageTimeMe]}>
-                      {formatTime(item.timestamp)}
-                    </Text>
                   </View>
-                </View>
-              </TouchableOpacity>
+                </TouchableOpacity>
+              </>
             );
           }}
         />
@@ -1723,36 +1777,49 @@ export default function CommunityScreen() {
         </View>
 
         {/* Program picker bottom sheet */}
-        <BottomSheetModal visible={showPrivateProgramPicker} onDismiss={() => setShowPrivateProgramPicker(false)}>
-          <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Share a Program</Text>
-          {programs.filter(p => !p.archived).length === 0 ? (
-            <Text style={[styles.emptyProgramsText, { color: colors.secondaryText, textAlign: 'center', marginVertical: 24 }]}>No programs to share. Create one first!</Text>
-          ) : (
-            programs.filter(p => !p.archived).map(program => (
-              <BounceButton
-                key={program.id}
-                style={[styles.selectableCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
-                onPress={() => {
-                  shareWorkoutPrivately(
-                    selectedCommunity.id,
-                    privateChatKey,
-                    isOwnerView ? privateChatMember.name : currentUserName,
-                    { programId: program.id, programName: program.name, color: program.color, splitDays: program.splitDays.filter(d => d.type === 'training').length }
-                  );
-                  setShowPrivateProgramPicker(false);
-                }}
-              >
-                <View style={[styles.programColorDot, { backgroundColor: program.color }]} />
-                <View style={styles.selectableCardInfo}>
-                  <Text style={[styles.selectableCardTitle, { color: colors.primaryText }]}>{program.name}</Text>
-                  <Text style={[styles.selectableCardMeta, { color: colors.secondaryText }]}>
-                    {program.splitDays.filter(d => d.type === 'training').length} training days
-                  </Text>
-                </View>
-                <Ionicons name="share-outline" size={20} color={colors.secondaryText} />
-              </BounceButton>
-            ))
-          )}
+        <BottomSheetModal visible={showPrivateProgramPicker} onDismiss={() => setShowPrivateProgramPicker(false)} sheetBackground={colors.modalBg} overlayColor={colors.overlayBg}>
+          <View style={[styles.optionsMenuContent, { backgroundColor: colors.modalBg }]}>
+            <View style={[styles.optionsMenuHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : '#e0e0e0' }]} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+              <View style={[styles.shareIcon, { backgroundColor: colors.inputBg }]}>
+                <Ionicons name="barbell-outline" size={20} color={colors.secondaryText} />
+              </View>
+              <View>
+                <Text style={[styles.modalTitle, { color: colors.primaryText, marginBottom: 0 }]}>Share a Program</Text>
+                <Text style={[styles.modalSubtitle, { color: colors.secondaryText, marginBottom: 0 }]}>Choose a program to send</Text>
+              </View>
+            </View>
+            {programs.filter(p => !p.archived).length === 0 ? (
+              <Text style={[styles.emptyProgramsText, { color: colors.secondaryText, textAlign: 'center', marginVertical: 24 }]}>No programs to share. Create one first!</Text>
+            ) : (
+              programs.filter(p => !p.archived).map(program => (
+                <BounceButton
+                  key={program.id}
+                  style={[styles.selectableCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
+                  onPress={() => {
+                    shareWorkoutPrivately(
+                      selectedCommunity.id,
+                      privateChatKey,
+                      isOwnerView ? privateChatMember.name : currentUserName,
+                      { programId: program.id, programName: program.name, color: program.color, splitDays: program.splitDays.filter(d => d.type === 'training').length }
+                    );
+                    setShowPrivateProgramPicker(false);
+                  }}
+                >
+                  <View style={[styles.shareIcon, { backgroundColor: program.color + '22', marginRight: 4 }]}>
+                    <Ionicons name="barbell" size={18} color={program.color} />
+                  </View>
+                  <View style={styles.selectableCardInfo}>
+                    <Text style={[styles.selectableCardTitle, { color: colors.primaryText }]}>{program.name}</Text>
+                    <Text style={[styles.selectableCardMeta, { color: colors.secondaryText }]}>
+                      {program.splitDays.filter(d => d.type === 'training').length} training days
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.tertiaryText} />
+                </BounceButton>
+              ))
+            )}
+          </View>
         </BottomSheetModal>
       </View>
     );
@@ -3079,6 +3146,15 @@ const styles = StyleSheet.create({
   },
   messageTimeMe: {
     color: 'rgba(28, 28, 30, 0.6)',
+  },
+  dateSeparator: {
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  dateSeparatorText: {
+    fontSize: 15,
+    fontFamily: 'Arimo_400Regular',
+    marginHorizontal: 12,
   },
   chatInputContainer: {
     flexDirection: 'row',
