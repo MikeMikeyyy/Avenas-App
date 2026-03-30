@@ -140,7 +140,7 @@ function AnimatedTabBar({
 
   return (
     <View style={styles.tabBarWrapper}>
-      <BlurView intensity={40} tint="dark" style={styles.blurContainer}>
+      <BlurView intensity={80} tint="systemUltraThinMaterial" style={styles.blurContainer}>
         <View style={styles.tabBarInner}>
           {/* Animated sliding pill */}
           <Animated.View
@@ -200,12 +200,12 @@ const styles = StyleSheet.create({
   },
   tabBarInner: {
     flexDirection: "row",
-    backgroundColor: "rgba(28, 28, 30, 0.75)",
+    backgroundColor: "rgba(255,255,255,0.06)",
     height: BAR_HEIGHT,
     alignItems: "center",
     borderRadius: 100,
-    borderWidth: 0.5,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.28)",
   },
   tabItem: {
     flex: 1,
@@ -220,9 +220,9 @@ const styles = StyleSheet.create({
     top: PILL_INSET - 0.5,
     height: BAR_HEIGHT - PILL_INSET * 2,
     borderRadius: (BAR_HEIGHT - PILL_INSET * 2) / 2,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderWidth: 0.5,
-    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.35)",
     zIndex: 1,
   },
   iconContent: {

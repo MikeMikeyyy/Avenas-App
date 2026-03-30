@@ -523,7 +523,7 @@ export default function HomeScreen() {
         {/* Quick Actions */}
         <View style={styles.quickActions}>
           {[
-            { icon: 'add-circle-outline' as const, label: 'Create New\nProgram', route: '/create-program' as const },
+            { icon: 'add' as const, label: 'Create New\nProgram', route: '/create-program' as const },
             { icon: 'list-outline' as const, label: 'View/Change\nPrograms', route: '/programs' as const },
             { icon: 'book-outline' as const, label: 'View\nJournal', route: '/journal' as const },
           ].map((action, i) => (
