@@ -314,9 +314,15 @@ export default function CommunityScreen() {
 
   // Keyboard height for chat input positioning
   const [chatKeyboardHeight, setChatKeyboardHeight] = useState(0);
+  const chatFlatListRef = useRef<FlatList>(null);
+  const privateChatFlatListRef = useRef<FlatList>(null);
   useEffect(() => {
     const show = Keyboard.addListener('keyboardWillShow', e => {
       setChatKeyboardHeight(e.endCoordinates.height);
+      setTimeout(() => {
+        chatFlatListRef.current?.scrollToEnd({ animated: true });
+        privateChatFlatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
     });
     const hide = Keyboard.addListener('keyboardWillHide', () => {
       setChatKeyboardHeight(0);
@@ -493,7 +499,6 @@ export default function CommunityScreen() {
     if (chatMessage.trim() && selectedCommunity) {
       sendMessage(selectedCommunity.id, chatMessage.trim());
       setChatMessage('');
-      Keyboard.dismiss();
     }
   };
 
@@ -1424,10 +1429,13 @@ export default function CommunityScreen() {
         </View>
 
         <FlatList
+          ref={chatFlatListRef}
           data={messages}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.chatContent}
           inverted={false}
+          onContentSizeChange={() => chatFlatListRef.current?.scrollToEnd({ animated: true })}
+          onLayout={() => chatFlatListRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item, index }) => {
             const isMe = item.senderId === currentUserId;
             const prevMsg = messages[index - 1];
@@ -1674,7 +1682,6 @@ export default function CommunityScreen() {
           privateMessage.trim()
         );
         setPrivateMessage('');
-        Keyboard.dismiss();
       }
     };
 
@@ -1699,10 +1706,13 @@ export default function CommunityScreen() {
         </View>
 
         <FlatList
+          ref={privateChatFlatListRef}
           data={messages}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.chatContent}
           inverted={false}
+          onContentSizeChange={() => privateChatFlatListRef.current?.scrollToEnd({ animated: true })}
+          onLayout={() => privateChatFlatListRef.current?.scrollToEnd({ animated: false })}
           ListEmptyComponent={
             <View style={styles.emptyChatState}>
               <Ionicons name="chatbubbles-outline" size={48} color={colors.secondaryText} />
@@ -1762,9 +1772,6 @@ export default function CommunityScreen() {
         />
 
         <View style={[styles.privateChatInputContainer, { backgroundColor: colors.cardSolid, borderTopColor: colors.border, marginBottom: chatKeyboardHeight > 0 ? chatKeyboardHeight : (Platform.OS === 'ios' ? 100 : 85) }]}>
-          <TouchableOpacity style={styles.chatAttachBtn} onPress={() => setShowPrivateProgramPicker(true)}>
-            <Ionicons name="barbell-outline" size={22} color={colors.secondaryText} />
-          </TouchableOpacity>
           <TextInput
             style={[styles.chatInput, { backgroundColor: colors.inputBg, color: colors.primaryText }]}
             placeholder="Type a message..."
@@ -1775,52 +1782,6 @@ export default function CommunityScreen() {
             onSubmitEditing={handleSendPrivate}
           />
         </View>
-
-        {/* Program picker bottom sheet */}
-        <BottomSheetModal visible={showPrivateProgramPicker} onDismiss={() => setShowPrivateProgramPicker(false)} sheetBackground={colors.modalBg} overlayColor={colors.overlayBg}>
-          <View style={[styles.optionsMenuContent, { backgroundColor: colors.modalBg }]}>
-            <View style={[styles.optionsMenuHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : '#e0e0e0' }]} />
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-              <View style={[styles.shareIcon, { backgroundColor: colors.inputBg }]}>
-                <Ionicons name="barbell-outline" size={20} color={colors.secondaryText} />
-              </View>
-              <View>
-                <Text style={[styles.modalTitle, { color: colors.primaryText, marginBottom: 0 }]}>Share a Program</Text>
-                <Text style={[styles.modalSubtitle, { color: colors.secondaryText, marginBottom: 0 }]}>Choose a program to send</Text>
-              </View>
-            </View>
-            {programs.filter(p => !p.archived).length === 0 ? (
-              <Text style={[styles.emptyProgramsText, { color: colors.secondaryText, textAlign: 'center', marginVertical: 24 }]}>No programs to share. Create one first!</Text>
-            ) : (
-              programs.filter(p => !p.archived).map(program => (
-                <BounceButton
-                  key={program.id}
-                  style={[styles.selectableCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
-                  onPress={() => {
-                    shareWorkoutPrivately(
-                      selectedCommunity.id,
-                      privateChatKey,
-                      isOwnerView ? privateChatMember.name : currentUserName,
-                      { programId: program.id, programName: program.name, color: program.color, splitDays: program.splitDays.filter(d => d.type === 'training').length }
-                    );
-                    setShowPrivateProgramPicker(false);
-                  }}
-                >
-                  <View style={[styles.shareIcon, { backgroundColor: program.color + '22', marginRight: 4 }]}>
-                    <Ionicons name="barbell" size={18} color={program.color} />
-                  </View>
-                  <View style={styles.selectableCardInfo}>
-                    <Text style={[styles.selectableCardTitle, { color: colors.primaryText }]}>{program.name}</Text>
-                    <Text style={[styles.selectableCardMeta, { color: colors.secondaryText }]}>
-                      {program.splitDays.filter(d => d.type === 'training').length} training days
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.tertiaryText} />
-                </BounceButton>
-              ))
-            )}
-          </View>
-        </BottomSheetModal>
       </View>
     );
   };

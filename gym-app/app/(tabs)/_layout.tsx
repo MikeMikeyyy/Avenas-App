@@ -95,7 +95,7 @@ function AnimatedTabBar({
   const [tabWidth, setTabWidth] = useState(0);
   const { width: screenWidth } = useWindowDimensions();
   const barWidth = screenWidth - 40; // left:20 + right:20
-  const computedTabWidth = barWidth / state.routes.length;
+  const computedTabWidth = (barWidth - 2) / state.routes.length; // subtract 2 for tabBarInner's 1px border on each side
   const isFirstRender = useRef(true);
 
   useEffect(() => {
@@ -173,7 +173,8 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        animation: "fade",
+        animation: "none",
+        lazy: false,
       }}
       tabBar={(props) => (
         <AnimatedTabBar state={props.state} navigation={props.navigation} />
@@ -217,7 +218,7 @@ const styles = StyleSheet.create({
   activePill: {
     position: "absolute",
     left: 0,
-    top: PILL_INSET - 0.5,
+    top: 2,
     height: BAR_HEIGHT - PILL_INSET * 2,
     borderRadius: (BAR_HEIGHT - PILL_INSET * 2) / 2,
     backgroundColor: "rgba(255,255,255,0.18)",
