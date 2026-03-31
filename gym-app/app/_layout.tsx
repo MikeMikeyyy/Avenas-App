@@ -1,9 +1,11 @@
 import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import { useEffect, useRef, useState } from 'react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
 import { registerForPushNotificationsAsync } from '../notificationService';
 
 import { ProgramProvider } from '../programStore';
@@ -22,6 +24,8 @@ function InnerLayout() {
   const { isDark, setDark } = useTheme();
   const { unit, setUnit } = useUnits();
   const { user } = useAuth();
+  const router = useRouter();
+  const handledNotifIds = useRef<Set<string>>(new Set());
 
   // Track whether we've finished loading this user's prefs from Firestore.
   // Prevents saving stale values back to Firestore during the initial load.
@@ -59,6 +63,35 @@ function InnerLayout() {
       setPrefsLoaded(true);
     })();
   }, [user?.uid]);
+
+  // Handle notification taps → navigate to the relevant chat
+  useEffect(() => {
+    const handleResponse = (response: Notifications.NotificationResponse) => {
+      const id = response.notification.request.identifier;
+      if (handledNotifIds.current.has(id)) return;
+      handledNotifIds.current.add(id);
+      const data = response.notification.request.content.data as Record<string, any> | null;
+      if (data?.communityId && data?.chatType) {
+        AsyncStorage.setItem('@pendingChatNav', JSON.stringify({
+          communityId: data.communityId,
+          chatType: data.chatType,
+          memberId: data.memberId ?? null,
+        })).then(() => {
+          router.push('/(tabs)/community');
+        }).catch(() => {});
+      }
+    };
+
+    // Foreground / background tap
+    const sub = Notifications.addNotificationResponseReceivedListener(handleResponse);
+
+    // Cold start: app was killed when notification was tapped
+    Notifications.getLastNotificationResponseAsync().then(response => {
+      if (response) handleResponse(response);
+    }).catch(() => {});
+
+    return () => sub.remove();
+  }, []);
 
   // Save preferences back to Firestore whenever they change.
   // Only runs after prefs have been loaded (avoids overwriting on initial login).
