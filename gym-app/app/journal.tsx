@@ -863,10 +863,7 @@ function JournalCalendar({
     programs.find(p => p.id === entry.programId)?.color ?? programs.find(p => p.name === entry.programName)?.color ?? entry.programColor;
   const today = useMemo(() => new Date(), []);
   const todayStr = useMemo(() => toDateKey(today.getTime()), [today]);
-  const maxFutureStr = useMemo(() => {
-    const d = new Date(today); d.setDate(d.getDate() + 7);
-    return toDateKey(d.getTime());
-  }, [today]);
+
 
   const entryByDate = useMemo(() => {
     const map = new Map<string, WorkoutJournalEntry>();
@@ -962,7 +959,7 @@ function JournalCalendar({
               const entry = entryByDate.get(ds);
               const hasWorkout = !!entry;
               const isToday = ds === todayStr;
-              const isFuture = ds > maxFutureStr;
+              const isFuture = ds > todayStr;
               const isPast = !isFuture;
               const isHighlighted = !!highlightDate && ds === highlightDate;
               const tappable = isPast;

@@ -457,14 +457,14 @@ export default function HomeScreen() {
           return (
             <View style={[styles.glassCard, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <View>
+                <View style={{ flex: 1, marginRight: 12 }}>
                   <Text style={[styles.cardLabel, { color: colors.secondaryText }]}>TODAY'S WORKOUT</Text>
                   <Text style={[styles.cardTitle, { color: colors.primaryText }]}>{dayLabel}</Text>
                 </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[styles.programLabel, { color: colors.secondaryText }]}>Active Program</Text>
+                <View style={{ alignItems: 'flex-end', maxWidth: '45%' }}>
+                  <Text style={[styles.programLabel, { color: colors.secondaryText, textAlign: 'right' }]}>Active Program</Text>
                   <View style={[styles.programBadge, { backgroundColor: `${accentColor}30`, borderColor: accentColor }]}>
-                    <Text style={[styles.programBadgeText, { color: colors.primaryText }]}>{activeProgram?.name || 'None'}</Text>
+                    <Text style={[styles.programBadgeText, { color: colors.primaryText, textAlign: 'left' }]} numberOfLines={2}>{activeProgram?.name || 'None'}</Text>
                   </View>
                 </View>
               </View>
@@ -589,8 +589,8 @@ export default function HomeScreen() {
                       <View style={[styles.activityAccentBar, { backgroundColor: entryColor }]} />
                       <View style={styles.activityLeft}>
                         <Text style={[styles.activityDay, { color: colors.secondaryText }]}>{formatRelDay(entry.date)}</Text>
-                        <Text style={[styles.activityName, { color: colors.primaryText }]} numberOfLines={1}>
-                          {entry.programName} — {entry.dayLabel}
+                        <Text style={[styles.activityName, { color: colors.primaryText }]} numberOfLines={2}>
+                          {entry.dayLabel} — {entry.programName}
                         </Text>
                       </View>
                       <View style={styles.activityRight}>

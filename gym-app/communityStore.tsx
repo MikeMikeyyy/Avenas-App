@@ -562,7 +562,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
           .filter(m => m.id !== user.uid)
           .map(m => m.id);
         const preview = message.length > 60 ? message.slice(0, 60) + '…' : message;
-        sendPushToUsers(recipientIds, community.name, `${senderName}: ${preview}`).catch(() => {});
+        sendPushToUsers(recipientIds, community.name, `${senderName}: ${preview}`, { communityId, chatType: 'group' }).catch(() => {});
       }
     } catch {}
   }, [user, ownedCommunities, joinedCommunities]);
@@ -644,7 +644,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
       // Notify the other party
       const recipientId = user.uid === memberId ? data.ownerId : memberId;
       const preview = message.length > 60 ? message.slice(0, 60) + '…' : message;
-      sendPushToUser(recipientId, senderName, preview).catch(() => {});
+      sendPushToUser(recipientId, senderName, preview, { communityId, chatType: 'private', memberId }).catch(() => {});
     } catch {}
   }, [user]);
 

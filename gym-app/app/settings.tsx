@@ -268,13 +268,15 @@ export default function SettingsScreen() {
         <Ionicons name="chevron-forward" size={18} color={colors.tertiaryText} />
       )}
       {item.type === 'toggle' && (
-        <Switch
-          value={isDark}
-          onValueChange={toggleTheme}
-          trackColor={{ false: '#8e8e93', true: '#47DDFF' }}
-          thumbColor="#fff"
-          ios_backgroundColor="#8e8e93"
-        />
+        <View style={{ borderRadius: 20, overflow: 'hidden' }}>
+          <Switch
+            value={isDark}
+            onValueChange={toggleTheme}
+            trackColor={{ false: '#8e8e93', true: '#47DDFF' }}
+            thumbColor="#fff"
+            ios_backgroundColor="#8e8e93"
+          />
+        </View>
       )}
     </TouchableOpacity>
   );
@@ -282,8 +284,8 @@ export default function SettingsScreen() {
   return (
     <LinearGradient
       colors={[colors.gradientStart, colors.gradientEnd]}
-      start={{ x: 0.5, y: 0 }}
-      end={{ x: 0.5, y: 0.35 }}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
       style={styles.container}
     >
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.gradientStart} />
@@ -331,13 +333,15 @@ export default function SettingsScreen() {
             <View style={styles.settingsItemContent}>
               <Text style={[styles.settingsItemLabel, { color: colors.primaryText }]}>Notifications</Text>
             </View>
-            <Switch
-              value={notificationsEnabled}
-              onValueChange={handleNotificationsToggle}
-              trackColor={{ false: '#8e8e93', true: '#47DDFF' }}
-              thumbColor="#fff"
-              ios_backgroundColor="#8e8e93"
-            />
+            <View style={{ borderRadius: 20, overflow: 'hidden' }}>
+              <Switch
+                value={notificationsEnabled}
+                onValueChange={handleNotificationsToggle}
+                trackColor={{ false: '#8e8e93', true: '#47DDFF' }}
+                thumbColor="#fff"
+                ios_backgroundColor="#8e8e93"
+              />
+            </View>
           </View>
           {/* Units picker */}
           <View style={[styles.settingsItem, { borderBottomWidth: 1, borderBottomColor: colors.border }]}>

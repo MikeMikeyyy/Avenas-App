@@ -33,6 +33,7 @@ import { useAuth } from '../../authStore';
 import { BottomSheetModal } from '../../components/BottomSheetModal';
 import { FadeBackdrop } from '../../components/FadeBackdrop';
 import { ProgressView } from '../../components/ProgressView';
+import { MemberJournalView } from '../../components/MemberJournalView';
 import { useUnits } from '../../unitsStore';
 
 // Each scheme: key stored in Firestore, colors is a 7-stop gradient
@@ -200,6 +201,65 @@ export default function CommunityScreen() {
     };
   }, []));
 
+  // Navigate to chat when app is opened via a notification tap
+  useFocusEffect(React.useCallback(() => {
+    AsyncStorage.getItem('@pendingChatNav').then(raw => {
+      if (!raw) return;
+      AsyncStorage.removeItem('@pendingChatNav');
+      try {
+        const { communityId, chatType, memberId } = JSON.parse(raw);
+        const allCommunities = [...ownedCommunities, ...joinedCommunities];
+        const community = allCommunities.find(c => c.id === communityId);
+        if (!community) return;
+        const isOwner = ownedCommunities.some(c => c.id === communityId);
+        setSelectedCommunity(community);
+        setIsOwnerView(isOwner);
+        if (chatType === 'group') {
+          const allMsgs = community.chatMessages;
+          const currentReadCount = readGroupChatCounts[communityId] || 0;
+          const otherMsgsAll = allMsgs.filter(m => m.senderId !== currentUserId);
+          const unreadCnt = Math.max(0, otherMsgsAll.length - currentReadCount);
+          let firstIdx: number | null = null;
+          if (unreadCnt > 0) {
+            const firstUnreadMsg = otherMsgsAll[currentReadCount];
+            const idx = allMsgs.indexOf(firstUnreadMsg);
+            firstIdx = idx > 0 ? idx : null;
+          }
+          setGroupFirstUnreadIdx(firstIdx);
+          chatMsgCountRef.current = -1;
+          setReadGroupChatCounts(prev => ({ ...prev, [communityId]: otherMsgsAll.length }));
+          setViewMode('chat');
+        } else if (chatType === 'private') {
+          // For the coach: privateChatMember = the non-owner member being chatted with
+          // For the member: privateChatMember = the owner (display purposes; chat key uses currentUserId)
+          const member = isOwner
+            ? community.members.find(m => m.id === memberId)
+            : community.members.find(m => m.role === 'owner');
+          if (member) {
+            const privateChatKey = isOwner ? memberId : currentUserId;
+            const chat = community.privateChats.find(pc => pc.memberId === privateChatKey);
+            const allMsgs = chat?.messages || [];
+            const key = `${communityId}-${privateChatKey}`;
+            const currentReadCount = readPrivateChatCounts[key] || 0;
+            const otherMsgsAll = allMsgs.filter(m => m.senderId !== currentUserId);
+            const unreadCnt = Math.max(0, otherMsgsAll.length - currentReadCount);
+            let firstIdx: number | null = null;
+            if (unreadCnt > 0) {
+              const firstUnreadMsg = otherMsgsAll[currentReadCount];
+              const idx = allMsgs.indexOf(firstUnreadMsg);
+              firstIdx = idx > 0 ? idx : null;
+            }
+            setPrivateFirstUnreadIdx(firstIdx);
+            privateMsgCountRef.current = -1;
+            setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherMsgsAll.length }));
+            setPrivateChatMember(member);
+            setViewMode('privateChat');
+          }
+        }
+      } catch {}
+    }).catch(() => {});
+  }, [ownedCommunities, joinedCommunities]));
+
   // Keep selectedCommunity in sync with store updates
   useEffect(() => {
     if (!selectedCommunity) return;
@@ -265,6 +325,7 @@ export default function CommunityScreen() {
   const [memberJournalData, setMemberJournalData] = useState<WorkoutJournalEntry[] | null>(null);
   const [memberActiveProgramName, setMemberActiveProgramName] = useState<string | null>(null);
   const [memberProgressLoading, setMemberProgressLoading] = useState(false);
+  const [memberProgressTab, setMemberProgressTab] = useState<'stats' | 'journal'>('stats');
 
   // EULA / Community Terms acceptance
   const [communityTermsAccepted, setCommunityTermsAccepted] = useState<boolean | null>(null);
@@ -316,6 +377,11 @@ export default function CommunityScreen() {
   const [chatKeyboardHeight, setChatKeyboardHeight] = useState(0);
   const chatFlatListRef = useRef<FlatList>(null);
   const privateChatFlatListRef = useRef<FlatList>(null);
+  const [groupFirstUnreadIdx, setGroupFirstUnreadIdx] = useState<number | null>(null);
+  const [privateFirstUnreadIdx, setPrivateFirstUnreadIdx] = useState<number | null>(null);
+  // -1 = not yet initialized; >=0 = message count at last scroll
+  const chatMsgCountRef = useRef(-1);
+  const privateMsgCountRef = useRef(-1);
   useEffect(() => {
     const show = Keyboard.addListener('keyboardWillShow', e => {
       setChatKeyboardHeight(e.endCoordinates.height);
@@ -366,7 +432,10 @@ export default function CommunityScreen() {
       const updated = { ...prev };
       let changed = false;
       for (const community of allCommunities) {
-        if (!(community.id in updated)) {
+        // Only baseline once messages have loaded — chatMessages starts as [] until the
+        // subcollection listener fires, so setting baseline on an empty array would
+        // record 0 and then show all real messages as unread when they arrive.
+        if (!(community.id in updated) && community.chatMessages.length > 0) {
           updated[community.id] = community.chatMessages.filter(m => m.senderId !== currentUserId).length;
           changed = true;
         }
@@ -413,33 +482,35 @@ export default function CommunityScreen() {
 
   // Helper to count unread group chat messages
   const getUnreadGroupCount = (community: Community): number => {
+    // If not yet baselined (messages still loading), show nothing as unread
+    if (!(community.id in readGroupChatCounts)) return 0;
     const otherMessages = community.chatMessages.filter(m => m.senderId !== currentUserId).length;
-    const readCount = readGroupChatCounts[community.id] || 0;
+    const readCount = readGroupChatCounts[community.id];
     return Math.max(0, otherMessages - readCount);
   };
 
   // Helper to count unread private chat messages (owner checking a member's chat)
   const getUnreadPrivateCount = (communityId: string, memberId: string): number => {
+    const key = `${communityId}-${memberId}`;
+    if (!(key in readPrivateChatCounts)) return 0;
     const community = ownedCommunities.find(c => c.id === communityId);
     if (!community) return 0;
     const chat = community.privateChats.find(pc => pc.memberId === memberId);
     if (!chat) return 0;
     const otherMessages = chat.messages.filter(m => m.senderId !== currentUserId).length;
-    const key = `${communityId}-${memberId}`;
-    const readCount = readPrivateChatCounts[key] || 0;
-    return Math.max(0, otherMessages - readCount);
+    return Math.max(0, otherMessages - readPrivateChatCounts[key]);
   };
 
   // Helper for member to count unread messages from coach (keyed by own uid)
   const getMemberUnreadPrivateCount = (communityId: string): number => {
+    const key = `${communityId}-${currentUserId}`;
+    if (!(key in readPrivateChatCounts)) return 0;
     const community = joinedCommunities.find(c => c.id === communityId);
     if (!community) return 0;
     const chat = community.privateChats.find(pc => pc.memberId === currentUserId);
     if (!chat) return 0;
     const otherMessages = chat.messages.filter(m => m.senderId !== currentUserId).length;
-    const key = `${communityId}-${currentUserId}`;
-    const readCount = readPrivateChatCounts[key] || 0;
-    return Math.max(0, otherMessages - readCount);
+    return Math.max(0, otherMessages - readPrivateChatCounts[key]);
   };
 
   if (!fontsLoaded) return null;
@@ -639,6 +710,7 @@ export default function CommunityScreen() {
     setMemberJournalData(null);
     setMemberActiveProgramName(null);
     setMemberProgressLoading(true);
+    setMemberProgressTab('stats');
     setViewMode('memberProgress');
     try {
       const [workoutSnap, programsSnap] = await Promise.all([
@@ -888,8 +960,19 @@ export default function CommunityScreen() {
               <BounceButton
                 style={[styles.groupChatBtn, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
                 onPress={() => {
-                  const otherMsgCount = selectedCommunity.chatMessages.filter(m => m.senderId !== currentUserId).length;
-                  setReadGroupChatCounts(prev => ({ ...prev, [selectedCommunity.id]: otherMsgCount }));
+                  const allMsgs = selectedCommunity.chatMessages;
+                  const currentReadCount = readGroupChatCounts[selectedCommunity.id] || 0;
+                  const otherMsgsAll = allMsgs.filter(m => m.senderId !== currentUserId);
+                  const unreadCnt = Math.max(0, otherMsgsAll.length - currentReadCount);
+                  let firstIdx: number | null = null;
+                  if (unreadCnt > 0) {
+                    const firstUnreadMsg = otherMsgsAll[currentReadCount];
+                    const idx = allMsgs.indexOf(firstUnreadMsg);
+                    firstIdx = idx > 0 ? idx : null;
+                  }
+                  setGroupFirstUnreadIdx(firstIdx);
+                  chatMsgCountRef.current = -1;
+                  setReadGroupChatCounts(prev => ({ ...prev, [selectedCommunity.id]: otherMsgsAll.length }));
                   setViewMode('chat');
                 }}
               >
@@ -919,11 +1002,21 @@ export default function CommunityScreen() {
                 onPress={() => {
                   const owner = selectedCommunity.members.find(m => m.role === 'owner');
                   if (owner) {
-                    // Mark as read
                     const key = `${selectedCommunity.id}-${currentUserId}`;
                     const chat = selectedCommunity.privateChats.find(pc => pc.memberId === currentUserId);
-                    const otherCount = chat ? chat.messages.filter(m => m.senderId !== currentUserId).length : 0;
-                    setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherCount }));
+                    const allMsgs = chat?.messages || [];
+                    const currentReadCount = readPrivateChatCounts[key] || 0;
+                    const otherMsgsAll = allMsgs.filter(m => m.senderId !== currentUserId);
+                    const unreadCnt = Math.max(0, otherMsgsAll.length - currentReadCount);
+                    let firstIdx: number | null = null;
+                    if (unreadCnt > 0) {
+                      const firstUnreadMsg = otherMsgsAll[currentReadCount];
+                      const idx = allMsgs.indexOf(firstUnreadMsg);
+                      firstIdx = idx > 0 ? idx : null;
+                    }
+                    setPrivateFirstUnreadIdx(firstIdx);
+                    privateMsgCountRef.current = -1;
+                    setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherMsgsAll.length }));
                     setPrivateChatMember(owner);
                     setViewMode('privateChat');
                   }
@@ -953,8 +1046,19 @@ export default function CommunityScreen() {
               <BounceButton
                 style={[styles.groupChatBtn, { backgroundColor: colors.cardTranslucent, borderColor: colors.cardBorder }]}
                 onPress={() => {
-                  const otherMsgCount = selectedCommunity.chatMessages.filter(m => m.senderId !== currentUserId).length;
-                  setReadGroupChatCounts(prev => ({ ...prev, [selectedCommunity.id]: otherMsgCount }));
+                  const allMsgs = selectedCommunity.chatMessages;
+                  const currentReadCount = readGroupChatCounts[selectedCommunity.id] || 0;
+                  const otherMsgsAll = allMsgs.filter(m => m.senderId !== currentUserId);
+                  const unreadCnt = Math.max(0, otherMsgsAll.length - currentReadCount);
+                  let firstIdx: number | null = null;
+                  if (unreadCnt > 0) {
+                    const firstUnreadMsg = otherMsgsAll[currentReadCount];
+                    const idx = allMsgs.indexOf(firstUnreadMsg);
+                    firstIdx = idx > 0 ? idx : null;
+                  }
+                  setGroupFirstUnreadIdx(firstIdx);
+                  chatMsgCountRef.current = -1;
+                  setReadGroupChatCounts(prev => ({ ...prev, [selectedCommunity.id]: otherMsgsAll.length }));
                   setViewMode('chat');
                 }}
               >
@@ -1337,9 +1441,20 @@ export default function CommunityScreen() {
                           style={styles.memberChatBtn}
                           onPress={() => {
                             const chat = selectedCommunity.privateChats.find(pc => pc.memberId === member.id);
-                            const otherCount = chat ? chat.messages.filter(m => m.senderId !== currentUserId).length : 0;
+                            const allMsgs = chat?.messages || [];
                             const key = `${selectedCommunity.id}-${member.id}`;
-                            setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherCount }));
+                            const currentReadCount = readPrivateChatCounts[key] || 0;
+                            const otherMsgsAll = allMsgs.filter(m => m.senderId !== currentUserId);
+                            const unreadCnt = Math.max(0, otherMsgsAll.length - currentReadCount);
+                            let firstIdx: number | null = null;
+                            if (unreadCnt > 0) {
+                              const firstUnreadMsg = otherMsgsAll[currentReadCount];
+                              const idx = allMsgs.indexOf(firstUnreadMsg);
+                              firstIdx = idx > 0 ? idx : null;
+                            }
+                            setPrivateFirstUnreadIdx(firstIdx);
+                            privateMsgCountRef.current = -1;
+                            setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherMsgsAll.length }));
                             openPrivateChat(member);
                           }}
                         >
@@ -1434,14 +1549,51 @@ export default function CommunityScreen() {
           keyExtractor={item => item.id}
           contentContainerStyle={styles.chatContent}
           inverted={false}
-          onContentSizeChange={() => chatFlatListRef.current?.scrollToEnd({ animated: true })}
-          onLayout={() => chatFlatListRef.current?.scrollToEnd({ animated: false })}
+          onLayout={() => {
+            if (chatMsgCountRef.current === -1) {
+              chatMsgCountRef.current = messages.length;
+              if (groupFirstUnreadIdx !== null) {
+                chatFlatListRef.current?.scrollToIndex({ index: groupFirstUnreadIdx, animated: false, viewPosition: 0 });
+              } else {
+                chatFlatListRef.current?.scrollToEnd({ animated: false });
+              }
+            }
+          }}
+          onContentSizeChange={() => {
+            if (chatMsgCountRef.current === -1) {
+              // onContentSizeChange fired before onLayout — handle initial scroll here
+              chatMsgCountRef.current = messages.length;
+              if (groupFirstUnreadIdx !== null) {
+                chatFlatListRef.current?.scrollToIndex({ index: groupFirstUnreadIdx, animated: false, viewPosition: 0 });
+              } else {
+                chatFlatListRef.current?.scrollToEnd({ animated: false });
+              }
+            } else if (messages.length > chatMsgCountRef.current) {
+              // A new message arrived while chat is open
+              chatMsgCountRef.current = messages.length;
+              chatFlatListRef.current?.scrollToEnd({ animated: true });
+            }
+            // Otherwise FlatList batch render — do nothing
+          }}
+          onScrollToIndexFailed={({ averageItemLength }) => {
+            chatFlatListRef.current?.scrollToOffset({ offset: (groupFirstUnreadIdx ?? 0) * averageItemLength, animated: false });
+          }}
+          onEndReached={() => setGroupFirstUnreadIdx(null)}
+          onEndReachedThreshold={0.2}
           renderItem={({ item, index }) => {
             const isMe = item.senderId === currentUserId;
             const prevMsg = messages[index - 1];
             const showDateSep = !prevMsg || !isSameDay(prevMsg.timestamp, item.timestamp);
+            const showNewMsgDivider = groupFirstUnreadIdx !== null && index === groupFirstUnreadIdx;
             return (
               <>
+                {showNewMsgDivider && (
+                  <View style={styles.newMessagesDivider}>
+                    <View style={[styles.newMessagesDividerLine, { backgroundColor: colors.border }]} />
+                    <Text style={[styles.newMessagesDividerText, { color: colors.secondaryText }]}>New Messages</Text>
+                    <View style={[styles.newMessagesDividerLine, { backgroundColor: colors.border }]} />
+                  </View>
+                )}
                 {showDateSep && (
                   <View style={styles.dateSeparator}>
                     <Text style={[styles.dateSeparatorText, { color: colors.border }]}>{formatDateSeparator(item.timestamp)}</Text>
@@ -1711,8 +1863,37 @@ export default function CommunityScreen() {
           keyExtractor={item => item.id}
           contentContainerStyle={styles.chatContent}
           inverted={false}
-          onContentSizeChange={() => privateChatFlatListRef.current?.scrollToEnd({ animated: true })}
-          onLayout={() => privateChatFlatListRef.current?.scrollToEnd({ animated: false })}
+          onLayout={() => {
+            if (privateMsgCountRef.current === -1) {
+              privateMsgCountRef.current = messages.length;
+              if (privateFirstUnreadIdx !== null) {
+                privateChatFlatListRef.current?.scrollToIndex({ index: privateFirstUnreadIdx, animated: false, viewPosition: 0 });
+              } else {
+                privateChatFlatListRef.current?.scrollToEnd({ animated: false });
+              }
+            }
+          }}
+          onContentSizeChange={() => {
+            if (privateMsgCountRef.current === -1) {
+              // onContentSizeChange fired before onLayout — handle initial scroll here
+              privateMsgCountRef.current = messages.length;
+              if (privateFirstUnreadIdx !== null) {
+                privateChatFlatListRef.current?.scrollToIndex({ index: privateFirstUnreadIdx, animated: false, viewPosition: 0 });
+              } else {
+                privateChatFlatListRef.current?.scrollToEnd({ animated: false });
+              }
+            } else if (messages.length > privateMsgCountRef.current) {
+              // A new message arrived while chat is open
+              privateMsgCountRef.current = messages.length;
+              privateChatFlatListRef.current?.scrollToEnd({ animated: true });
+            }
+            // Otherwise FlatList batch render — do nothing
+          }}
+          onScrollToIndexFailed={({ averageItemLength }) => {
+            privateChatFlatListRef.current?.scrollToOffset({ offset: (privateFirstUnreadIdx ?? 0) * averageItemLength, animated: false });
+          }}
+          onEndReached={() => setPrivateFirstUnreadIdx(null)}
+          onEndReachedThreshold={0.2}
           ListEmptyComponent={
             <View style={styles.emptyChatState}>
               <Ionicons name="chatbubbles-outline" size={48} color={colors.secondaryText} />
@@ -1725,8 +1906,16 @@ export default function CommunityScreen() {
             const msgPreview = item.sharedWorkout ? `[Program: ${item.sharedWorkout.programName}]` : item.message;
             const prevMsg = messages[index - 1];
             const showDateSep = !prevMsg || !isSameDay(prevMsg.timestamp, item.timestamp);
+            const showNewMsgDivider = privateFirstUnreadIdx !== null && index === privateFirstUnreadIdx;
             return (
               <>
+                {showNewMsgDivider && (
+                  <View style={styles.newMessagesDivider}>
+                    <View style={[styles.newMessagesDividerLine, { backgroundColor: colors.border }]} />
+                    <Text style={[styles.newMessagesDividerText, { color: colors.secondaryText }]}>New Messages</Text>
+                    <View style={[styles.newMessagesDividerLine, { backgroundColor: colors.border }]} />
+                  </View>
+                )}
                 {showDateSep && (
                   <View style={styles.dateSeparator}>
                     <Text style={[styles.dateSeparatorText, { color: colors.border }]}>{formatDateSeparator(item.timestamp)}</Text>
@@ -1810,17 +1999,49 @@ export default function CommunityScreen() {
           <View style={{ width: 44 }} />
         </View>
 
+        {/* Stats / Journal tab switcher */}
+        <View style={{ flexDirection: 'row', marginHorizontal: 16, marginBottom: 8, borderRadius: 12, overflow: 'hidden', backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)' }}>
+          {(['stats', 'journal'] as const).map(tab => (
+            <TouchableOpacity
+              key={tab}
+              style={{
+                flex: 1,
+                paddingVertical: 8,
+                alignItems: 'center',
+                borderRadius: 12,
+                backgroundColor: memberProgressTab === tab ? communityAccent : 'transparent',
+              }}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setMemberProgressTab(tab); }}
+              activeOpacity={0.7}
+            >
+              <Text style={{
+                fontSize: 13,
+                fontFamily: 'Arimo_700Bold',
+                color: memberProgressTab === tab ? '#fff' : colors.secondaryText,
+              }}>
+                {tab === 'stats' ? 'Stats' : 'Journal'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {memberProgressLoading ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <ActivityIndicator size="large" color={communityAccent} />
           </View>
-        ) : (
+        ) : memberProgressTab === 'stats' ? (
           <ProgressView
             journal={memberJournalData ?? []}
             unit={unit}
             toDisplay={toDisplay}
             initialProgramName={memberActiveProgramName}
             scrollTopPadding={8}
+          />
+        ) : (
+          <MemberJournalView
+            journal={memberJournalData ?? []}
+            unit={unit}
+            toDisplay={toDisplay}
           />
         )}
       </>
@@ -3116,6 +3337,23 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: 'Arimo_400Regular',
     marginHorizontal: 12,
+  },
+  newMessagesDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 12,
+    marginHorizontal: 16,
+  },
+  newMessagesDividerLine: {
+    flex: 1,
+    height: 1,
+  },
+  newMessagesDividerText: {
+    fontSize: 12,
+    fontFamily: 'Arimo_600SemiBold',
+    marginHorizontal: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   chatInputContainer: {
     flexDirection: 'row',
