@@ -62,6 +62,9 @@ const _journalLog: WorkoutJournalEntry[] = [];
 const JOURNAL_KEY = '@journal_v1';
 const HISTORY_KEY = '@history_v1';
 const PREV_KEY = '@prev_v2';
+const DRAFT_KEY = '@workout_draft_v1';
+
+let _draftTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Strip undefined values so Firestore doesn't reject the write
 function _stripUndefined<T>(obj: T): T {
@@ -590,7 +593,8 @@ export const workoutState = {
       for (const k of Object.keys(_exerciseHistory)) delete _exerciseHistory[k];
       _workoutFinished = false;
       _listeners.forEach(fn => fn(false));
-      AsyncStorage.multiRemove([JOURNAL_KEY, HISTORY_KEY, PREV_KEY]).catch(() => {});
+      if (_draftTimer) { clearTimeout(_draftTimer); _draftTimer = null; }
+      AsyncStorage.multiRemove([JOURNAL_KEY, HISTORY_KEY, PREV_KEY, DRAFT_KEY]).catch(() => {});
       _notifyPrevChanged();
     }
   },
@@ -653,5 +657,24 @@ export const workoutState = {
         _notifyPrevChanged();
       }
     } catch {}
+  },
+
+  // In-progress workout draft — persists exerciseCache to AsyncStorage so a mid-workout
+  // phone death doesn't wipe the user's reps/weights. Debounced to avoid thrashing storage.
+  saveDraft(activeDay: number, cache: Record<string, unknown>): void {
+    if (_draftTimer) clearTimeout(_draftTimer);
+    _draftTimer = setTimeout(() => {
+      AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({ date: _getTodayStr(), activeDay, cache })).catch(() => {});
+    }, 1500);
+  },
+  async loadDraft(): Promise<{ date: string; activeDay: number; cache: Record<string, unknown> } | null> {
+    try {
+      const raw = await AsyncStorage.getItem(DRAFT_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  },
+  clearDraft(): void {
+    if (_draftTimer) { clearTimeout(_draftTimer); _draftTimer = null; }
+    AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
   },
 };

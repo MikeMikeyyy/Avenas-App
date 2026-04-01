@@ -226,7 +226,7 @@ export default function CommunityScreen() {
             firstIdx = idx > 0 ? idx : null;
           }
           setGroupFirstUnreadIdx(firstIdx);
-          chatMsgCountRef.current = -1;
+          chatMsgCountRef.current = 0;
           setReadGroupChatCounts(prev => ({ ...prev, [communityId]: otherMsgsAll.length }));
           setViewMode('chat');
         } else if (chatType === 'private') {
@@ -250,7 +250,7 @@ export default function CommunityScreen() {
               firstIdx = idx > 0 ? idx : null;
             }
             setPrivateFirstUnreadIdx(firstIdx);
-            privateMsgCountRef.current = -1;
+            privateMsgCountRef.current = 0;
             setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherMsgsAll.length }));
             setPrivateChatMember(member);
             setViewMode('privateChat');
@@ -379,9 +379,11 @@ export default function CommunityScreen() {
   const privateChatFlatListRef = useRef<FlatList>(null);
   const [groupFirstUnreadIdx, setGroupFirstUnreadIdx] = useState<number | null>(null);
   const [privateFirstUnreadIdx, setPrivateFirstUnreadIdx] = useState<number | null>(null);
-  // -1 = not yet initialized; >=0 = message count at last scroll
-  const chatMsgCountRef = useRef(-1);
-  const privateMsgCountRef = useRef(-1);
+  const chatMsgCountRef = useRef(0);
+  const privateMsgCountRef = useRef(0);
+  // true = initial-scroll phase complete; false = still scrolling to open position
+  const chatInitDoneRef = useRef(false);
+  const privateInitDoneRef = useRef(false);
   useEffect(() => {
     const show = Keyboard.addListener('keyboardWillShow', e => {
       setChatKeyboardHeight(e.endCoordinates.height);
@@ -396,6 +398,22 @@ export default function CommunityScreen() {
     return () => { show.remove(); hide.remove(); };
   }, []);
 
+
+  // When a chat view opens, hold the init-scroll gate open for 300 ms so that
+  // onContentSizeChange keeps calling the target scroll (animated:false) until
+  // the FlatList has rendered all its initial items. After 300 ms we switch to
+  // "new message arrives → scroll to end (animated)" mode.
+  useEffect(() => {
+    if (viewMode === 'chat') {
+      chatInitDoneRef.current = false;
+      const t = setTimeout(() => { chatInitDoneRef.current = true; }, 300);
+      return () => clearTimeout(t);
+    } else if (viewMode === 'privateChat') {
+      privateInitDoneRef.current = false;
+      const t = setTimeout(() => { privateInitDoneRef.current = true; }, 300);
+      return () => clearTimeout(t);
+    }
+  }, [viewMode]);
 
   // Unread message tracking: stores count of messages already seen
   const [readGroupChatCounts, setReadGroupChatCounts] = useState<Record<string, number>>({});
@@ -971,7 +989,7 @@ export default function CommunityScreen() {
                     firstIdx = idx > 0 ? idx : null;
                   }
                   setGroupFirstUnreadIdx(firstIdx);
-                  chatMsgCountRef.current = -1;
+                  chatMsgCountRef.current = 0;
                   setReadGroupChatCounts(prev => ({ ...prev, [selectedCommunity.id]: otherMsgsAll.length }));
                   setViewMode('chat');
                 }}
@@ -1015,7 +1033,7 @@ export default function CommunityScreen() {
                       firstIdx = idx > 0 ? idx : null;
                     }
                     setPrivateFirstUnreadIdx(firstIdx);
-                    privateMsgCountRef.current = -1;
+                    privateMsgCountRef.current = 0;
                     setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherMsgsAll.length }));
                     setPrivateChatMember(owner);
                     setViewMode('privateChat');
@@ -1057,7 +1075,7 @@ export default function CommunityScreen() {
                     firstIdx = idx > 0 ? idx : null;
                   }
                   setGroupFirstUnreadIdx(firstIdx);
-                  chatMsgCountRef.current = -1;
+                  chatMsgCountRef.current = 0;
                   setReadGroupChatCounts(prev => ({ ...prev, [selectedCommunity.id]: otherMsgsAll.length }));
                   setViewMode('chat');
                 }}
@@ -1453,7 +1471,7 @@ export default function CommunityScreen() {
                               firstIdx = idx > 0 ? idx : null;
                             }
                             setPrivateFirstUnreadIdx(firstIdx);
-                            privateMsgCountRef.current = -1;
+                            privateMsgCountRef.current = 0;
                             setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherMsgsAll.length }));
                             openPrivateChat(member);
                           }}
@@ -1528,6 +1546,16 @@ export default function CommunityScreen() {
       : joinedCommunities.find(c => c.id === selectedCommunity.id);
     const messages = (currentCommunity?.chatMessages || []).filter(m => !blockedUserIds.includes(m.senderId));
 
+    // Determine where to open the chat:
+    // - Many unreads (> 6): pin first unread to top of screen
+    // - Few/no unreads: show last message flush at bottom (fully visible)
+    const UNREAD_FITS_THRESHOLD = 6;
+    const chatScrollTarget = messages.length === 0
+      ? null
+      : (groupFirstUnreadIdx !== null && messages.length - groupFirstUnreadIdx > UNREAD_FITS_THRESHOLD)
+        ? { index: groupFirstUnreadIdx, viewPosition: 0 }
+        : { index: messages.length - 1, viewPosition: 1 };
+
     return (
       <View style={{ flex: 1 }}>
         <View style={styles.groupChatHeader}>
@@ -1549,34 +1577,24 @@ export default function CommunityScreen() {
           keyExtractor={item => item.id}
           contentContainerStyle={styles.chatContent}
           inverted={false}
-          onLayout={() => {
-            if (chatMsgCountRef.current === -1) {
-              chatMsgCountRef.current = messages.length;
-              if (groupFirstUnreadIdx !== null) {
-                chatFlatListRef.current?.scrollToIndex({ index: groupFirstUnreadIdx, animated: false, viewPosition: 0 });
-              } else {
-                chatFlatListRef.current?.scrollToEnd({ animated: false });
-              }
-            }
-          }}
           onContentSizeChange={() => {
-            if (chatMsgCountRef.current === -1) {
-              // onContentSizeChange fired before onLayout — handle initial scroll here
+            if (!chatInitDoneRef.current) {
               chatMsgCountRef.current = messages.length;
-              if (groupFirstUnreadIdx !== null) {
-                chatFlatListRef.current?.scrollToIndex({ index: groupFirstUnreadIdx, animated: false, viewPosition: 0 });
-              } else {
-                chatFlatListRef.current?.scrollToEnd({ animated: false });
+              if (chatScrollTarget) {
+                chatFlatListRef.current?.scrollToIndex({
+                  index: chatScrollTarget.index,
+                  animated: false,
+                  viewPosition: chatScrollTarget.viewPosition,
+                });
               }
             } else if (messages.length > chatMsgCountRef.current) {
-              // A new message arrived while chat is open
               chatMsgCountRef.current = messages.length;
               chatFlatListRef.current?.scrollToEnd({ animated: true });
             }
-            // Otherwise FlatList batch render — do nothing
           }}
           onScrollToIndexFailed={({ averageItemLength }) => {
-            chatFlatListRef.current?.scrollToOffset({ offset: (groupFirstUnreadIdx ?? 0) * averageItemLength, animated: false });
+            const idx = chatScrollTarget?.index ?? (messages.length - 1);
+            chatFlatListRef.current?.scrollToOffset({ offset: idx * averageItemLength, animated: false });
           }}
           onEndReached={() => setGroupFirstUnreadIdx(null)}
           onEndReachedThreshold={0.2}
@@ -1596,7 +1614,7 @@ export default function CommunityScreen() {
                 )}
                 {showDateSep && (
                   <View style={styles.dateSeparator}>
-                    <Text style={[styles.dateSeparatorText, { color: colors.border }]}>{formatDateSeparator(item.timestamp)}</Text>
+                    <Text style={[styles.dateSeparatorText, { color: colors.primaryText }]}>{formatDateSeparator(item.timestamp)}</Text>
                   </View>
                 )}
                 <TouchableOpacity
@@ -1825,6 +1843,13 @@ export default function CommunityScreen() {
     const privateChat = getPrivateChat(selectedCommunity.id, privateChatKey);
     const messages = (privateChat?.messages || []).filter(m => !blockedUserIds.includes(m.senderId));
 
+    const UNREAD_FITS_THRESHOLD = 6;
+    const privateScrollTarget = messages.length === 0
+      ? null
+      : (privateFirstUnreadIdx !== null && messages.length - privateFirstUnreadIdx > UNREAD_FITS_THRESHOLD)
+        ? { index: privateFirstUnreadIdx, viewPosition: 0 }
+        : { index: messages.length - 1, viewPosition: 1 };
+
     const handleSendPrivate = () => {
       if (privateMessage.trim()) {
         sendPrivateMessage(
@@ -1863,34 +1888,24 @@ export default function CommunityScreen() {
           keyExtractor={item => item.id}
           contentContainerStyle={styles.chatContent}
           inverted={false}
-          onLayout={() => {
-            if (privateMsgCountRef.current === -1) {
-              privateMsgCountRef.current = messages.length;
-              if (privateFirstUnreadIdx !== null) {
-                privateChatFlatListRef.current?.scrollToIndex({ index: privateFirstUnreadIdx, animated: false, viewPosition: 0 });
-              } else {
-                privateChatFlatListRef.current?.scrollToEnd({ animated: false });
-              }
-            }
-          }}
           onContentSizeChange={() => {
-            if (privateMsgCountRef.current === -1) {
-              // onContentSizeChange fired before onLayout — handle initial scroll here
+            if (!privateInitDoneRef.current) {
               privateMsgCountRef.current = messages.length;
-              if (privateFirstUnreadIdx !== null) {
-                privateChatFlatListRef.current?.scrollToIndex({ index: privateFirstUnreadIdx, animated: false, viewPosition: 0 });
-              } else {
-                privateChatFlatListRef.current?.scrollToEnd({ animated: false });
+              if (privateScrollTarget) {
+                privateChatFlatListRef.current?.scrollToIndex({
+                  index: privateScrollTarget.index,
+                  animated: false,
+                  viewPosition: privateScrollTarget.viewPosition,
+                });
               }
             } else if (messages.length > privateMsgCountRef.current) {
-              // A new message arrived while chat is open
               privateMsgCountRef.current = messages.length;
               privateChatFlatListRef.current?.scrollToEnd({ animated: true });
             }
-            // Otherwise FlatList batch render — do nothing
           }}
           onScrollToIndexFailed={({ averageItemLength }) => {
-            privateChatFlatListRef.current?.scrollToOffset({ offset: (privateFirstUnreadIdx ?? 0) * averageItemLength, animated: false });
+            const idx = privateScrollTarget?.index ?? (messages.length - 1);
+            privateChatFlatListRef.current?.scrollToOffset({ offset: idx * averageItemLength, animated: false });
           }}
           onEndReached={() => setPrivateFirstUnreadIdx(null)}
           onEndReachedThreshold={0.2}
@@ -1918,7 +1933,7 @@ export default function CommunityScreen() {
                 )}
                 {showDateSep && (
                   <View style={styles.dateSeparator}>
-                    <Text style={[styles.dateSeparatorText, { color: colors.border }]}>{formatDateSeparator(item.timestamp)}</Text>
+                    <Text style={[styles.dateSeparatorText, { color: colors.primaryText }]}>{formatDateSeparator(item.timestamp)}</Text>
                   </View>
                 )}
                 <TouchableOpacity

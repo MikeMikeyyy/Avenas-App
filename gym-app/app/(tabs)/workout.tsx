@@ -13,11 +13,13 @@ import {
   LayoutAnimation,
   UIManager,
   Alert,
+  AppState,
 } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
+import * as Notifications from 'expo-notifications';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -818,6 +820,8 @@ export default function WorkoutScreen() {
   const [editingDuration, setEditingDuration] = useState(false);
   const [editMins, setEditMins] = useState('01');
   const [editSecs, setEditSecs] = useState('00');
+  const countdownEndRef = useRef<number | null>(null);
+  const countdownNotifIdRef = useRef<string | null>(null);
   // Stopwatch
   const [swElapsed, setSwElapsed] = useState(0);
   const [swRunning, setSwRunning] = useState(false);
@@ -826,34 +830,98 @@ export default function WorkoutScreen() {
 
   useEffect(() => {
     if (!countdownActive) return;
-    const id = setInterval(() => {
-      setCountdownRemaining(prev => {
-        if (prev <= 1) {
-          setCountdownActive(false);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(id);
-  }, [countdownActive, countdownDuration]);
+    // Record the absolute end time so ticks are wall-clock based.
+    // This means phone locking / JS timer throttling can't cause drift.
+    countdownEndRef.current = Date.now() + countdownRemaining * 1000;
+
+    // Schedule a local notification to fire when the timer ends.
+    // If the app is backgrounded/locked, the OS delivers it; if the user is
+    // watching the timer in-app, we cancel it before it fires.
+    Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Rest Timer Done',
+        body: 'Time to get back to it!',
+        sound: true,
+      },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: countdownRemaining },
+    }).then(id => { countdownNotifIdRef.current = id; }).catch(() => {});
+
+    const cancelNotif = () => {
+      if (countdownNotifIdRef.current) {
+        Notifications.cancelScheduledNotificationAsync(countdownNotifIdRef.current).catch(() => {});
+        countdownNotifIdRef.current = null;
+      }
+    };
+
+    const tick = () => {
+      if (!countdownEndRef.current) return;
+      const remaining = Math.ceil((countdownEndRef.current - Date.now()) / 1000);
+      if (remaining <= 0) {
+        cancelNotif(); // user saw it in-app, no need for the banner
+        setCountdownActive(false);
+        setCountdownRemaining(0);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
+        setCountdownRemaining(remaining);
+      }
+    };
+    const id = setInterval(tick, 500);
+    // Re-sync immediately when the app comes back to the foreground after locking
+    const appStateSub = AppState.addEventListener('change', state => {
+      if (state === 'active') tick();
+    });
+    return () => {
+      clearInterval(id);
+      appStateSub.remove();
+      cancelNotif(); // paused or unmounted — cancel the pending notification
+    };
+  }, [countdownActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!swRunning) return;
     swStartRef.current = Date.now();
-    const id = setInterval(() => {
+    const tick = () => {
       if (swStartRef.current) {
         setSwElapsed(swOffsetRef.current + Math.floor((Date.now() - swStartRef.current) / 1000));
       }
-    }, 1000);
-    return () => clearInterval(id);
+    };
+    const id = setInterval(tick, 500);
+    // Snap display immediately when the phone is unlocked
+    const appStateSub = AppState.addEventListener('change', state => {
+      if (state === 'active') tick();
+    });
+    return () => {
+      clearInterval(id);
+      appStateSub.remove();
+    };
   }, [swRunning]);
 
   const scrollRef = useRef<ScrollView>(null);
   const completeScale = useRef(new Animated.Value(0)).current;
   const completeOpacity = useRef(new Animated.Value(0)).current;
   const exerciseCache = useRef<Record<string, Exercise[]>>({}).current;
+
+  // Restore in-progress workout if the app was closed mid-workout (e.g. phone died).
+  // The draft is only restored if: it's for today AND the workout timer was running
+  // (wall-start exists). If either condition fails, the draft is stale and discarded.
+  useEffect(() => {
+    if (workoutState.finished) return;
+    workoutState.loadDraft().then(async draft => {
+      if (!draft || workoutState.finished) return;
+      const today = new Date();
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      if (draft.date !== todayStr) { workoutState.clearDraft(); return; }
+      const wallStart = await workoutState.loadWallStartTime(draft.activeDay);
+      if (!wallStart) { workoutState.clearDraft(); return; }
+      // Pre-populate the exerciseCache — the normal load effect checks this and uses it
+      Object.entries(draft.cache as Record<string, Exercise[]>).forEach(([k, v]) => {
+        exerciseCache[k] = v;
+      });
+      // Immediately refresh whatever session is currently visible
+      const currentKey = `${selectedDayIndex}-${selectedSessionIndex}`;
+      if (exerciseCache[currentKey]) setExercises(exerciseCache[currentKey]);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When prev data changes (e.g. journal entry saved), clear cache entries that have
   // no user-entered data so they reload with updated prev values. Entries where the
@@ -1097,6 +1165,7 @@ export default function WorkoutScreen() {
     setExercises(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       exerciseCache[`${selectedDayIndex}-${selectedSessionIndex}`] = next;
+      workoutState.saveDraft(selectedDayIndex, exerciseCache as Record<string, unknown>);
       return next;
     });
   };
@@ -1167,7 +1236,7 @@ export default function WorkoutScreen() {
       {/* Rest Timer Button - Top Right */}
       <TouchableOpacity
         style={[styles.restTimerBtn, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}
-        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowRestTimer(true); }}
+        onPress={() => { Keyboard.dismiss(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowRestTimer(true); }}
         activeOpacity={0.7}
       >
         <Ionicons name="timer-outline" size={28} color={colors.primaryText} />
@@ -1390,6 +1459,7 @@ export default function WorkoutScreen() {
                             }
                             // Restore prev stats for any sessions already saved mid-workout
                             workout?.sessions.forEach(s => workoutState.restorePrev(s.label));
+                            workoutState.clearDraft();
                             workoutState.resetTimer(selectedDayIndex);
                             setWorkoutStartTime(null);
                             setWorkoutEndTime(null);
@@ -1511,6 +1581,7 @@ export default function WorkoutScreen() {
                       }
                       workout?.sessions.forEach(s => workoutState.restorePrev(s.label));
                       workoutState.setFinished(false);
+                      workoutState.clearDraft();
                       workoutState.resetTimer(selectedDayIndex);
                       setWorkoutStartTime(null);
                       setWorkoutEndTime(null);
@@ -1910,6 +1981,7 @@ export default function WorkoutScreen() {
                   });
                 }
                 setFinishedDurations(prev => ({ ...prev, [selectedDayIndex]: durationSecs }));
+                workoutState.clearDraft();
                 workoutState.stopTimer(selectedDayIndex);
                 workoutState.setFinished(true);
                 // Lock today so switching programs doesn't overwrite this completed workout
@@ -2027,6 +2099,7 @@ export default function WorkoutScreen() {
                           });
                         }
                         setFinishedDurations(prev => ({ ...prev, [selectedDayIndex]: durationSecs }));
+                        workoutState.clearDraft();
                         workoutState.stopTimer(selectedDayIndex);
                         workoutState.setFinished(true);
                         if (selectedDayIndex === 0) {
@@ -2171,7 +2244,7 @@ export default function WorkoutScreen() {
               {/* Time display — identical container, time always dead-centre */}
               <View style={styles.restTimerDisplay}>
                 {/* -15s / +15s — absolutely positioned so they never shift the time */}
-                {restMode === 'timer' && !(editingDuration && !countdownActive) && (
+                {restMode === 'timer' && !countdownActive && !editingDuration && countdownRemaining === countdownDuration && (
                   <>
                     <TouchableOpacity
                       onPress={() => {
@@ -2250,14 +2323,14 @@ export default function WorkoutScreen() {
                 ) : (
                   <TouchableOpacity
                     onPress={() => {
-                      if (restMode === 'timer' && !countdownActive) {
+                      if (restMode === 'timer' && !countdownActive && countdownRemaining === countdownDuration) {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                         setEditMins(String(Math.floor(countdownRemaining / 60)).padStart(2, '0'));
                         setEditSecs(String(countdownRemaining % 60).padStart(2, '0'));
                         setEditingDuration(true);
                       }
                     }}
-                    activeOpacity={restMode === 'timer' ? 0.7 : 1}
+                    activeOpacity={restMode === 'timer' && !countdownActive && countdownRemaining === countdownDuration ? 0.7 : 1}
                   >
                     <Text style={[styles.restTimerTime, { color: colors.primaryText, textAlign: 'center' }]}>
                       {restMode === 'timer'
@@ -2270,7 +2343,7 @@ export default function WorkoutScreen() {
                 )}
 
                 {/* Tap to edit hint — absolutely positioned so it doesn't shift the time */}
-                {restMode === 'timer' && !countdownActive && !editingDuration && (
+                {restMode === 'timer' && !countdownActive && !editingDuration && countdownRemaining === countdownDuration && (
                   <View style={[styles.restTimerEditHint, { position: 'absolute', bottom: 2 }]}>
                     <Ionicons name="create-outline" size={12} color={colors.secondaryText} />
                     <Text style={[styles.restTimerEditHintText, { color: colors.secondaryText }]}>tap to edit</Text>
@@ -2282,6 +2355,7 @@ export default function WorkoutScreen() {
               {restMode === 'timer' ? (
                 <>
                   {!countdownActive && countdownRemaining === 0 ? (
+                    // Timer finished — accent Reset button
                     <TouchableOpacity
                       style={[styles.restTimerAction, { backgroundColor: accentColor }]}
                       onPress={() => {
@@ -2293,31 +2367,57 @@ export default function WorkoutScreen() {
                       <Ionicons name="refresh" size={20} color="#1C1C1E" />
                       <Text style={[styles.restTimerActionText, { color: '#1C1C1E' }]}>Reset</Text>
                     </TouchableOpacity>
-                  ) : (
+                  ) : countdownActive ? (
+                    // Running — Pause button
                     <TouchableOpacity
-                      style={[styles.restTimerAction, { backgroundColor: countdownActive ? colors.inputBg : accentColor }]}
+                      style={[styles.restTimerAction, { backgroundColor: colors.inputBg }]}
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                        setCountdownActive(!countdownActive);
+                        setCountdownActive(false);
                       }}
                       activeOpacity={0.7}
                     >
-                      <Ionicons name={countdownActive ? 'pause' : 'play'} size={20} color={countdownActive ? colors.primaryText : '#1C1C1E'} />
-                      <Text style={[styles.restTimerActionText, { color: countdownActive ? colors.primaryText : '#1C1C1E' }]}>
-                        {countdownActive ? 'Pause' : 'Start'}
-                      </Text>
+                      <Ionicons name="pause" size={20} color={colors.primaryText} />
+                      <Text style={[styles.restTimerActionText, { color: colors.primaryText }]}>Pause</Text>
                     </TouchableOpacity>
-                  )}
-                  {!countdownActive && countdownRemaining > 0 && countdownRemaining !== countdownDuration && (
+                  ) : countdownRemaining > 0 && countdownRemaining !== countdownDuration ? (
+                    // Paused mid-countdown — Reset + Continue row
+                    <View style={styles.restTimerButtonRow}>
+                      <TouchableOpacity
+                        style={[styles.restTimerAction, { backgroundColor: colors.inputBg, flex: 1 }]}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setCountdownRemaining(countdownDuration);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="refresh" size={20} color={colors.primaryText} />
+                        <Text style={[styles.restTimerActionText, { color: colors.primaryText }]}>Reset</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.restTimerAction, { backgroundColor: accentColor, flex: 1 }]}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                          setCountdownActive(true);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="play" size={20} color="#1C1C1E" />
+                        <Text style={[styles.restTimerActionText, { color: '#1C1C1E' }]}>Continue</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    // Not started yet — Start button
                     <TouchableOpacity
-                      style={styles.restTimerSecondary}
+                      style={[styles.restTimerAction, { backgroundColor: accentColor }]}
                       onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setCountdownRemaining(countdownDuration);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        setCountdownActive(true);
                       }}
                       activeOpacity={0.7}
                     >
-                      <Text style={[styles.restTimerSecondaryText, { color: colors.secondaryText }]}>Reset</Text>
+                      <Ionicons name="play" size={20} color="#1C1C1E" />
+                      <Text style={[styles.restTimerActionText, { color: '#1C1C1E' }]}>Start</Text>
                     </TouchableOpacity>
                   )}
                 </>
@@ -2624,6 +2724,7 @@ export default function WorkoutScreen() {
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                      workoutState.clearDraft();
                       workoutState.stopTimer(selectedDayIndex);
                       delete exerciseCache[selectedDayIndex];
                       setDayOverrides(prev => ({ ...prev, [selectedDayIndex]: 'rest' }));
