@@ -10,6 +10,7 @@ import {
   reauthenticateWithCredential,
   sendPasswordResetEmail,
   signInWithCredential,
+  deleteUser,
   GoogleAuthProvider,
   OAuthProvider,
   EmailAuthProvider,
@@ -34,6 +35,7 @@ type AuthContextType = {
   updateUserPassword: (currentPassword: string, newPassword: string) => Promise<void>;
   updateUserEmail: (currentPassword: string, newEmail: string) => Promise<void>;
   sendPasswordReset: () => Promise<void>;
+  deleteAccount: (password?: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -128,11 +130,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(Object.assign(Object.create(Object.getPrototypeOf(auth.currentUser!)), auth.currentUser));
   };
 
+  const deleteAccount = async (password?: string) => {
+    const u = auth.currentUser;
+    if (!u) throw new Error('Not logged in');
+    const providerId = u.providerData[0]?.providerId;
+    if (providerId === 'password') {
+      if (!password || !u.email) throw new Error('Password required');
+      const credential = EmailAuthProvider.credential(u.email, password);
+      await reauthenticateWithCredential(u, credential);
+    }
+    await deleteUser(u);
+    await AsyncStorage.clear().catch(() => {});
+    setUser(null);
+    setIsGuest(false);
+  };
+
   return (
     <AuthContext.Provider value={{
       user, isGuest, loading,
       signIn, signUp, signOut, continueAsGuest, signInWithGoogle, signInWithApple,
-      updateDisplayName, updateUserPassword, updateUserEmail, sendPasswordReset,
+      updateDisplayName, updateUserPassword, updateUserEmail, sendPasswordReset, deleteAccount,
     }}>
       {children}
     </AuthContext.Provider>

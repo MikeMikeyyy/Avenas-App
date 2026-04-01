@@ -90,7 +90,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { isDark, colors, toggleTheme } = useTheme();
   const { unit, setUnit } = useUnits();
-  const { user, isGuest, signOut, updateDisplayName, updateUserPassword, updateUserEmail, sendPasswordReset } = useAuth();
+  const { user, isGuest, signOut, updateDisplayName, updateUserPassword, updateUserEmail, sendPasswordReset, deleteAccount } = useAuth();
   const { syncUserName, blockedUsersMap, unblockUser } = useCommunityStore();
   const [fontsLoaded] = useFonts({ Arimo_400Regular, Arimo_700Bold });
 
@@ -156,6 +156,11 @@ export default function SettingsScreen() {
   // Clear data modal
   const [clearDataVisible, setClearDataVisible] = useState(false);
   const [keepCommunities, setKeepCommunities] = useState(true);
+
+  // Delete account modal
+  const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
+  const [deleteAccountPw, setDeleteAccountPw] = useState('');
+  const isEmailProvider = user?.providerData[0]?.providerId === 'password';
 
   // Blocked users sheet
   const [blockedUsersVisible, setBlockedUsersVisible] = useState(false);
@@ -243,6 +248,12 @@ export default function SettingsScreen() {
       subtitle: displayEmail || undefined,
       type: 'action',
       onPress: () => { setNewEmail(''); setModalError(''); setChangeEmailVisible(true); },
+    },
+    {
+      icon: 'trash-outline', label: 'Delete Account',
+      type: 'action',
+      color: '#FF3B30',
+      onPress: () => { setDeleteAccountPw(''); setModalError(''); setDeleteAccountVisible(true); },
     },
   ];
 
@@ -600,6 +611,83 @@ export default function SettingsScreen() {
             disabled={modalLoading}
           >
             {modalLoading ? <ActivityIndicator color="#000" /> : <Text style={[styles.modalBtnText, { color: '#000' }]}>Update Email</Text>}
+          </TouchableOpacity>
+        </View>
+      </BottomSheetModal>
+
+      {/* ── Delete Account Modal ── */}
+      <BottomSheetModal visible={deleteAccountVisible} onDismiss={() => { setDeleteAccountVisible(false); setDeleteAccountPw(''); setModalError(''); setModalLoading(false); }} sheetBackground={colors.modalBg}>
+        <View style={[styles.modalContent, { backgroundColor: colors.modalBg }]}>
+          <Text style={[styles.modalTitle, { color: colors.primaryText }]}>Delete Account</Text>
+          <Text style={[styles.modalSubtitle, { color: colors.tertiaryText }]}>
+            This will permanently delete your account and all associated data. This cannot be undone.
+          </Text>
+          {isEmailProvider && (
+            <View style={[styles.modalInputWrap, { backgroundColor: colors.inputBg, marginTop: 12 }]}>
+              <Ionicons name="lock-closed-outline" size={18} color={colors.tertiaryText} style={{ marginRight: 8 }} />
+              <TextInput
+                style={[styles.modalInput, { flex: 1, color: colors.primaryText }]}
+                value={deleteAccountPw}
+                onChangeText={t => { setDeleteAccountPw(t); setModalError(''); }}
+                placeholder="Enter your password to confirm"
+                placeholderTextColor={colors.tertiaryText}
+                secureTextEntry
+                autoFocus
+              />
+            </View>
+          )}
+          {!!modalError && <Text style={styles.modalError}>{modalError}</Text>}
+          <TouchableOpacity
+            style={[styles.modalBtn, { backgroundColor: '#FF3B30' }, modalLoading && { opacity: 0.6 }]}
+            activeOpacity={0.8}
+            disabled={modalLoading}
+            onPress={async () => {
+              if (isEmailProvider && !deleteAccountPw) { setModalError('Please enter your password.'); return; }
+              Alert.alert(
+                'Delete Account?',
+                'This will permanently delete your account and all data. This cannot be undone.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                      setModalLoading(true);
+                      setModalError('');
+                      try {
+                        if (user) {
+                          await deleteDoc(doc(db, 'users', user.uid, 'data', 'workout')).catch(() => {});
+                          await deleteDoc(doc(db, 'users', user.uid, 'data', 'programs')).catch(() => {});
+                          await deleteDoc(doc(db, 'users', user.uid, 'data', 'communityMemberships')).catch(() => {});
+                          await deleteDoc(doc(db, 'users', user.uid, 'data', 'preferences')).catch(() => {});
+                          await deleteDoc(doc(db, 'users', user.uid, 'data', 'blockedUsers')).catch(() => {});
+                          await deleteDoc(doc(db, 'users', user.uid)).catch(() => {});
+                        }
+                        await deleteAccount(isEmailProvider ? deleteAccountPw : undefined);
+                        setDeleteAccountVisible(false);
+                        router.replace('/');
+                      } catch (e: any) {
+                        setModalLoading(false);
+                        if (e.code === 'auth/requires-recent-login') {
+                          setModalError('Please sign out and sign back in before deleting your account.');
+                        } else {
+                          setModalError(getAuthErrorMessage(e.code ?? ''));
+                        }
+                      }
+                    },
+                  },
+                ]
+              );
+            }}
+          >
+            {modalLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalBtnText}>Delete My Account</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modalBtn, { backgroundColor: colors.cardTranslucent, borderWidth: 1, borderColor: colors.cardBorder }]}
+            activeOpacity={0.8}
+            onPress={() => { setDeleteAccountVisible(false); setDeleteAccountPw(''); setModalError(''); }}
+          >
+            <Text style={[styles.modalBtnText, { color: colors.primaryText }]}>Cancel</Text>
           </TouchableOpacity>
         </View>
       </BottomSheetModal>
