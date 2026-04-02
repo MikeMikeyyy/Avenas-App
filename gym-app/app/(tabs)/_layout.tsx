@@ -13,11 +13,17 @@ import { HomeIcon } from "../../components/icons/TabIcons";
 import { useRef, useEffect, useState } from "react";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "../../themeStore";
-import {
-  LiquidGlassView,
-  LiquidGlassContainerView,
-  isLiquidGlassSupported,
-} from "@callstack/liquid-glass";
+let LiquidGlassView: any = null;
+let LiquidGlassContainerView: any = null;
+let isLiquidGlassSupported = false;
+try {
+  const lg = require("@callstack/liquid-glass");
+  LiquidGlassView = lg.LiquidGlassView;
+  LiquidGlassContainerView = lg.LiquidGlassContainerView;
+  isLiquidGlassSupported = lg.isLiquidGlassSupported ?? false;
+} catch {
+  // Native module unavailable (Expo Go, iOS < 26) — BlurView fallback is used
+}
 
 const TAB_LABELS: Record<string, string> = {
   home: "Home",
