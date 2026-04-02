@@ -2,7 +2,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@rea
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
@@ -15,6 +15,66 @@ import { UnitsProvider, useUnits } from '../unitsStore';
 import { AuthProvider, useAuth } from '../authStore';
 import { workoutState } from '../workoutState';
 import { db } from '../firebase';
+import { View, Text, TouchableOpacity, StyleSheet, Linking, Image } from 'react-native';
+import Constants from 'expo-constants';
+import { LinearGradient } from 'expo-linear-gradient';
+
+function isVersionOutdated(current: string, store: string): boolean {
+  const c = current.split('.').map(Number);
+  const s = store.split('.').map(Number);
+  for (let i = 0; i < Math.max(c.length, s.length); i++) {
+    if ((s[i] ?? 0) > (c[i] ?? 0)) return true;
+    if ((c[i] ?? 0) > (s[i] ?? 0)) return false;
+  }
+  return false;
+}
+
+function ForceUpdateGate({ children }: { children: ReactNode }) {
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [storeUrl, setStoreUrl] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('https://itunes.apple.com/lookup?bundleId=com.avenas.app');
+        const json = await res.json();
+        if (json.resultCount > 0) {
+          const storeVersion: string = json.results[0].version;
+          const currentVersion = Constants.expoConfig?.version ?? '0.0.0';
+          if (isVersionOutdated(currentVersion, storeVersion)) {
+            setStoreUrl(`https://apps.apple.com/app/id${json.results[0].trackId}`);
+            setUpdateAvailable(true);
+          }
+        }
+      } catch {}
+    })();
+  }, []);
+
+  if (!updateAvailable) return <>{children}</>;
+
+  return (
+    <LinearGradient colors={['#abbac4', '#FFFFFF']} style={forceUpdateStyles.container}>
+      <Image
+        source={require('../assets/images/icon.png')}
+        style={forceUpdateStyles.icon}
+      />
+      <Text style={forceUpdateStyles.title}>Update Available</Text>
+      <Text style={forceUpdateStyles.subtitle}>
+        A new version of Avenas is available.{'\n'}Please update to continue.
+      </Text>
+      <TouchableOpacity
+        style={forceUpdateStyles.button}
+        onPress={() => Linking.openURL(storeUrl)}
+        activeOpacity={0.85}
+      >
+        <Text style={forceUpdateStyles.buttonText}>Update Now</Text>
+      </TouchableOpacity>
+      <Text style={forceUpdateStyles.versionText}>
+        Current version: {Constants.expoConfig?.version}
+      </Text>
+    </LinearGradient>
+  );
+}
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -136,7 +196,9 @@ export default function RootLayout() {
         <AuthProvider>
           <CommunityProvider>
             <ProgramProvider>
-              <InnerLayout />
+              <ForceUpdateGate>
+                <InnerLayout />
+              </ForceUpdateGate>
             </ProgramProvider>
           </CommunityProvider>
         </AuthProvider>
@@ -144,3 +206,48 @@ export default function RootLayout() {
     </ThemeProvider>
   );
 }
+
+const forceUpdateStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  icon: {
+    width: 100,
+    height: 100,
+    borderRadius: 22,
+    marginBottom: 32,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#2c3e50',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 15,
+    color: '#5a6c7d',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 40,
+  },
+  button: {
+    backgroundColor: '#47DDFF',
+    paddingHorizontal: 48,
+    paddingVertical: 16,
+    borderRadius: 100,
+  },
+  buttonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#2c3e50',
+  },
+  versionText: {
+    marginTop: 24,
+    fontSize: 12,
+    color: '#8e8e93',
+  },
+});

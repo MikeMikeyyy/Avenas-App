@@ -12,6 +12,12 @@ import { BlurView } from "expo-blur";
 import { HomeIcon } from "../../components/icons/TabIcons";
 import { useRef, useEffect, useState } from "react";
 import * as Haptics from "expo-haptics";
+import { useTheme } from "../../themeStore";
+import {
+  LiquidGlassView,
+  LiquidGlassContainerView,
+  isLiquidGlassSupported,
+} from "@callstack/liquid-glass";
 
 const TAB_LABELS: Record<string, string> = {
   home: "Home",
@@ -35,9 +41,20 @@ const renderIcon = (name: string, size: number, color: string) => {
   }
 };
 
-function TabItem({ route, focused, onPress }: { route: any; focused: boolean; onPress: () => void }) {
+function TabItem({
+  route,
+  focused,
+  onPress,
+  isDark,
+}: {
+  route: any;
+  focused: boolean;
+  onPress: () => void;
+  isDark: boolean;
+}) {
   const scale = useRef(new Animated.Value(1)).current;
   const label = TAB_LABELS[route.name] || route.name;
+  const iconColor = isDark ? "#FFFFFF" : "#2c3e50";
 
   const handlePressIn = () => {
     Animated.spring(scale, {
@@ -68,9 +85,9 @@ function TabItem({ route, focused, onPress }: { route: any; focused: boolean; on
       style={styles.tabItem}
     >
       <Animated.View style={[styles.iconContent, { transform: [{ scale }] }]}>
-        {renderIcon(route.name, 28, "#FFFFFF")}
+        {renderIcon(route.name, 28, iconColor)}
         <Text
-          style={[styles.label, focused && styles.labelActive]}
+          style={[styles.label, { color: iconColor }, focused && styles.labelActive]}
           numberOfLines={1}
         >
           {label}
@@ -93,10 +110,14 @@ function AnimatedTabBar({
   const translateX = useRef(new Animated.Value(0)).current;
   const pillScale = useRef(new Animated.Value(1)).current;
   const [tabWidth, setTabWidth] = useState(0);
+  const { isDark } = useTheme();
   const { width: screenWidth } = useWindowDimensions();
-  const barWidth = screenWidth - 40; // left:20 + right:20
-  const computedTabWidth = (barWidth - 2) / state.routes.length; // subtract 2 for tabBarInner's 1px border on each side
+  const barWidth = screenWidth - 40; // left: 20 + right: 20
+  const computedTabWidth = (barWidth - 2) / state.routes.length; // subtract 2 for 1px border on each side
   const isFirstRender = useRef(true);
+
+  const pillWidth = tabWidth - PILL_INSET * 2;
+  const pillHeight = BAR_HEIGHT - PILL_INSET * 2;
 
   useEffect(() => {
     if (computedTabWidth > 0) {
@@ -114,7 +135,6 @@ function AnimatedTabBar({
         return;
       }
 
-      // Bounce the pill: shrink then spring back
       Animated.sequence([
         Animated.timing(pillScale, {
           toValue: 0.85,
@@ -138,9 +158,85 @@ function AnimatedTabBar({
     }
   }, [state.index, tabWidth]);
 
+  const glassScheme = isDark ? "dark" : "light";
+
+  const tabItems = state.routes.map((route: any, index: number) => (
+    <TabItem
+      key={route.key}
+      route={route}
+      focused={state.index === index}
+      onPress={() => navigation.navigate(route.name)}
+      isDark={isDark}
+    />
+  ));
+
+  // iOS 26+: real liquid glass with merging pill
+  if (isLiquidGlassSupported) {
+    return (
+      <View style={styles.tabBarWrapper}>
+        <LiquidGlassContainerView
+          style={{ width: barWidth, height: BAR_HEIGHT }}
+          spacing={12}
+        >
+          {/* Bar background — liquid glass material */}
+          <LiquidGlassView
+            effect="regular"
+            colorScheme={glassScheme}
+            style={{
+              position: "absolute",
+              width: barWidth,
+              height: BAR_HEIGHT,
+              borderRadius: BAR_HEIGHT / 2,
+            }}
+          />
+          {/* Sliding pill — merges with bar glass as it moves */}
+          {tabWidth > 0 && (
+            <Animated.View
+              style={{
+                position: "absolute",
+                top: PILL_INSET,
+                left: 0,
+                width: pillWidth,
+                height: pillHeight,
+                transform: [{ translateX }, { scale: pillScale }],
+              }}
+            >
+              <LiquidGlassView
+                effect="clear"
+                interactive
+                colorScheme={glassScheme}
+                style={{
+                  width: pillWidth,
+                  height: pillHeight,
+                  borderRadius: pillHeight / 2,
+                }}
+              />
+            </Animated.View>
+          )}
+        </LiquidGlassContainerView>
+        {/* Tab icons/labels sit above the glass layers */}
+        <View
+          style={{
+            position: "absolute",
+            flexDirection: "row",
+            width: barWidth,
+            height: BAR_HEIGHT,
+          }}
+        >
+          {tabItems}
+        </View>
+      </View>
+    );
+  }
+
+  // Fallback: BlurView for iOS < 26 and Expo Go
   return (
     <View style={styles.tabBarWrapper}>
-      <BlurView intensity={80} tint="systemUltraThinMaterial" style={styles.blurContainer}>
+      <BlurView
+        intensity={80}
+        tint="systemUltraThinMaterial"
+        style={styles.blurContainer}
+      >
         <View style={styles.tabBarInner}>
           {/* Animated sliding pill */}
           <Animated.View
@@ -152,16 +248,7 @@ function AnimatedTabBar({
               },
             ]}
           />
-
-          {/* Tab items */}
-          {state.routes.map((route: any, index: number) => (
-            <TabItem
-              key={route.key}
-              route={route}
-              focused={state.index === index}
-              onPress={() => navigation.navigate(route.name)}
-            />
-          ))}
+          {tabItems}
         </View>
       </BlurView>
     </View>
