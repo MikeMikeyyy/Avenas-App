@@ -279,15 +279,13 @@ export default function SettingsScreen() {
         <Ionicons name="chevron-forward" size={18} color={colors.tertiaryText} />
       )}
       {item.type === 'toggle' && (
-        <View style={{ borderRadius: 20, overflow: 'hidden' }}>
-          <Switch
-            value={isDark}
-            onValueChange={toggleTheme}
-            trackColor={{ false: '#8e8e93', true: '#47DDFF' }}
-            thumbColor="#fff"
-            ios_backgroundColor="#8e8e93"
-          />
-        </View>
+        <Switch
+          value={isDark}
+          onValueChange={toggleTheme}
+          trackColor={{ false: '#8e8e93', true: '#47DDFF' }}
+          thumbColor="#fff"
+          ios_backgroundColor="#8e8e93"
+        />
       )}
     </TouchableOpacity>
   );
@@ -344,15 +342,13 @@ export default function SettingsScreen() {
             <View style={styles.settingsItemContent}>
               <Text style={[styles.settingsItemLabel, { color: colors.primaryText }]}>Notifications</Text>
             </View>
-            <View style={{ borderRadius: 20, overflow: 'hidden' }}>
-              <Switch
-                value={notificationsEnabled}
-                onValueChange={handleNotificationsToggle}
-                trackColor={{ false: '#8e8e93', true: '#47DDFF' }}
-                thumbColor="#fff"
-                ios_backgroundColor="#8e8e93"
-              />
-            </View>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={handleNotificationsToggle}
+              trackColor={{ false: '#8e8e93', true: '#47DDFF' }}
+              thumbColor="#fff"
+              ios_backgroundColor="#8e8e93"
+            />
           </View>
           {/* Units picker */}
           <View style={[styles.settingsItem, { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
@@ -440,7 +436,7 @@ export default function SettingsScreen() {
           <Text style={styles.logoutText}>Log Out</Text>
         </BounceButton>
 
-        <Text style={[styles.versionText, { color: colors.tertiaryText }]}>Version 1.0.1</Text>
+        <Text style={[styles.versionText, { color: colors.tertiaryText }]}>Version 1.0.2</Text>
       </ScrollView>
 
       {/* ── Blocked Users Sheet ── */}
