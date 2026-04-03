@@ -27,7 +27,7 @@ import { useAuth } from '../authStore';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const IOS_CLIENT_ID = '509276082930-dllkb3jls25igd0v6r4igg27vonjpte3.apps.googleusercontent.com';
+const IOS_CLIENT_ID = '509276082930-mrocfcdbdj7g5pup2l5mce7dhpt23tsu.apps.googleusercontent.com';
 const WEB_CLIENT_ID = '509276082930-79361f34bo7b238od4kng8ui4nk9hvoi.apps.googleusercontent.com';
 
 export default function AuthScreen() {

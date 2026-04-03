@@ -211,7 +211,8 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { userRef.current = user; }, [user]);
 
   // Set up real-time listeners for a community (doc + messages subcollection)
-  const subscribeToCommunity = useCallback((id: string, side: 'owned' | 'joined') => {
+  // joinedAt: if provided, only messages on/after this timestamp are fetched (for members)
+  const subscribeToCommunity = useCallback((id: string, side: 'owned' | 'joined', joinedAt?: Date) => {
     docUnsubs.current[id]?.();
     msgUnsubs.current[id]?.();
 
@@ -261,8 +262,12 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
     });
 
     // Listener 2: messages subcollection (real-time chat)
+    // Members only see messages sent after they joined; owners see all
+    const msgsQuery = (side === 'joined' && joinedAt)
+      ? query(collection(db, 'communities', id, 'messages'), where('timestamp', '>=', Timestamp.fromDate(joinedAt)), orderBy('timestamp', 'asc'))
+      : query(collection(db, 'communities', id, 'messages'), orderBy('timestamp', 'asc'));
     msgUnsubs.current[id] = onSnapshot(
-      query(collection(db, 'communities', id, 'messages'), orderBy('timestamp', 'asc')),
+      msgsQuery,
       snap => {
         const msgs: ChatMessage[] = snap.docs.map(d => ({
           id: d.id,
@@ -299,13 +304,19 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         for (const id of ownedIds) subscribeToCommunity(id, 'owned');
         const currentOwnerIds: string[] = data.ownerIds ?? [];
         for (const id of joinedIds) {
-          subscribeToCommunity(id, 'joined');
-          // Backfill memberIds (community doc) and ownerIds (membership doc) for communities that predate these fields.
-          // memberIds ensures security rules pass for member writes (shareWithCoach etc).
-          // ownerIds grants the coach read access to the member's workout/progress data.
+          // Fetch community doc to get joinedAt (for message filtering) + run backfill checks
           getDoc(doc(db, 'communities', id)).then(commSnap => {
             if (!commSnap.exists()) return;
             const commData = commSnap.data();
+            // Determine this user's joinedAt from the members array
+            const memberEntry = (commData.members ?? []).find((m: any) => m.id === user.uid);
+            const joinedAt: Date | undefined = memberEntry?.joinedAt
+              ? (memberEntry.joinedAt instanceof Timestamp ? memberEntry.joinedAt.toDate() : new Date(memberEntry.joinedAt))
+              : undefined;
+            subscribeToCommunity(id, 'joined', joinedAt);
+            // Backfill memberIds (community doc) and ownerIds (membership doc) for communities that predate these fields.
+            // memberIds ensures security rules pass for member writes (shareWithCoach etc).
+            // ownerIds grants the coach read access to the member's workout/progress data.
             const memberIds: string[] = commData.memberIds ?? [];
             if (!memberIds.includes(user.uid)) {
               updateDoc(commSnap.ref, { memberIds: arrayUnion(user.uid) }).catch(() => {});
@@ -383,7 +394,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         { joinedIds: arrayUnion(commDoc.id), ownerIds: arrayUnion(data.ownerId) },
         { merge: true }
       );
-      subscribeToCommunity(commDoc.id, 'joined');
+      subscribeToCommunity(commDoc.id, 'joined', newMember.joinedAt);
       sendPushToUser(data.ownerId, 'New Member', `${newMember.name} joined ${data.name}`).catch(() => {});
       console.log('[joinCommunity] success');
       return true;
@@ -563,6 +574,16 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
           .map(m => m.id);
         const preview = message.length > 60 ? message.slice(0, 60) + '…' : message;
         sendPushToUsers(recipientIds, community.name, `${senderName}: ${preview}`, { communityId, chatType: 'group' }).catch(() => {});
+      }
+      // Trim oldest messages so the subcollection never exceeds 50
+      const msgsSnap = await getDocs(
+        query(collection(db, 'communities', communityId, 'messages'), orderBy('timestamp', 'asc'))
+      );
+      if (msgsSnap.size > 50) {
+        const toDelete = msgsSnap.docs.slice(0, msgsSnap.size - 50);
+        const batch = writeBatch(db);
+        toDelete.forEach(d => batch.delete(d.ref));
+        await batch.commit();
       }
     } catch {}
   }, [user, ownedCommunities, joinedCommunities]);

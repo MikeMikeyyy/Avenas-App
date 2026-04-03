@@ -2,7 +2,8 @@
  * ProgressView — reusable progress content driven by a WorkoutJournalEntry array.
  * Used by both the Progress tab (own data) and the community member progress overlay.
  */
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
@@ -502,11 +503,36 @@ export function ProgressView({
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
 
   const ALL_ACCENT = '#94A3B8';
-  const activeProgramName = initialProgramName !== undefined
-    ? initialProgramName
-    : (programs.find(p => p.id === activeId)?.name ?? null);
-  const [selectedProgramName, setSelectedProgramName] = useState<string | null>(activeProgramName);
+  // Community member view passes initialProgramName; own progress view does not
+  const isOwnView = initialProgramName === undefined;
+  const [selectedProgramName, setSelectedProgramName] = useState<string | null>(
+    isOwnView ? null : (initialProgramName ?? null)
+  );
+  const persistLoaded = useRef(false);
   const [infoExerciseName, setInfoExerciseName] = useState<string | null>(null);
+
+  // Load last selected program from storage (own view only)
+  useEffect(() => {
+    if (!isOwnView) return;
+    AsyncStorage.getItem('@progressSelectedProgram').then(saved => {
+      persistLoaded.current = true;
+      if (saved && saved !== 'null') setSelectedProgramName(saved);
+    }).catch(() => { persistLoaded.current = true; });
+  }, []);
+
+  // If the stored program no longer appears in the journal (deleted/renamed), fall back to All
+  useEffect(() => {
+    if (!isOwnView || selectedProgramName === null || derivedPrograms.length === 0) return;
+    if (!derivedPrograms.find(p => p.name === selectedProgramName)) {
+      setSelectedProgramName(null);
+    }
+  }, [derivedPrograms]);
+
+  // Persist the user's selection whenever it changes
+  useEffect(() => {
+    if (!isOwnView || !persistLoaded.current) return;
+    AsyncStorage.setItem('@progressSelectedProgram', selectedProgramName ?? 'null').catch(() => {});
+  }, [selectedProgramName]);
 
   // ── Derive unique programs from journal (active program first) ───────────────
   const derivedPrograms = useMemo(() => {

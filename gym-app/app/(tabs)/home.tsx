@@ -397,10 +397,10 @@ export default function HomeScreen() {
                   <Text style={[styles.cardLabel, { color: colors.secondaryText }]}>TODAY'S WORKOUT</Text>
                   <Text style={[styles.cardTitle, { color: colors.primaryText }]}>{dayLabel}</Text>
                 </View>
-                <View style={{ alignItems: 'flex-end', maxWidth: '45%' }}>
+                <View style={{ flex: 1, alignItems: 'flex-end' }}>
                   <Text style={[styles.programLabel, { color: colors.secondaryText, textAlign: 'right' }]}>Active Program</Text>
                   <View style={[styles.programBadge, { backgroundColor: `${accentColor}30`, borderColor: accentColor }]}>
-                    <Text style={[styles.programBadgeText, { color: colors.primaryText, textAlign: 'left' }]} numberOfLines={2}>{activeProgram?.name || 'None'}</Text>
+                    <Text style={[styles.programBadgeText, { color: colors.primaryText, textAlign: 'left' }]}>{activeProgram?.name || 'None'}</Text>
                   </View>
                 </View>
               </View>

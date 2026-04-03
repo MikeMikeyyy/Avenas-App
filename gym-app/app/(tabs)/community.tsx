@@ -16,6 +16,7 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -373,6 +374,8 @@ export default function CommunityScreen() {
   const [showOwnerBlockWarning, setShowOwnerBlockWarning] = useState(false);
 
 
+  const { height: screenHeight } = useWindowDimensions();
+
   // Keyboard height for chat input positioning
   const [chatKeyboardHeight, setChatKeyboardHeight] = useState(0);
   const chatFlatListRef = useRef<FlatList>(null);
@@ -381,6 +384,12 @@ export default function CommunityScreen() {
   const [privateFirstUnreadIdx, setPrivateFirstUnreadIdx] = useState<number | null>(null);
   const chatMsgCountRef = useRef(0);
   const privateMsgCountRef = useRef(0);
+  const chatAtBottomRef = useRef(true);
+  const privateChatAtBottomRef = useRef(true);
+  const chatInputHeightRef = useRef(0);
+  const privateChatInputHeightRef = useRef(0);
+  const chatScrollTimerRef = useRef<any>(null);
+  const privateChatScrollTimerRef = useRef<any>(null);
   // true = initial-scroll phase complete; false = still scrolling to open position
   const chatInitDoneRef = useRef(false);
   const privateInitDoneRef = useRef(false);
@@ -388,8 +397,8 @@ export default function CommunityScreen() {
     const show = Keyboard.addListener('keyboardWillShow', e => {
       setChatKeyboardHeight(e.endCoordinates.height);
       setTimeout(() => {
-        chatFlatListRef.current?.scrollToEnd({ animated: true });
-        privateChatFlatListRef.current?.scrollToEnd({ animated: true });
+        chatFlatListRef.current?.scrollToEnd({ animated: !chatAtBottomRef.current });
+        privateChatFlatListRef.current?.scrollToEnd({ animated: !privateChatAtBottomRef.current });
       }, 100);
     });
     const hide = Keyboard.addListener('keyboardWillHide', () => {
@@ -497,6 +506,30 @@ export default function CommunityScreen() {
     if (!currentUserId || !countsLoaded) return;
     AsyncStorage.setItem(`@readPrivateCounts_${currentUserId}`, JSON.stringify(readPrivateChatCounts)).catch(() => {});
   }, [readPrivateChatCounts, currentUserId, countsLoaded]);
+
+  // Auto-mark messages as read while the user is actively viewing a chat.
+  // Fires whenever new messages arrive (selectedCommunity stays live via the sync effect).
+  useEffect(() => {
+    if (viewMode !== 'chat' || !selectedCommunity || !currentUserId) return;
+    const otherCount = selectedCommunity.chatMessages.filter(m => m.senderId !== currentUserId).length;
+    setReadGroupChatCounts(prev => {
+      if ((prev[selectedCommunity.id] ?? 0) >= otherCount) return prev;
+      return { ...prev, [selectedCommunity.id]: otherCount };
+    });
+  }, [viewMode, selectedCommunity?.chatMessages, selectedCommunity?.id, currentUserId]);
+
+  useEffect(() => {
+    if (viewMode !== 'privateChat' || !selectedCommunity || !privateChatMember || !currentUserId) return;
+    const privateChatKey = isOwnerView ? privateChatMember.id : currentUserId;
+    const privateChat = selectedCommunity.privateChats.find(pc => pc.memberId === privateChatKey);
+    if (!privateChat) return;
+    const otherCount = privateChat.messages.filter(m => m.senderId !== currentUserId).length;
+    const key = `${selectedCommunity.id}-${privateChatKey}`;
+    setReadPrivateChatCounts(prev => {
+      if ((prev[key] ?? 0) >= otherCount) return prev;
+      return { ...prev, [key]: otherCount };
+    });
+  }, [viewMode, selectedCommunity, privateChatMember?.id, currentUserId, isOwnerView]);
 
   // Helper to count unread group chat messages
   const getUnreadGroupCount = (community: Community): number => {
@@ -1576,6 +1609,7 @@ export default function CommunityScreen() {
           data={messages}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.chatContent}
+          style={{ flex: 1 }}
           inverted={false}
           onContentSizeChange={() => {
             if (!chatInitDoneRef.current) {
@@ -1587,15 +1621,22 @@ export default function CommunityScreen() {
                   viewPosition: chatScrollTarget.viewPosition,
                 });
               }
-            } else if (messages.length > chatMsgCountRef.current) {
+            } else if (messages.length !== chatMsgCountRef.current) {
               chatMsgCountRef.current = messages.length;
-              chatFlatListRef.current?.scrollToEnd({ animated: true });
+              if (chatScrollTimerRef.current) clearTimeout(chatScrollTimerRef.current);
+              chatScrollTimerRef.current = setTimeout(() => {
+                chatFlatListRef.current?.scrollToEnd({ animated: !chatAtBottomRef.current });
+              }, 50);
             }
           }}
           onScrollToIndexFailed={({ averageItemLength }) => {
             const idx = chatScrollTarget?.index ?? (messages.length - 1);
             chatFlatListRef.current?.scrollToOffset({ offset: idx * averageItemLength, animated: false });
           }}
+          onScroll={({ nativeEvent: { layoutMeasurement, contentOffset, contentSize } }) => {
+            chatAtBottomRef.current = layoutMeasurement.height + contentOffset.y >= contentSize.height - 40;
+          }}
+          scrollEventThrottle={100}
           onEndReached={() => setGroupFirstUnreadIdx(null)}
           onEndReachedThreshold={0.2}
           renderItem={({ item, index }) => {
@@ -1652,14 +1693,27 @@ export default function CommunityScreen() {
 
         <View style={[styles.chatInputContainer, { backgroundColor: colors.cardSolid, borderTopColor: colors.border, marginBottom: chatKeyboardHeight > 0 ? chatKeyboardHeight : (Platform.OS === 'ios' ? 100 : 85) }]}>
           <TextInput
-            style={[styles.chatInput, { backgroundColor: colors.inputBg, color: colors.primaryText }]}
+            style={[styles.chatInput, { backgroundColor: colors.inputBg, color: colors.primaryText, maxHeight: screenHeight * 0.5 }]}
             placeholder="Type a message..."
             placeholderTextColor={colors.tertiaryText}
             value={chatMessage}
             onChangeText={setChatMessage}
-            returnKeyType="send"
-            onSubmitEditing={handleSendMessage}
+            multiline={true}
+            returnKeyType="default"
+            onContentSizeChange={({ nativeEvent: { contentSize } }) => {
+              if (contentSize.height > chatInputHeightRef.current) {
+                chatFlatListRef.current?.scrollToEnd({ animated: !chatAtBottomRef.current });
+              }
+              chatInputHeightRef.current = contentSize.height;
+            }}
           />
+          <TouchableOpacity
+            style={[styles.sendButton, { backgroundColor: chatMessage.trim() ? '#47DDFF' : colors.inputBg }]}
+            onPress={handleSendMessage}
+            disabled={!chatMessage.trim()}
+          >
+            <Ionicons name="arrow-up" size={20} color={chatMessage.trim() ? '#fff' : colors.tertiaryText} />
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -1887,6 +1941,7 @@ export default function CommunityScreen() {
           data={messages}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.chatContent}
+          style={{ flex: 1 }}
           inverted={false}
           onContentSizeChange={() => {
             if (!privateInitDoneRef.current) {
@@ -1898,15 +1953,22 @@ export default function CommunityScreen() {
                   viewPosition: privateScrollTarget.viewPosition,
                 });
               }
-            } else if (messages.length > privateMsgCountRef.current) {
+            } else if (messages.length !== privateMsgCountRef.current) {
               privateMsgCountRef.current = messages.length;
-              privateChatFlatListRef.current?.scrollToEnd({ animated: true });
+              if (privateChatScrollTimerRef.current) clearTimeout(privateChatScrollTimerRef.current);
+              privateChatScrollTimerRef.current = setTimeout(() => {
+                privateChatFlatListRef.current?.scrollToEnd({ animated: !privateChatAtBottomRef.current });
+              }, 50);
             }
           }}
           onScrollToIndexFailed={({ averageItemLength }) => {
             const idx = privateScrollTarget?.index ?? (messages.length - 1);
             privateChatFlatListRef.current?.scrollToOffset({ offset: idx * averageItemLength, animated: false });
           }}
+          onScroll={({ nativeEvent: { layoutMeasurement, contentOffset, contentSize } }) => {
+            privateChatAtBottomRef.current = layoutMeasurement.height + contentOffset.y >= contentSize.height - 40;
+          }}
+          scrollEventThrottle={100}
           onEndReached={() => setPrivateFirstUnreadIdx(null)}
           onEndReachedThreshold={0.2}
           ListEmptyComponent={
@@ -1977,14 +2039,27 @@ export default function CommunityScreen() {
 
         <View style={[styles.privateChatInputContainer, { backgroundColor: colors.cardSolid, borderTopColor: colors.border, marginBottom: chatKeyboardHeight > 0 ? chatKeyboardHeight : (Platform.OS === 'ios' ? 100 : 85) }]}>
           <TextInput
-            style={[styles.chatInput, { backgroundColor: colors.inputBg, color: colors.primaryText }]}
+            style={[styles.chatInput, { backgroundColor: colors.inputBg, color: colors.primaryText, maxHeight: screenHeight * 0.5 }]}
             placeholder="Type a message..."
             placeholderTextColor={colors.tertiaryText}
             value={privateMessage}
             onChangeText={setPrivateMessage}
-            returnKeyType="send"
-            onSubmitEditing={handleSendPrivate}
+            multiline={true}
+            returnKeyType="default"
+            onContentSizeChange={({ nativeEvent: { contentSize } }) => {
+              if (contentSize.height > privateChatInputHeightRef.current) {
+                privateChatFlatListRef.current?.scrollToEnd({ animated: !privateChatAtBottomRef.current });
+              }
+              privateChatInputHeightRef.current = contentSize.height;
+            }}
           />
+          <TouchableOpacity
+            style={[styles.sendButton, { backgroundColor: privateMessage.trim() ? '#47DDFF' : colors.inputBg }]}
+            onPress={handleSendPrivate}
+            disabled={!privateMessage.trim()}
+          >
+            <Ionicons name="arrow-up" size={20} color={privateMessage.trim() ? '#fff' : colors.tertiaryText} />
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -3372,7 +3447,7 @@ const styles = StyleSheet.create({
   },
   chatInputContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: '#ffffff',
@@ -3850,7 +3925,7 @@ const styles = StyleSheet.create({
   },
   privateChatInputContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: '#ffffff',
