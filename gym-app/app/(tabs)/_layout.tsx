@@ -51,7 +51,6 @@ function TabItem({
   route,
   focused,
   onPress,
-  isDark,
 }: {
   route: any;
   focused: boolean;
@@ -60,7 +59,7 @@ function TabItem({
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const label = TAB_LABELS[route.name] || route.name;
-  const iconColor = isDark ? "#FFFFFF" : "#2c3e50";
+  const iconColor = "#FFFFFF";
 
   const handlePressIn = () => {
     Animated.spring(scale, {

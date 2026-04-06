@@ -665,7 +665,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
       // Notify the other party
       const recipientId = user.uid === memberId ? data.ownerId : memberId;
       const preview = message.length > 60 ? message.slice(0, 60) + '…' : message;
-      sendPushToUser(recipientId, senderName, preview, { communityId, chatType: 'private', memberId }).catch(() => {});
+      sendPushToUser(recipientId, data.name, `${senderName}: ${preview}`, { communityId, chatType: 'private', memberId }).catch(() => {});
     } catch {}
   }, [user]);
 

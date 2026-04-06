@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
-import { registerForPushNotificationsAsync } from '../notificationService';
+import { registerForPushNotificationsAsync, setPendingChatNav } from '../notificationService';
 
 import { ProgramProvider } from '../programStore';
 import { CommunityProvider } from '../communityStore';
@@ -19,38 +19,28 @@ import { View, Text, TouchableOpacity, StyleSheet, Linking, Image } from 'react-
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 
-function isVersionOutdated(current: string, store: string): boolean {
-  const c = current.split('.').map(Number);
-  const s = store.split('.').map(Number);
-  for (let i = 0; i < Math.max(c.length, s.length); i++) {
-    if ((s[i] ?? 0) > (c[i] ?? 0)) return true;
-    if ((c[i] ?? 0) > (s[i] ?? 0)) return false;
-  }
-  return false;
-}
-
 function ForceUpdateGate({ children }: { children: ReactNode }) {
-  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [blocked, setBlocked] = useState(false);
   const [storeUrl, setStoreUrl] = useState('');
 
   useEffect(() => {
+    if (__DEV__) return;
     (async () => {
       try {
-        const res = await fetch('https://itunes.apple.com/lookup?bundleId=com.avenas.app');
-        const json = await res.json();
-        if (json.resultCount > 0) {
-          const storeVersion: string = json.results[0].version;
-          const currentVersion = Constants.expoConfig?.version ?? '0.0.0';
-          if (isVersionOutdated(currentVersion, storeVersion)) {
-            setStoreUrl(`https://apps.apple.com/app/id${json.results[0].trackId}`);
-            setUpdateAvailable(true);
-          }
+        const snap = await getDoc(doc(db, 'config', 'app'));
+        if (!snap.exists()) return;
+        const data = snap.data();
+        const minBuild: number = data.minBuildNumber ?? 0;
+        const currentBuild = Number(Constants.expoConfig?.ios?.buildNumber ?? '0');
+        if (minBuild > 0 && currentBuild < minBuild) {
+          setStoreUrl(data.iosStoreUrl ?? '');
+          setBlocked(true);
         }
       } catch {}
     })();
   }, []);
 
-  if (!updateAvailable) return <>{children}</>;
+  if (!blocked) return <>{children}</>;
 
   return (
     <LinearGradient colors={['#abbac4', '#FFFFFF']} style={forceUpdateStyles.container}>
@@ -64,7 +54,7 @@ function ForceUpdateGate({ children }: { children: ReactNode }) {
       </Text>
       <TouchableOpacity
         style={forceUpdateStyles.button}
-        onPress={() => Linking.openURL(storeUrl)}
+        onPress={() => storeUrl && Linking.openURL(storeUrl)}
         activeOpacity={0.85}
       >
         <Text style={forceUpdateStyles.buttonText}>Update Now</Text>
@@ -132,13 +122,12 @@ function InnerLayout() {
       handledNotifIds.current.add(id);
       const data = response.notification.request.content.data as Record<string, any> | null;
       if (data?.communityId && data?.chatType) {
-        AsyncStorage.setItem('@pendingChatNav', JSON.stringify({
-          communityId: data.communityId,
-          chatType: data.chatType,
-          memberId: data.memberId ?? null,
-        })).then(() => {
-          router.push('/(tabs)/community');
-        }).catch(() => {});
+        const nav = { communityId: data.communityId, chatType: data.chatType, memberId: data.memberId ?? null };
+        // In-memory signal — fires even if community tab is already focused
+        setPendingChatNav(nav);
+        // AsyncStorage fallback for cold start (in-memory is cleared on app kill)
+        AsyncStorage.setItem('@pendingChatNav', JSON.stringify(nav)).catch(() => {});
+        router.push('/(tabs)/community');
       }
     };
 

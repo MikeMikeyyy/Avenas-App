@@ -745,15 +745,32 @@ export default function WorkoutScreen() {
     return unsub;
   }, [selectedDayIndex]);
 
-  // Restore wall-clock start time from AsyncStorage on day change (survives app restarts)
+  // Restore wall-clock start time from AsyncStorage on day change (survives app restarts).
+  // Always validate the timestamp is from today — a stale @wall_start from an abandoned
+  // workout on a previous day would make durationSecs = now − days ago = hundreds of hours.
   useEffect(() => {
+    const todayStr = new Date().toDateString();
+    const isToday = (ts: number) => new Date(ts).toDateString() === todayStr;
     const inMemory = workoutState.getWallStartTime(selectedDayIndex);
     if (inMemory) {
-      setWorkoutStartTime(new Date(inMemory));
+      if (isToday(inMemory)) {
+        setWorkoutStartTime(new Date(inMemory));
+      } else {
+        workoutState.resetTimer(selectedDayIndex);
+        setWorkoutStartTime(null);
+      }
     } else {
       workoutState.loadWallStartTime(selectedDayIndex).then(ts => {
-        if (ts) setWorkoutStartTime(new Date(ts));
-        else setWorkoutStartTime(null);
+        if (ts) {
+          if (isToday(ts)) {
+            setWorkoutStartTime(new Date(ts));
+          } else {
+            workoutState.resetTimer(selectedDayIndex);
+            setWorkoutStartTime(null);
+          }
+        } else {
+          setWorkoutStartTime(null);
+        }
       });
     }
     setWorkoutEndTime(null);
@@ -1077,11 +1094,18 @@ export default function WorkoutScreen() {
     // If the workout label changed (cycleOffset loaded async after initial render),
     // the cached exercises belong to a different day — clear them so we reload correctly.
     // Also handles the null→label transition after a program switch.
+    // Exception: preserve entries with user-entered data (reps/weights/hold) — these are
+    // from a restored draft and must survive the async cycleOffset resolution.
     const currentLabel = workout?.dayLabel ?? null;
     if (currentLabel !== prevWorkoutLabelRef.current) {
       Object.keys(exerciseCache)
         .filter(k => k.startsWith(`${selectedDayIndex}-`))
-        .forEach(k => delete exerciseCache[k]);
+        .forEach(k => {
+          const hasUserData = exerciseCache[k]?.some(ex =>
+            ex.sets.some(s => s.reps > 0 || s.weight !== null || (s.hold ?? 0) > 0)
+          );
+          if (!hasUserData) delete exerciseCache[k];
+        });
     }
     prevWorkoutLabelRef.current = currentLabel;
 

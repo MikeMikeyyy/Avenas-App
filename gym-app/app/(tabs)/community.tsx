@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
@@ -24,6 +24,7 @@ import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { consumePendingChatNav, subscribePendingChatNav } from '../../notificationService';
 import { getDoc, doc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import type { WorkoutJournalEntry } from '../../workoutState';
@@ -184,15 +185,8 @@ export default function CommunityScreen() {
   const [expandedSharedWorkoutId, setExpandedSharedWorkoutId] = useState<string | null>(null);
   const [confirmRemoveWorkoutId, setConfirmRemoveWorkoutId] = useState<string | null>(null);
 
-  // Build a per-community color map so no two members share a color (up to 50 members)
-  const memberColorMap = useMemo(() => {
-    const members = selectedCommunity?.members ?? [];
-    const sorted = [...members].sort((a, b) => a.id.localeCompare(b.id));
-    const map: Record<string, string> = {};
-    sorted.forEach((m, i) => { map[m.id] = AVATAR_COLORS[i % AVATAR_COLORS.length]; });
-    return map;
-  }, [selectedCommunity?.members]);
-  const getMemberColor = (id: string) => memberColorMap[id] ?? getAvatarColor(id);
+  // Stable color per member — hashed from their ID so it never changes when others join/leave
+  const getMemberColor = (id: string) => getAvatarColor(id);
 
   // Reset expanded/confirm state when leaving the tab
   useFocusEffect(React.useCallback(() => {
@@ -202,64 +196,103 @@ export default function CommunityScreen() {
     };
   }, []));
 
-  // Navigate to chat when app is opened via a notification tap
+  // Apply a pending chat notification nav (communityId + chatType + memberId).
+  // Returns true if the community was found and navigation applied, false if communities
+  // haven't loaded yet (caller should keep the pending payload for retry).
+  const applyPendingChatNav = React.useCallback((
+    communityId: string, chatType: string, memberId: string | null,
+  ): boolean => {
+    const allCommunities = [...ownedCommunities, ...joinedCommunities];
+    const community = allCommunities.find(c => c.id === communityId);
+    if (!community) return false;
+    const isOwner = ownedCommunities.some(c => c.id === communityId);
+    setSelectedCommunity(community);
+    setIsOwnerView(isOwner);
+    if (chatType === 'group') {
+      const allMsgs = community.chatMessages;
+      const currentReadCount = readGroupChatCounts[communityId] || 0;
+      const otherMsgsAll = allMsgs.filter(m => m.senderId !== currentUserId);
+      const unreadCnt = Math.max(0, otherMsgsAll.length - currentReadCount);
+      let firstIdx: number | null = null;
+      if (unreadCnt > 0) {
+        const firstUnreadMsg = otherMsgsAll[currentReadCount];
+        const idx = allMsgs.indexOf(firstUnreadMsg);
+        firstIdx = idx > 0 ? idx : null;
+      }
+      setGroupFirstUnreadIdx(firstIdx);
+      chatMsgCountRef.current = 0;
+      setReadGroupChatCounts(prev => ({ ...prev, [communityId]: otherMsgsAll.length }));
+      setViewMode('chat');
+    } else if (chatType === 'private') {
+      // For the coach: privateChatMember = the non-owner member being chatted with
+      // For the member: privateChatMember = the owner (display purposes; chat key uses currentUserId)
+      const member = isOwner
+        ? community.members.find(m => m.id === memberId)
+        : community.members.find(m => m.role === 'owner');
+      if (member) {
+        const privateChatKey = isOwner ? memberId : currentUserId;
+        const chat = community.privateChats.find(pc => pc.memberId === privateChatKey);
+        const allMsgs = chat?.messages || [];
+        const key = `${communityId}-${privateChatKey}`;
+        const currentReadCount = readPrivateChatCounts[key] || 0;
+        const otherMsgsAll = allMsgs.filter(m => m.senderId !== currentUserId);
+        const unreadCnt = Math.max(0, otherMsgsAll.length - currentReadCount);
+        let firstIdx: number | null = null;
+        if (unreadCnt > 0) {
+          const firstUnreadMsg = otherMsgsAll[currentReadCount];
+          const idx = allMsgs.indexOf(firstUnreadMsg);
+          firstIdx = idx > 0 ? idx : null;
+        }
+        setPrivateFirstUnreadIdx(firstIdx);
+        privateMsgCountRef.current = 0;
+        setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherMsgsAll.length }));
+        setPrivateChatMember(member);
+        setViewMode('privateChat');
+      }
+    }
+    return true;
+  }, [ownedCommunities, joinedCommunities, currentUserId, readGroupChatCounts, readPrivateChatCounts]);
+
+  // Case 1: background → foreground (tab regains focus).
+  // Only removes AsyncStorage once the community is confirmed found — if communities
+  // haven't loaded yet (cold start) it leaves the entry so Case 2 can retry.
   useFocusEffect(React.useCallback(() => {
     AsyncStorage.getItem('@pendingChatNav').then(raw => {
       if (!raw) return;
-      AsyncStorage.removeItem('@pendingChatNav');
       try {
         const { communityId, chatType, memberId } = JSON.parse(raw);
-        const allCommunities = [...ownedCommunities, ...joinedCommunities];
-        const community = allCommunities.find(c => c.id === communityId);
-        if (!community) return;
-        const isOwner = ownedCommunities.some(c => c.id === communityId);
-        setSelectedCommunity(community);
-        setIsOwnerView(isOwner);
-        if (chatType === 'group') {
-          const allMsgs = community.chatMessages;
-          const currentReadCount = readGroupChatCounts[communityId] || 0;
-          const otherMsgsAll = allMsgs.filter(m => m.senderId !== currentUserId);
-          const unreadCnt = Math.max(0, otherMsgsAll.length - currentReadCount);
-          let firstIdx: number | null = null;
-          if (unreadCnt > 0) {
-            const firstUnreadMsg = otherMsgsAll[currentReadCount];
-            const idx = allMsgs.indexOf(firstUnreadMsg);
-            firstIdx = idx > 0 ? idx : null;
-          }
-          setGroupFirstUnreadIdx(firstIdx);
-          chatMsgCountRef.current = 0;
-          setReadGroupChatCounts(prev => ({ ...prev, [communityId]: otherMsgsAll.length }));
-          setViewMode('chat');
-        } else if (chatType === 'private') {
-          // For the coach: privateChatMember = the non-owner member being chatted with
-          // For the member: privateChatMember = the owner (display purposes; chat key uses currentUserId)
-          const member = isOwner
-            ? community.members.find(m => m.id === memberId)
-            : community.members.find(m => m.role === 'owner');
-          if (member) {
-            const privateChatKey = isOwner ? memberId : currentUserId;
-            const chat = community.privateChats.find(pc => pc.memberId === privateChatKey);
-            const allMsgs = chat?.messages || [];
-            const key = `${communityId}-${privateChatKey}`;
-            const currentReadCount = readPrivateChatCounts[key] || 0;
-            const otherMsgsAll = allMsgs.filter(m => m.senderId !== currentUserId);
-            const unreadCnt = Math.max(0, otherMsgsAll.length - currentReadCount);
-            let firstIdx: number | null = null;
-            if (unreadCnt > 0) {
-              const firstUnreadMsg = otherMsgsAll[currentReadCount];
-              const idx = allMsgs.indexOf(firstUnreadMsg);
-              firstIdx = idx > 0 ? idx : null;
-            }
-            setPrivateFirstUnreadIdx(firstIdx);
-            privateMsgCountRef.current = 0;
-            setReadPrivateChatCounts(prev => ({ ...prev, [key]: otherMsgsAll.length }));
-            setPrivateChatMember(member);
-            setViewMode('privateChat');
-          }
+        if (applyPendingChatNav(communityId, chatType, memberId)) {
+          AsyncStorage.removeItem('@pendingChatNav').catch(() => {});
         }
       } catch {}
     }).catch(() => {});
-  }, [ownedCommunities, joinedCommunities]));
+  }, [applyPendingChatNav]));
+
+  // Case 2: cold start — communities were empty when Case 1 ran, retry once they load.
+  useEffect(() => {
+    AsyncStorage.getItem('@pendingChatNav').then(raw => {
+      if (!raw) return;
+      try {
+        const { communityId, chatType, memberId } = JSON.parse(raw);
+        if (applyPendingChatNav(communityId, chatType, memberId)) {
+          AsyncStorage.removeItem('@pendingChatNav').catch(() => {});
+        }
+      } catch {}
+    }).catch(() => {});
+  }, [ownedCommunities, joinedCommunities, applyPendingChatNav]);
+
+  // Case 3: foreground — notification tapped while community tab is already focused
+  // (useFocusEffect never fires in this case). Uses the in-memory signal from _layout.tsx.
+  useEffect(() => {
+    return subscribePendingChatNav(() => {
+      const nav = consumePendingChatNav();
+      if (!nav) return;
+      if (applyPendingChatNav(nav.communityId, nav.chatType, nav.memberId)) {
+        AsyncStorage.removeItem('@pendingChatNav').catch(() => {});
+      }
+      // If communities still empty, AsyncStorage is preserved for Case 2 to handle
+    });
+  }, [applyPendingChatNav]);
 
   // Keep selectedCommunity in sync with store updates
   useEffect(() => {
