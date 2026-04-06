@@ -329,6 +329,8 @@ export default function CommunityScreen() {
 
   // Chat state
   const [chatMessage, setChatMessage] = useState('');
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionAnchorIdx, setMentionAnchorIdx] = useState<number>(-1);
 
   // Share workout state
   const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
@@ -652,9 +654,37 @@ export default function CommunityScreen() {
 
   const handleSendMessage = () => {
     if (chatMessage.trim() && selectedCommunity) {
-      sendMessage(selectedCommunity.id, chatMessage.trim());
+      const msg = chatMessage.trim();
+      const mentionedIds = selectedCommunity.members
+        .filter(m => m.id !== currentUserId && msg.includes('@' + m.name))
+        .map(m => m.id);
+      sendMessage(selectedCommunity.id, msg, mentionedIds.length > 0 ? mentionedIds : undefined);
       setChatMessage('');
+      setMentionQuery(null);
+      setMentionAnchorIdx(-1);
     }
+  };
+
+  const handleMentionSelect = (memberName: string) => {
+    const before = chatMessage.slice(0, mentionAnchorIdx);
+    setChatMessage(before + '@' + memberName + ' ');
+    setMentionQuery(null);
+    setMentionAnchorIdx(-1);
+  };
+
+  const handleChatMessageChange = (text: string) => {
+    setChatMessage(text);
+    const lastAt = text.lastIndexOf('@');
+    if (lastAt >= 0) {
+      const afterAt = text.slice(lastAt + 1);
+      if (!afterAt.includes(' ')) {
+        setMentionQuery(afterAt.toLowerCase());
+        setMentionAnchorIdx(lastAt);
+        return;
+      }
+    }
+    setMentionQuery(null);
+    setMentionAnchorIdx(-1);
   };
 
   const handleLongPressMessage = (senderId: string, senderName: string, messagePreview: string, chatType: 'group' | 'private') => {
@@ -673,7 +703,7 @@ export default function CommunityScreen() {
       communityId: pendingAction.communityId,
       communityName: pendingAction.communityName,
       contentType: pendingAction.chatType === 'group' ? 'groupMessage' : 'privateMessage',
-      contentPreview: pendingAction.messagePreview.slice(0, 300),
+      contentPreview: pendingAction.messagePreview,
       ...(reportComment.trim() ? { reportComment: reportComment.trim() } : {}),
     });
     setReportSent(true);
@@ -1602,6 +1632,22 @@ export default function CommunityScreen() {
     );
   };
 
+  const renderMessageText = (text: string, isMe: boolean) => {
+    const parts = text.split(/(@\S+)/g);
+    if (parts.length <= 1) {
+      return <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>{text}</Text>;
+    }
+    return (
+      <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>
+        {parts.map((part, i) =>
+          part.startsWith('@')
+            ? <Text key={i} style={{ color: '#47DDFF', fontWeight: '600' }}>{part}</Text>
+            : part
+        )}
+      </Text>
+    );
+  };
+
   // Render Chat View
   const renderChatView = () => {
     if (!selectedCommunity) return null;
@@ -1611,6 +1657,12 @@ export default function CommunityScreen() {
       ? ownedCommunities.find(c => c.id === selectedCommunity.id)
       : joinedCommunities.find(c => c.id === selectedCommunity.id);
     const messages = (currentCommunity?.chatMessages || []).filter(m => !blockedUserIds.includes(m.senderId));
+
+    // @ mention picker: filter community members (excluding self) by the current query
+    const otherMembers = selectedCommunity.members.filter(m => m.id !== currentUserId);
+    const filteredMentionMembers = mentionQuery !== null
+      ? (mentionQuery === '' ? otherMembers : otherMembers.filter(m => m.name.toLowerCase().startsWith(mentionQuery)))
+      : [];
 
     // Determine where to open the chat:
     // - Many unreads (> 6): pin first unread to top of screen
@@ -1712,7 +1764,7 @@ export default function CommunityScreen() {
                           <Text style={[styles.messageSender, { color: colors.secondaryText }]}>{item.senderName}</Text>
                         </TouchableOpacity>
                       )}
-                      <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>{item.message}</Text>
+                      {renderMessageText(item.message, isMe)}
                       <Text style={[styles.messageTime, { color: colors.secondaryText }, isMe && styles.messageTimeMe]}>
                         {formatTime(item.timestamp)}
                       </Text>
@@ -1724,13 +1776,28 @@ export default function CommunityScreen() {
           }}
         />
 
+        {filteredMentionMembers.length > 0 && (
+          <View style={[styles.mentionPicker, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}>
+            <ScrollView keyboardShouldPersistTaps="always" bounces={false} style={{ maxHeight: 200 }}>
+              {filteredMentionMembers.map(member => (
+                <TouchableOpacity key={member.id} onPress={() => handleMentionSelect(member.name)} style={styles.mentionPickerItem} activeOpacity={0.7}>
+                  <View style={[styles.mentionPickerAvatar, { backgroundColor: getMemberColor(member.id) }]}>
+                    <Text style={styles.mentionPickerAvatarText}>{getInitials(member.name)}</Text>
+                  </View>
+                  <Text style={[styles.mentionPickerName, { color: colors.primaryText }]}>{member.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         <View style={[styles.chatInputContainer, { backgroundColor: colors.cardSolid, borderTopColor: colors.border, marginBottom: chatKeyboardHeight > 0 ? chatKeyboardHeight : (Platform.OS === 'ios' ? 100 : 85) }]}>
           <TextInput
             style={[styles.chatInput, { backgroundColor: colors.inputBg, color: colors.primaryText, maxHeight: screenHeight * 0.5 }]}
             placeholder="Type a message..."
             placeholderTextColor={colors.tertiaryText}
             value={chatMessage}
-            onChangeText={setChatMessage}
+            onChangeText={handleChatMessageChange}
             multiline={true}
             returnKeyType="default"
             onContentSizeChange={({ nativeEvent: { contentSize } }) => {
@@ -3477,6 +3544,36 @@ const styles = StyleSheet.create({
     marginHorizontal: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  mentionPicker: {
+    marginHorizontal: 10,
+    marginBottom: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  mentionPickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  mentionPickerAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mentionPickerAvatarText: {
+    color: '#fff',
+    fontSize: 12,
+    fontFamily: 'Arimo_700Bold',
+  },
+  mentionPickerName: {
+    fontSize: 15,
+    fontFamily: 'Arimo_400Regular',
   },
   chatInputContainer: {
     flexDirection: 'row',

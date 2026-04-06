@@ -158,3 +158,28 @@ export async function sendPushToUsers(
 ): Promise<void> {
   await Promise.all(userIds.map(uid => sendPushToUser(uid, title, body, data)));
 }
+
+// Mention notifications always vibrate regardless of the chat cooldown.
+// A separate collapseId keeps them in their own notification slot,
+// distinct from the regular group-chat notification for the same conversation.
+export async function sendMentionPush(
+  userId: string,
+  title: string,
+  body: string,
+  data?: Record<string, any>
+): Promise<void> {
+  const token = await getUserPushToken(userId);
+  if (!token) return;
+  const convId = _getConversationId(data);
+  const collapseId = convId ? `mention:${convId}:${userId}` : undefined;
+  await sendPushNotification(token, title, body, data, true, collapseId, 'Mentioned You');
+}
+
+export async function sendMentionPushToUsers(
+  userIds: string[],
+  title: string,
+  body: string,
+  data?: Record<string, any>
+): Promise<void> {
+  await Promise.all(userIds.map(uid => sendMentionPush(uid, title, body, data)));
+}

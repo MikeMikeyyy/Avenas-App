@@ -1912,10 +1912,17 @@ export default function WorkoutScreen() {
                 return;
               }
 
-              // Check for incomplete sets
+              // Check for incomplete sets — skip warmup sets that are completely
+              // untouched (reps=0 AND weight=null) since warmup logging is optional.
               const hasIncomplete = exercises.some(ex =>
                 ex.sets.some(s => {
                   const isHold = (ex.mode ?? 'reps') === 'hold';
+                  if (s.isWarmup) {
+                    // Only flag a warmup set if the user started filling it in
+                    // (weight entered but reps left at 0, or hold started but 0)
+                    if (isHold) return (s.weight !== null) && (s.hold ?? 0) === 0;
+                    return (s.weight !== null) && s.reps === 0;
+                  }
                   return isHold ? ((s.hold ?? 0) === 0) : (s.reps === 0);
                 })
               );
@@ -2215,7 +2222,30 @@ export default function WorkoutScreen() {
             }
           } else if (changeExerciseIndex !== null) {
             const idx = changeExerciseIndex;
-            updateExercises(prev => prev.map((ex, ei) => ei !== idx ? ex : { ...ex, name }));
+            // Look up prev data for the NEW exercise so the "prev" column shows
+            // its own history, not the old exercise's data.
+            const swapSession = workout?.sessions[selectedSessionIndex];
+            const prevEntry = swapSession ? workoutState.getPrev(swapSession.label) : undefined;
+            const newPrevEx = prevEntry?.find(p => p.name === name);
+            updateExercises(prev => prev.map((ex, ei) => {
+              if (ei !== idx) return ex;
+              return {
+                ...ex,
+                name,
+                sets: ex.sets.map((s, si) => ({
+                  ...s,
+                  // Reset entered values — it's a fresh exercise
+                  reps: 0,
+                  weight: null,
+                  hold: 0,
+                  fillKey: 0,
+                  // Prev column: the new exercise's own history (undefined = no prior data)
+                  prevReps: newPrevEx?.sets[si]?.reps ?? undefined,
+                  prevWeight: newPrevEx?.sets[si]?.weight ?? undefined,
+                  prevHold: newPrevEx?.sets[si]?.hold ?? undefined,
+                })),
+              };
+            }));
             if (activeProgram) {
               const splitDays = [...activeProgram.splitDays];
               const splitIdx = getEffectiveSplitIndex(selectedDayIndex);

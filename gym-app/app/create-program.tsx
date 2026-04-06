@@ -94,32 +94,96 @@ export default function CreateProgramScreen() {
     selectedColor !== PROGRAM_COLORS[0] ||
     splitDays.length > 0
   );
+  // Draft persistence — survives app kills during create/edit
+  const programDraftKey = editId ? `@program_draft_edit_${editId}` : '@program_draft_new';
+  const RETURN_DRAFT_KEY = '@program_draft_return';
+  const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [pickerTarget, setPickerTarget] = useState<{ dayIndex: number; sessionIndex: number; exerciseIndex?: number } | null>(null);
   const [returnData, setReturnData] = useState<{
     communityId: string; workoutId: string; memberName: string;
     originalProgramName: string; originalColor: string; originalSplitDays: SplitDay[];
   } | null>(null);
 
+  // Restore draft on mount (skip returnMode — that has its own async load)
+  useEffect(() => {
+    if (isReturnMode) return;
+    AsyncStorage.getItem(programDraftKey).then(raw => {
+      if (!raw) return;
+      try {
+        const d = JSON.parse(raw);
+        if (d.programName !== undefined) setProgramName(d.programName);
+        if (d.selectedColor !== undefined) setSelectedColor(d.selectedColor);
+        if (d.splitDays !== undefined) setSplitDays(d.splitDays);
+      } catch {}
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-save draft whenever content changes (debounced 600 ms)
+  useEffect(() => {
+    if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current);
+    draftSaveTimer.current = setTimeout(() => {
+      if (isReturnMode) {
+        if (!returnData) return; // returnData not loaded yet
+        AsyncStorage.setItem(RETURN_DRAFT_KEY, JSON.stringify({ programName, selectedColor, splitDays, returnData })).catch(() => {});
+        return;
+      }
+      // Don't persist a completely blank new-program state — nothing to restore
+      if (!editId && programName === '' && selectedColor === PROGRAM_COLORS[0] && splitDays.length === 0) {
+        AsyncStorage.removeItem(programDraftKey).catch(() => {});
+        return;
+      }
+      AsyncStorage.setItem(programDraftKey, JSON.stringify({ programName, selectedColor, splitDays })).catch(() => {});
+    }, 600);
+    return () => { if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [programName, selectedColor, splitDays, returnData]);
+
   useEffect(() => {
     if (!isReturnMode) return;
     AsyncStorage.getItem('@coachEditReturn').then(raw => {
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      const name = data.programName || '';
-      const color = data.color || PROGRAM_COLORS[0];
-      const days = data.splitDays || [];
-      setProgramName(name);
-      setSelectedColor(color);
-      setSplitDays(days);
-      setReturnData({
-        communityId: data.communityId, workoutId: data.workoutId, memberName: data.memberName,
-        originalProgramName: name, originalColor: color, originalSplitDays: days,
+      if (raw) {
+        // Fresh edit request — always takes precedence over a stale draft
+        const data = JSON.parse(raw);
+        const name = data.programName || '';
+        const color = data.color || PROGRAM_COLORS[0];
+        const days = data.splitDays || [];
+        setProgramName(name);
+        setSelectedColor(color);
+        setSplitDays(days);
+        const rd = {
+          communityId: data.communityId, workoutId: data.workoutId, memberName: data.memberName,
+          originalProgramName: name, originalColor: color, originalSplitDays: days,
+        };
+        setReturnData(rd);
+        // Persist immediately so an app kill during editing doesn't lose this
+        AsyncStorage.setItem(RETURN_DRAFT_KEY, JSON.stringify({
+          programName: name, selectedColor: color, splitDays: days, returnData: rd,
+        })).catch(() => {});
+        AsyncStorage.removeItem('@coachEditReturn');
+        return;
+      }
+      // No fresh request — restore from persisted draft (app was killed mid-edit)
+      AsyncStorage.getItem(RETURN_DRAFT_KEY).then(draftRaw => {
+        if (!draftRaw) return;
+        try {
+          const d = JSON.parse(draftRaw);
+          if (d.programName !== undefined) setProgramName(d.programName);
+          if (d.selectedColor !== undefined) setSelectedColor(d.selectedColor);
+          if (d.splitDays !== undefined) setSplitDays(d.splitDays);
+          if (d.returnData) setReturnData(d.returnData);
+        } catch {}
       });
-      AsyncStorage.removeItem('@coachEditReturn');
     });
   }, [isReturnMode]);
 
   if (!fontsLoaded) return null;
+
+  const clearDraft = () => {
+    AsyncStorage.removeItem(programDraftKey).catch(() => {});
+    if (isReturnMode) AsyncStorage.removeItem(RETURN_DRAFT_KEY).catch(() => {});
+  };
 
   const handleExerciseSelected = (name: string) => {
     if (!pickerTarget) return;
@@ -534,6 +598,7 @@ export default function CreateProgramScreen() {
               onPress={() => {
                 const name = programName || 'Untitled Program';
                 addProgram(name, selectedColor, splitDays);
+                clearDraft();
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 router.back();
               }}
@@ -551,6 +616,7 @@ export default function CreateProgramScreen() {
                 await returnWorkoutToMember(returnData.communityId, returnData.workoutId, {
                   programName: name, color: selectedColor, splitDays,
                 });
+                clearDraft();
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 router.back();
               }}
@@ -569,6 +635,7 @@ export default function CreateProgramScreen() {
             onPress={() => {
               const name = programName || 'Untitled Program';
               const newId = addProgram(name, selectedColor, splitDays);
+              clearDraft();
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               Alert.alert(
                 'Make Active Program?',
@@ -604,10 +671,11 @@ export default function CreateProgramScreen() {
               'Unsaved Changes',
               'You have unsaved changes. What would you like to do?',
               [
-                { text: 'Discard', style: 'destructive', onPress: () => router.back() },
+                { text: 'Discard', style: 'destructive', onPress: () => { clearDraft(); router.back(); } },
                 {
                   text: 'Save', style: 'default', onPress: () => {
                     updateProgram(editId!, programName || 'Untitled Program', selectedColor, splitDays);
+                    clearDraft();
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                     router.back();
                   }
@@ -620,15 +688,25 @@ export default function CreateProgramScreen() {
               'Save Program?',
               'You have an unsaved program. What would you like to do?',
               [
-                { text: 'Discard', style: 'destructive', onPress: () => router.back() },
+                { text: 'Discard', style: 'destructive', onPress: () => { clearDraft(); router.back(); } },
                 {
                   text: 'Save', style: 'default', onPress: () => {
                     const name = programName || 'Untitled Program';
                     addProgram(name, selectedColor, splitDays);
+                    clearDraft();
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                     router.back();
                   }
                 },
+                { text: 'Cancel', style: 'cancel' },
+              ]
+            );
+          } else if (isReturnMode && returnData) {
+            Alert.alert(
+              'Go Back?',
+              `Your edits won't be sent to ${returnData.memberName}.`,
+              [
+                { text: 'Discard Changes', style: 'destructive', onPress: () => { clearDraft(); router.back(); } },
                 { text: 'Cancel', style: 'cancel' },
               ]
             );
@@ -649,6 +727,7 @@ export default function CreateProgramScreen() {
           onPress={() => {
             const name = programName || 'Untitled Program';
             updateProgram(editId!, name, selectedColor, splitDays);
+            clearDraft();
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             router.back();
           }}

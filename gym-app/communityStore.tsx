@@ -1,13 +1,13 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import {
   collection, doc, getDoc, setDoc, updateDoc, deleteDoc,
-  addDoc, getDocs, onSnapshot, query, where, orderBy,
+  addDoc, getDocs, getDocsFromServer, onSnapshot, query, where, orderBy,
   arrayUnion, arrayRemove, serverTimestamp, Timestamp, deleteField, writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { useAuth } from './authStore';
 import { SplitDay } from './programStore';
-import { sendPushToUser, sendPushToUsers } from './notificationService';
+import { sendPushToUser, sendPushToUsers, sendMentionPushToUsers } from './notificationService';
 
 // Types
 export type MemberRole = 'owner' | 'member';
@@ -43,6 +43,7 @@ export type ChatMessage = {
   message: string;
   timestamp: Date;
   isOwner: boolean;
+  mentionedIds?: string[];
 };
 
 export type PrivateMessage = {
@@ -95,7 +96,7 @@ type CommunityStoreState = {
   shareWithCoach: (communityId: string, workout: Omit<SharedWorkout, 'id' | 'sharedAt' | 'status' | 'sharedWith' | 'direction' | 'recipientMemberId'>) => void;
   respondToMemberShare: (communityId: string, workoutId: string, accept: boolean) => void;
   returnWorkoutToMember: (communityId: string, originalWorkoutId: string, updatedWorkout: { programName: string; color: string; splitDays: SplitDay[] }) => Promise<void>;
-  sendMessage: (communityId: string, message: string) => void;
+  sendMessage: (communityId: string, message: string, mentionedIds?: string[]) => void;
   removeMember: (communityId: string, memberId: string) => void;
   updateCommunity: (communityId: string, name: string, description: string, color?: string) => void;
   removeSharedWorkout: (communityId: string, workoutId: string) => void;
@@ -276,6 +277,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
           message: d.data().message ?? '',
           timestamp: tsToDate(d.data().timestamp),
           isOwner: d.data().isOwner ?? false,
+          mentionedIds: d.data().mentionedIds ?? [],
         }));
         setter(prev => prev.map(c => c.id === id ? { ...c, chatMessages: msgs } : c));
       }
@@ -555,7 +557,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }, [user]);
 
-  const sendMessage = useCallback(async (communityId: string, message: string) => {
+  const sendMessage = useCallback(async (communityId: string, message: string, mentionedIds?: string[]) => {
     if (!user) return;
     const community = [...ownedCommunities, ...joinedCommunities].find(c => c.id === communityId);
     const isOwner = ownedCommunities.some(c => c.id === communityId);
@@ -567,16 +569,31 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         message,
         isOwner,
         timestamp: serverTimestamp(),
+        ...(mentionedIds && mentionedIds.length > 0 ? { mentionedIds } : {}),
       });
       if (community) {
-        const recipientIds = community.members
+        const allRecipientIds = community.members
           .filter(m => m.id !== user.uid)
           .map(m => m.id);
         const preview = message.length > 60 ? message.slice(0, 60) + '…' : message;
-        sendPushToUsers(recipientIds, community.name, `${senderName}: ${preview}`, { communityId, chatType: 'group' }).catch(() => {});
+        const mentionedSet = new Set(mentionedIds ?? []);
+        // Regular notification — exclude mentioned users to avoid double-notifying them
+        const regularIds = allRecipientIds.filter(id => !mentionedSet.has(id));
+        if (regularIds.length > 0) {
+          sendPushToUsers(regularIds, community.name, `${senderName}: ${preview}`, { communityId, chatType: 'group' }).catch(() => {});
+        }
+        // Mention notification — always vibrates, separate notification slot
+        const mentionRecipients = [...mentionedSet].filter(id => id !== user.uid);
+        if (mentionRecipients.length > 0) {
+          sendMentionPushToUsers(mentionRecipients, community.name, `${senderName} mentioned you: ${preview}`, { communityId, chatType: 'group' }).catch(() => {});
+        }
       }
-      // Trim oldest messages so the subcollection never exceeds 50
-      const msgsSnap = await getDocs(
+      // Trim oldest messages so the subcollection never exceeds 50.
+      // Must use getDocsFromServer (not getDocs) — the just-added message has a
+      // serverTimestamp() sentinel in the local cache, which Firestore excludes from
+      // orderBy queries (null fields are filtered out). Reading from the server
+      // ensures the committed timestamp is present and the count is accurate.
+      const msgsSnap = await getDocsFromServer(
         query(collection(db, 'communities', communityId, 'messages'), orderBy('timestamp', 'asc'))
       );
       if (msgsSnap.size > 50) {
