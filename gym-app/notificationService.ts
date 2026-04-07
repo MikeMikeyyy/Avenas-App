@@ -183,3 +183,47 @@ export async function sendMentionPushToUsers(
 ): Promise<void> {
   await Promise.all(userIds.map(uid => sendMentionPush(uid, title, body, data)));
 }
+
+// ─── Workout Reminder (local notification) ───────────────────────────────────
+// Schedules a local notification 3 hours after the timer starts. If the user
+// finishes or resets the workout before then, we cancel it. The identifier is
+// stored in AsyncStorage so it survives app restarts.
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const WORKOUT_REMINDER_KEY = 'workout_reminder_notif_id';
+
+export async function scheduleWorkoutReminderNotification(): Promise<void> {
+  try {
+    // Cancel any existing reminder first (e.g. user restarted the timer)
+    await cancelWorkoutReminderNotification();
+
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') return;
+
+    const id = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "Still working out? 💪",
+        body: "You started a workout over 3 hours ago — don't forget to finish and log it!",
+        sound: 'default',
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: 3 * 60 * 60,
+        repeats: false,
+      },
+    });
+
+    await AsyncStorage.setItem(WORKOUT_REMINDER_KEY, id);
+  } catch {}
+}
+
+export async function cancelWorkoutReminderNotification(): Promise<void> {
+  try {
+    const id = await AsyncStorage.getItem(WORKOUT_REMINDER_KEY);
+    if (id) {
+      await Notifications.cancelScheduledNotificationAsync(id);
+      await AsyncStorage.removeItem(WORKOUT_REMINDER_KEY);
+    }
+  } catch {}
+}

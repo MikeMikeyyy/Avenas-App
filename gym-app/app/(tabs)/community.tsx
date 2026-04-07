@@ -1641,7 +1641,7 @@ export default function CommunityScreen() {
       <Text style={[styles.messageText, { color: colors.primaryText }, isMe && styles.messageTextMe]}>
         {parts.map((part, i) =>
           part.startsWith('@')
-            ? <Text key={i} style={{ color: '#47DDFF', fontWeight: '600' }}>{part}</Text>
+            ? <Text key={i} style={{ color: isMe ? '#fff' : '#47DDFF', fontWeight: '600' }}>{part}</Text>
             : part
         )}
       </Text>

@@ -45,6 +45,7 @@ import { useTheme } from '../../themeStore';
 import { useUnits } from '../../unitsStore';
 import { useCommunityStore } from '../../communityStore';
 import { useAuth } from '../../authStore';
+import { scheduleWorkoutReminderNotification, cancelWorkoutReminderNotification } from '../../notificationService';
 import { BottomSheetModal } from '../../components/BottomSheetModal';
 import { FadeBackdrop } from '../../components/FadeBackdrop';
 import { ExercisePicker } from '../../components/ExercisePicker';
@@ -630,12 +631,14 @@ export default function WorkoutScreen() {
     setCalendarIndex(PAST_DAYS);
     workoutState.startTimer(0);
     setWorkoutStartTime(prev => prev ?? new Date());
+    scheduleWorkoutReminderNotification();
   };
 
   const handleStartCurrentDay = () => {
     promptedDays.current.add(selectedDayIndex);
     workoutState.startTimer(selectedDayIndex);
     setWorkoutStartTime(prev => prev ?? new Date());
+    scheduleWorkoutReminderNotification();
   };
 
   const maybePromptMakeToday = (timerAction: () => void, fillAction?: () => void) => {
@@ -1231,7 +1234,12 @@ export default function WorkoutScreen() {
         ? `${selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}, ${workout.dayLabel}`
         : selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
-  const displayElapsed = workoutFinished ? (finishedDurations[selectedDayIndex] ?? elapsed) : elapsed;
+  const todayJournalEntry = workoutFinished
+    ? workoutState.getJournalLog().find(e => new Date(e.date).toDateString() === selectedDate.toDateString())
+    : undefined;
+  const displayElapsed = workoutFinished
+    ? (finishedDurations[selectedDayIndex] ?? todayJournalEntry?.durationSecs ?? elapsed)
+    : elapsed;
   const hrs = Math.floor(displayElapsed / 3600);
   const mins = Math.floor((displayElapsed % 3600) / 60);
   const secs = displayElapsed % 60;
@@ -1442,6 +1450,7 @@ export default function WorkoutScreen() {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     workoutState.startTimer(selectedDayIndex);
                     setWorkoutStartTime(prev => prev ?? new Date());
+                    scheduleWorkoutReminderNotification();
                   }}
                   activeOpacity={0.7}
                 >
@@ -1545,7 +1554,7 @@ export default function WorkoutScreen() {
                   style={[styles.timerRow, { backgroundColor: colors.cardSolid, borderColor: colors.border }]}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    maybePromptMakeToday(() => { workoutState.startTimer(selectedDayIndex); setWorkoutStartTime(prev => prev ?? new Date()); });
+                    maybePromptMakeToday(() => { workoutState.startTimer(selectedDayIndex); setWorkoutStartTime(prev => prev ?? new Date()); scheduleWorkoutReminderNotification(); });
                   }}
                   activeOpacity={0.7}
                 >
@@ -1819,7 +1828,7 @@ export default function WorkoutScreen() {
                         const setComplete = isHoldMode
                           ? (updatedSet.hold ?? 0) > 0
                           : updatedSet.reps > 0;
-                        if (setComplete) maybePromptMakeToday(() => { workoutState.startTimer(selectedDayIndex); setWorkoutStartTime(prev => prev ?? new Date()); });
+                        if (setComplete) maybePromptMakeToday(() => { workoutState.startTimer(selectedDayIndex); setWorkoutStartTime(prev => prev ?? new Date()); scheduleWorkoutReminderNotification(); });
                       }
                     }
                     return next;
@@ -2014,6 +2023,7 @@ export default function WorkoutScreen() {
                 setFinishedDurations(prev => ({ ...prev, [selectedDayIndex]: durationSecs }));
                 workoutState.clearDraft();
                 workoutState.stopTimer(selectedDayIndex);
+                cancelWorkoutReminderNotification();
                 workoutState.setFinished(true);
                 // Lock today so switching programs doesn't overwrite this completed workout
                 if (selectedDayIndex === 0) {
@@ -2132,6 +2142,7 @@ export default function WorkoutScreen() {
                         setFinishedDurations(prev => ({ ...prev, [selectedDayIndex]: durationSecs }));
                         workoutState.clearDraft();
                         workoutState.stopTimer(selectedDayIndex);
+                        cancelWorkoutReminderNotification();
                         workoutState.setFinished(true);
                         if (selectedDayIndex === 0) {
                           setLockedToday({ programId: isViewingLockedToday ? lockedToday!.programId : activeId, programColor: accentColor, programName: workout.program, dayLabel: workout.dayLabel, splitDayIndex: 0 });
@@ -2780,6 +2791,7 @@ export default function WorkoutScreen() {
                       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                       workoutState.clearDraft();
                       workoutState.stopTimer(selectedDayIndex);
+                      cancelWorkoutReminderNotification();
                       delete exerciseCache[selectedDayIndex];
                       setDayOverrides(prev => ({ ...prev, [selectedDayIndex]: 'rest' }));
                       setShowSwapOverlay(false);
