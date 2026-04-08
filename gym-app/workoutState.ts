@@ -65,6 +65,8 @@ const PREV_KEY = '@prev_v2';
 const DRAFT_KEY = '@workout_draft_v1';
 
 let _draftTimer: ReturnType<typeof setTimeout> | null = null;
+let _lastDraftActiveDay: number | null = null;
+let _lastDraftCache: Record<string, unknown> | null = null;
 
 // Strip undefined values so Firestore doesn't reject the write
 function _stripUndefined<T>(obj: T): T {
@@ -662,12 +664,22 @@ export const workoutState = {
   // In-progress workout draft — persists exerciseCache to AsyncStorage so a mid-workout
   // phone death doesn't wipe the user's reps/weights. Debounced to avoid thrashing storage.
   saveDraft(activeDay: number, cache: Record<string, unknown>): void {
+    _lastDraftActiveDay = activeDay;
+    _lastDraftCache = cache;
     if (_draftTimer) clearTimeout(_draftTimer);
     _draftTimer = setTimeout(() => {
-      AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({ date: _getTodayStr(), activeDay, cache })).catch(() => {});
+      _draftTimer = null;
+      AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({ date: _getTodayStr(), savedAt: Date.now(), activeDay, cache })).catch(() => {});
     }, 1500);
   },
-  async loadDraft(): Promise<{ date: string; activeDay: number; cache: Record<string, unknown> } | null> {
+  // Write the pending draft immediately — call this when the app backgrounds so data
+  // isn't lost if the OS kills the process during the normal 1.5 s debounce window.
+  flushDraft(): void {
+    if (_lastDraftActiveDay === null || _lastDraftCache === null) return;
+    if (_draftTimer) { clearTimeout(_draftTimer); _draftTimer = null; }
+    AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({ date: _getTodayStr(), savedAt: Date.now(), activeDay: _lastDraftActiveDay, cache: _lastDraftCache })).catch(() => {});
+  },
+  async loadDraft(): Promise<{ date: string; savedAt?: number; activeDay: number; cache: Record<string, unknown> } | null> {
     try {
       const raw = await AsyncStorage.getItem(DRAFT_KEY);
       return raw ? JSON.parse(raw) : null;
@@ -675,6 +687,8 @@ export const workoutState = {
   },
   clearDraft(): void {
     if (_draftTimer) { clearTimeout(_draftTimer); _draftTimer = null; }
+    _lastDraftActiveDay = null;
+    _lastDraftCache = null;
     AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
   },
 };

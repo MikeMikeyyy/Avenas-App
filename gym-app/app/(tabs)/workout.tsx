@@ -749,14 +749,16 @@ export default function WorkoutScreen() {
   }, [selectedDayIndex]);
 
   // Restore wall-clock start time from AsyncStorage on day change (survives app restarts).
-  // Always validate the timestamp is from today — a stale @wall_start from an abandoned
-  // workout on a previous day would make durationSecs = now − days ago = hundreds of hours.
+  // Uses a 20-hour recency window (instead of a strict calendar-day check) so workouts
+  // that cross midnight (e.g. started 11 PM) aren't invalidated after the date rolls over.
+  // A stale start from a genuinely previous day (> 20 hours ago) is still discarded so
+  // the duration calculation can never produce hundreds-of-hours nonsense.
   useEffect(() => {
-    const todayStr = new Date().toDateString();
-    const isToday = (ts: number) => new Date(ts).toDateString() === todayStr;
+    const MAX_WALL_AGE_MS = 20 * 60 * 60 * 1000; // 20 hours
+    const isRecent = (ts: number) => Date.now() - ts < MAX_WALL_AGE_MS;
     const inMemory = workoutState.getWallStartTime(selectedDayIndex);
     if (inMemory) {
-      if (isToday(inMemory)) {
+      if (isRecent(inMemory)) {
         setWorkoutStartTime(new Date(inMemory));
       } else {
         workoutState.resetTimer(selectedDayIndex);
@@ -765,7 +767,7 @@ export default function WorkoutScreen() {
     } else {
       workoutState.loadWallStartTime(selectedDayIndex).then(ts => {
         if (ts) {
-          if (isToday(ts)) {
+          if (isRecent(ts)) {
             setWorkoutStartTime(new Date(ts));
           } else {
             workoutState.resetTimer(selectedDayIndex);
@@ -922,17 +924,23 @@ export default function WorkoutScreen() {
   const exerciseCache = useRef<Record<string, Exercise[]>>({}).current;
 
   // Restore in-progress workout if the app was closed mid-workout (e.g. phone died).
-  // The draft is only restored if: it's for today AND the workout timer was running
-  // (wall-start exists). If either condition fails, the draft is stale and discarded.
+  // Uses a 20-hour recency window so workouts that cross midnight (e.g. started at 11 PM)
+  // are still recovered after the calendar day rolls over. Wall-start check is intentionally
+  // omitted so data entered before the first set is completed is also recovered.
   useEffect(() => {
     if (workoutState.finished) return;
-    workoutState.loadDraft().then(async draft => {
+    workoutState.loadDraft().then(draft => {
       if (!draft || workoutState.finished) return;
-      const today = new Date();
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      if (draft.date !== todayStr) { workoutState.clearDraft(); return; }
-      const wallStart = await workoutState.loadWallStartTime(draft.activeDay);
-      if (!wallStart) { workoutState.clearDraft(); return; }
+      const MAX_DRAFT_AGE_MS = 20 * 60 * 60 * 1000; // 20 hours
+      if (draft.savedAt !== undefined) {
+        // New format: use timestamp-based recency check — handles midnight rollover
+        if (Date.now() - draft.savedAt > MAX_DRAFT_AGE_MS) { workoutState.clearDraft(); return; }
+      } else {
+        // Legacy format (no timestamp): fall back to date string match
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        if (draft.date !== todayStr) { workoutState.clearDraft(); return; }
+      }
       // Pre-populate the exerciseCache — the normal load effect checks this and uses it
       Object.entries(draft.cache as Record<string, Exercise[]>).forEach(([k, v]) => {
         exerciseCache[k] = v;
@@ -942,6 +950,17 @@ export default function WorkoutScreen() {
       if (exerciseCache[currentKey]) setExercises(exerciseCache[currentKey]);
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Flush the in-progress draft immediately when the app is backgrounded so data
+  // isn't lost if the OS kills the process during the 1.5 s debounce window.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'background' || state === 'inactive') {
+        workoutState.flushDraft();
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // When prev data changes (e.g. journal entry saved), clear cache entries that have
   // no user-entered data so they reload with updated prev values. Entries where the
