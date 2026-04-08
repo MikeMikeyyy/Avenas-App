@@ -15,6 +15,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { useTheme } from '../themeStore';
+import { GlassBackButton } from '../components/GlassBackButton';
 
 function BounceButton({ style, children, onPress, ...rest }: any) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -93,9 +94,7 @@ export default function PrivacyScreen() {
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.gradientStart} />
 
       <View style={styles.header}>
-        <BounceButton onPress={() => router.back()} style={[styles.backButton, { backgroundColor: colors.backButtonBg }]}>
-          <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
-        </BounceButton>
+        <GlassBackButton onPress={() => router.back()} />
         <Text style={[styles.headerTitle, { color: colors.primaryText }]}>Privacy Policy</Text>
         <View style={{ width: 44 }} />
       </View>

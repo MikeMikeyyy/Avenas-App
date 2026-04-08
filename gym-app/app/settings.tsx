@@ -28,6 +28,7 @@ import { useAuth } from '../authStore';
 import { useCommunityStore } from '../communityStore';
 import { registerForPushNotificationsAsync } from '../notificationService';
 import { BottomSheetModal } from '../components/BottomSheetModal';
+import { GlassBackButton } from '../components/GlassBackButton';
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -300,9 +301,7 @@ export default function SettingsScreen() {
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.gradientStart} />
 
       <View style={styles.header}>
-        <BounceButton onPress={() => router.back()} style={[styles.backButton, { backgroundColor: colors.backButtonBg }]}>
-          <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
-        </BounceButton>
+        <GlassBackButton onPress={() => router.back()} />
         <Text style={[styles.headerTitle, { color: colors.primaryText }]}>Settings</Text>
         <View style={{ width: 44 }} />
       </View>

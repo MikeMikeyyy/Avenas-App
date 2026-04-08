@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -7,32 +7,15 @@ import {
   TouchableOpacity,
   Platform,
   StatusBar,
-  Animated,
   Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { useTheme } from '../themeStore';
+import { GlassBackButton } from '../components/GlassBackButton';
 
-function BounceButton({ style, children, onPress, ...rest }: any) {
-  const scale = useRef(new Animated.Value(1)).current;
-  return (
-    <TouchableOpacity
-      activeOpacity={1}
-      onPressIn={() => Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 50, bounciness: 4 }).start()}
-      onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 10 }).start()}
-      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress?.(); }}
-      {...rest}
-    >
-      <Animated.View style={[style, { transform: [{ scale }] }]}>
-        {children}
-      </Animated.View>
-    </TouchableOpacity>
-  );
-}
 
 const FAQ = [
   {
@@ -86,9 +69,7 @@ export default function HelpSupportScreen() {
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.gradientStart} />
 
       <View style={styles.header}>
-        <BounceButton onPress={() => router.back()} style={[styles.backButton, { backgroundColor: colors.backButtonBg }]}>
-          <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
-        </BounceButton>
+        <GlassBackButton onPress={() => router.back()} />
         <Text style={[styles.headerTitle, { color: colors.primaryText }]}>Help & Support</Text>
         <View style={{ width: 44 }} />
       </View>

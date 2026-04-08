@@ -22,6 +22,7 @@ import { useProgramStore, PROGRAM_COLORS, type SplitDay } from '../programStore'
 import { useCommunityStore } from '../communityStore';
 import { useTheme } from '../themeStore';
 import { ExercisePicker } from '../components/ExercisePicker';
+import { GlassBackButton } from '../components/GlassBackButton';
 import { Image } from 'expo-image';
 import exerciseDbRaw from '../assets/data/exercises.json';
 
@@ -662,10 +663,9 @@ export default function CreateProgramScreen() {
       />
 
       {/* Floating back button — rendered after ScrollView so it sits on top */}
-      <TouchableOpacity
-        style={[styles.backButton, { backgroundColor: colors.backButtonBg }]}
+      <GlassBackButton
+        style={styles.backButton}
         onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           if (hasChanges) {
             Alert.alert(
               'Unsaved Changes',
@@ -714,10 +714,7 @@ export default function CreateProgramScreen() {
             router.back();
           }
         }}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
-      </TouchableOpacity>
+      />
 
       {/* Floating save button — appears when editing and changes have been made */}
       {hasChanges && (

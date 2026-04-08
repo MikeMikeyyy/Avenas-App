@@ -20,6 +20,7 @@ import { useRouter } from 'expo-router';
 import { useFonts, Arimo_400Regular, Arimo_700Bold } from '@expo-google-fonts/arimo';
 import { useProgramStore } from '../programStore';
 import { useTheme } from '../themeStore';
+import { GlassBackButton } from '../components/GlassBackButton';
 
 function BounceButton({ style, children, onPress, ...rest }: any) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -374,13 +375,7 @@ export default function ProgramsScreen() {
       </ScrollView>
 
       {/* Floating back button — rendered after ScrollView so it sits on top */}
-      <TouchableOpacity
-        style={[styles.backButton, { backgroundColor: colors.backButtonBg }]}
-        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.back(); }}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
-      </TouchableOpacity>
+      <GlassBackButton onPress={() => router.back()} style={styles.backButton} />
 
       {/* Day picker bottom sheet */}
       <BottomSheetModal

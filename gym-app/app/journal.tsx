@@ -29,6 +29,7 @@ import { useUnits } from '../unitsStore';
 import { useProgramStore, getDayLabel, getDayExerciseCount } from '../programStore';
 import type { Program } from '../programStore';
 import { BottomSheetModal } from '../components/BottomSheetModal';
+import { GlassBackButton } from '../components/GlassBackButton';
 import { ExerciseInfoModal } from '../components/ExerciseInfoModal';
 import { ExercisePicker } from '../components/ExercisePicker';
 import exerciseDbRaw from '../assets/data/exercises.json';
@@ -1227,13 +1228,7 @@ export default function JournalScreen() {
       )}
 
       {/* Back button */}
-      <TouchableOpacity
-        style={[styles.backButtonAbsolute, { backgroundColor: colors.backButtonBg }]}
-        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); handleBack(); }}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
-      </TouchableOpacity>
+      <GlassBackButton onPress={handleBack} style={styles.backButtonAbsolute} />
 
       {/* Delete button — shown only in detail view */}
       {selectedEntry && (

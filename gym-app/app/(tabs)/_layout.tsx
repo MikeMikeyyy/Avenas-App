@@ -9,6 +9,8 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
+import MaskedView from "@react-native-masked-view/masked-view";
 import { HomeIcon } from "../../components/icons/TabIcons";
 import { useRef, useEffect, useState } from "react";
 import * as Haptics from "expo-haptics";
@@ -51,6 +53,7 @@ function TabItem({
   route,
   focused,
   onPress,
+  isDark,
 }: {
   route: any;
   focused: boolean;
@@ -59,7 +62,7 @@ function TabItem({
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const label = TAB_LABELS[route.name] || route.name;
-  const iconColor = "#FFFFFF";
+  const iconColor = isDark ? "#FFFFFF" : "#000000";
 
   const handlePressIn = () => {
     Animated.spring(scale, {
@@ -92,7 +95,7 @@ function TabItem({
       <Animated.View style={[styles.iconContent, { transform: [{ scale }] }]}>
         {renderIcon(route.name, 28, iconColor)}
         <Text
-          style={[styles.label, { color: iconColor }, focused && styles.labelActive]}
+          style={[styles.label, { color: iconColor, fontWeight: focused ? "600" : "500" }]}
           numberOfLines={1}
         >
           {label}
@@ -235,27 +238,54 @@ function AnimatedTabBar({
   }
 
   // Fallback: BlurView for iOS < 26 and Expo Go
+  const blurTint = isDark ? "systemUltraThinMaterialDark" : "systemUltraThinMaterialLight";
+  const tabBarBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.45)";
+  const tabBarBorder = isDark ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.88)";
+  const pillBg = isDark ? "rgba(255,255,255,0.13)" : "rgba(0,0,0,0.06)";
+  const pillBorder = isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.08)";
+
   return (
     <View style={styles.tabBarWrapper}>
+      {/* Base: very low blur so center content stays readable */}
       <BlurView
-        intensity={80}
-        tint="systemUltraThinMaterial"
-        style={styles.blurContainer}
-      >
-        <View style={styles.tabBarInner}>
-          {/* Animated sliding pill */}
-          <Animated.View
-            style={[
-              styles.activePill,
-              {
-                width: tabWidth - PILL_INSET * 2,
-                transform: [{ translateX }, { scale: pillScale }],
-              },
-            ]}
+        intensity={18}
+        tint={blurTint}
+        style={StyleSheet.absoluteFill}
+      />
+      {/* Edges: stronger blur masked to left + right thirds only */}
+      <MaskedView
+        style={StyleSheet.absoluteFill}
+        maskElement={
+          <LinearGradient
+            colors={["rgba(255,255,255,1)", "rgba(255,255,255,0)", "rgba(255,255,255,0)", "rgba(255,255,255,1)"]}
+            locations={[0, 0.28, 0.72, 1]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={StyleSheet.absoluteFill}
           />
-          {tabItems}
-        </View>
-      </BlurView>
+        }
+      >
+        <BlurView
+          intensity={85}
+          tint={blurTint}
+          style={StyleSheet.absoluteFill}
+        />
+      </MaskedView>
+      {/* Chrome: tint overlay + border + pill + icons */}
+      <View style={[styles.tabBarInner, { backgroundColor: tabBarBg, borderColor: tabBarBorder }]}>
+        <Animated.View
+          style={[
+            styles.activePill,
+            {
+              width: tabWidth - PILL_INSET * 2,
+              backgroundColor: pillBg,
+              borderColor: pillBorder,
+              transform: [{ translateX }, { scale: pillScale }],
+            },
+          ]}
+        />
+        {tabItems}
+      </View>
     </View>
   );
 }
@@ -286,19 +316,16 @@ const styles = StyleSheet.create({
     bottom: 28,
     left: 20,
     right: 20,
-  },
-  blurContainer: {
+    height: BAR_HEIGHT,
     borderRadius: 100,
     overflow: "hidden",
   },
   tabBarInner: {
+    ...StyleSheet.absoluteFillObject,
     flexDirection: "row",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    height: BAR_HEIGHT,
     alignItems: "center",
     borderRadius: 100,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.28)",
   },
   tabItem: {
     flex: 1,
@@ -313,9 +340,7 @@ const styles = StyleSheet.create({
     top: 2,
     height: BAR_HEIGHT - PILL_INSET * 2,
     borderRadius: (BAR_HEIGHT - PILL_INSET * 2) / 2,
-    backgroundColor: "rgba(255,255,255,0.18)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.35)",
     zIndex: 1,
   },
   iconContent: {
@@ -325,12 +350,6 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 10,
-    fontWeight: "500",
-    color: "#FFFFFF",
     lineHeight: 12,
-  },
-  labelActive: {
-    color: "#FFFFFF",
-    fontWeight: "600",
   },
 });

@@ -37,6 +37,7 @@ import { FadeBackdrop } from '../../components/FadeBackdrop';
 import { ProgressView } from '../../components/ProgressView';
 import { MemberJournalView } from '../../components/MemberJournalView';
 import { useUnits } from '../../unitsStore';
+import { GlassBackButton } from '../../components/GlassBackButton';
 
 // Each scheme: key stored in Firestore, colors is a 7-stop gradient
 const COMMUNITY_COLOR_SCHEMES = [
@@ -1617,9 +1618,7 @@ export default function CommunityScreen() {
 
         {/* Floating top nav — rendered after ScrollView so it sits on top */}
         <View style={styles.heroBannerTopRow} pointerEvents="box-none">
-          <TouchableOpacity style={[styles.heroBannerBtn, { backgroundColor: colors.backButtonBg }]} onPress={handleBack}>
-            <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
-          </TouchableOpacity>
+          <GlassBackButton onPress={handleBack} />
           <TouchableOpacity
             style={[styles.heroBannerBtn, { backgroundColor: colors.backButtonBg }]}
             onPress={() => setShowOptionsMenu(true)}
@@ -1677,9 +1676,7 @@ export default function CommunityScreen() {
     return (
       <View style={{ flex: 1 }}>
         <View style={styles.groupChatHeader}>
-          <TouchableOpacity style={[styles.heroBannerBtn, { backgroundColor: colors.backButtonBg }]} onPress={handleBack}>
-            <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
-          </TouchableOpacity>
+          <GlassBackButton onPress={handleBack} />
           <View style={styles.groupChatHeaderInfo}>
             <Text style={[styles.groupChatHeaderName, { color: colors.primaryText }]}>
               Group Chat
@@ -1830,9 +1827,7 @@ export default function CommunityScreen() {
     return (
       <>
         <View style={styles.header}>
-          <TouchableOpacity style={[styles.heroBannerBtn, { backgroundColor: colors.backButtonBg }]} onPress={handleBack}>
-            <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
-          </TouchableOpacity>
+          <GlassBackButton onPress={handleBack} />
           <Text style={[styles.headerTitle, { color: colors.primaryText }]}>
             {isOwnerView ? 'Share Program' : 'Share with Coach'}
           </Text>
@@ -2019,9 +2014,7 @@ export default function CommunityScreen() {
     return (
       <View style={{ flex: 1 }}>
         <View style={styles.privateChatHeader}>
-          <TouchableOpacity style={[styles.heroBannerBtn, { backgroundColor: colors.backButtonBg }]} onPress={handleBack}>
-            <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
-          </TouchableOpacity>
+          <GlassBackButton onPress={handleBack} />
           <TouchableOpacity style={styles.privateChatHeaderInfo} onPress={() => handleTapMember(privateChatMember.id, privateChatMember.name)}>
             <View style={[styles.privateChatHeaderAvatar, { backgroundColor: getMemberColor(privateChatMember.id) }]}>
               <Text style={styles.privateChatHeaderAvatarText}>
@@ -2174,9 +2167,7 @@ export default function CommunityScreen() {
     return (
       <>
         <View style={[styles.groupChatHeader, { paddingBottom: 8 }]}>
-          <TouchableOpacity style={[styles.heroBannerBtn, { backgroundColor: colors.backButtonBg }]} onPress={handleBack}>
-            <Ionicons name="chevron-back" size={28} color={colors.primaryText} />
-          </TouchableOpacity>
+          <GlassBackButton onPress={handleBack} />
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginHorizontal: 8 }}>
             <View style={[styles.memberAvatar, { backgroundColor: getMemberColor(progressMember.id) }]}>
               <Text style={styles.memberAvatarText}>{getInitials(progressMember.name)}</Text>

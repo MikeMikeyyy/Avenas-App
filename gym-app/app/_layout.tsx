@@ -17,6 +17,7 @@ import { workoutState } from '../workoutState';
 import { db } from '../firebase';
 import { View, Text, TouchableOpacity, StyleSheet, Linking, Image } from 'react-native';
 import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import { LinearGradient } from 'expo-linear-gradient';
 
 function ForceUpdateGate({ children }: { children: ReactNode }) {
@@ -31,7 +32,7 @@ function ForceUpdateGate({ children }: { children: ReactNode }) {
         if (!snap.exists()) return;
         const data = snap.data();
         const minBuild: number = data.minBuildNumber ?? 0;
-        const currentBuild = Number(Constants.expoConfig?.ios?.buildNumber ?? '0');
+        const currentBuild = Number(Application.nativeBuildVersion ?? Constants.expoConfig?.ios?.buildNumber ?? '0');
         if (minBuild > 0 && currentBuild < minBuild) {
           setStoreUrl(data.iosStoreUrl ?? '');
           setBlocked(true);
