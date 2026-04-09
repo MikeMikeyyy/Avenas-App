@@ -213,6 +213,7 @@ export default function HomeScreen() {
   const [weeklyPlanCount, setWeeklyPlanCount] = useState<number | null>(null);
   const [timerActive, setTimerActive] = useState(!!workoutState.getTimerStartedAt(todayDayIndex) || workoutState.getTimerPausedElapsed(todayDayIndex) > 0);
   const [elapsed, setElapsed] = useState(workoutState.getElapsed(todayDayIndex));
+  const [cycleOffset, setCycleOffset] = useState(0);
 
   useEffect(() => {
     const splitPattern = activeProgram?.splitDays.map(sd => sd.type === 'training') ?? [];
@@ -220,9 +221,10 @@ export default function HomeScreen() {
       loadAndUpdateStreak(true).then(setStreak);
       return;
     }
-    workoutState.getCycleOffset(activeProgram.id, splitPattern.length).then(cycleOffset => {
+    workoutState.getCycleOffset(activeProgram.id, splitPattern.length).then(offset => {
+      setCycleOffset(offset);
       const n = splitPattern.length;
-      const todayPos = ((cycleOffset % n) + n) % n;
+      const todayPos = ((offset % n) + n) % n;
       const isTodayWorkout = splitPattern[todayPos];
       loadAndUpdateStreak(isTodayWorkout).then(setStreak);
     });
@@ -384,7 +386,9 @@ export default function HomeScreen() {
         {/* Today's Workout Card */}
         {(() => {
           const hasPrograms = programs.filter(p => !p.archived).length > 0;
-          const todaySplit = activeProgram?.splitDays[0];
+          const n = activeProgram?.splitDays.length ?? 0;
+          const todayEffectiveSplitIndex = n > 0 ? ((cycleOffset % n) + n) % n : 0;
+          const todaySplit = activeProgram?.splitDays[todayEffectiveSplitIndex];
           const isRestDay = !todaySplit || todaySplit.type === 'rest';
           const dayLabel = isRestDay ? 'Rest Day' : getDayLabel(todaySplit);
           const exerciseCount = isRestDay ? 0 : getDayExerciseCount(todaySplit);

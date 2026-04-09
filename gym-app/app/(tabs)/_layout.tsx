@@ -238,11 +238,11 @@ function AnimatedTabBar({
   }
 
   // Fallback: BlurView for iOS < 26 and Expo Go
-  const blurTint = isDark ? "systemUltraThinMaterialDark" : "systemUltraThinMaterialLight";
-  const tabBarBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.45)";
-  const tabBarBorder = isDark ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.88)";
-  const pillBg = isDark ? "rgba(255,255,255,0.13)" : "rgba(0,0,0,0.06)";
-  const pillBorder = isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.08)";
+  const blurTint = isDark ? "systemUltraThinMaterialDark" : "light";
+  const tabBarBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.82)";
+  const tabBarBorder = isDark ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.95)";
+  const pillBg = isDark ? "rgba(255,255,255,0.13)" : "rgba(255,255,255,0.95)";
+  const pillBorder = isDark ? "rgba(255,255,255,0.25)" : "rgba(200,210,220,0.6)";
 
   return (
     <View style={styles.tabBarWrapper}>
