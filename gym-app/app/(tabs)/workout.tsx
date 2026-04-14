@@ -231,6 +231,14 @@ function ExerciseCard({ exercise, index, onAddSet, onRemoveSet, onUpdateSet, onT
   const [showNotes, setShowNotes] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const { isDark, colors } = useTheme();
+
+  // Reset editing mode when the card becomes read-only (e.g. workout finished)
+  useEffect(() => {
+    if (readOnly && editing) {
+      setEditing(false);
+      setConfirmRemove(false);
+    }
+  }, [readOnly]);
   const { unit, toDisplay, toKg } = useUnits();
   const weightRefs = useRef<(TextInput | null)[]>([]);
   const repsRefs = useRef<(TextInput | null)[]>([]);
@@ -922,6 +930,8 @@ export default function WorkoutScreen() {
   const completeScale = useRef(new Animated.Value(0)).current;
   const completeOpacity = useRef(new Animated.Value(0)).current;
   const exerciseCache = useRef<Record<string, Exercise[]>>({}).current;
+  // Maps cache key (e.g. '0-0') → session label so subscribePrev can patch prev values mid-workout
+  const cacheKeyToLabel = useRef<Record<string, string>>({}).current;
 
   // Restore in-progress workout if the app was closed mid-workout (e.g. phone died).
   // Uses a 20-hour recency window so workouts that cross midnight (e.g. started at 11 PM)
@@ -980,6 +990,33 @@ export default function WorkoutScreen() {
             delete exerciseCache[k];
           }
         });
+      } else if (isActive) {
+        // Mid-workout: prev data changed (e.g. user edited a past journal entry).
+        // Patch prevReps/prevWeight/prevHold in all cached today sessions so the
+        // prev column reflects the updated values without wiping entered reps/weights.
+        Object.keys(exerciseCache)
+          .filter(k => k.startsWith('0-'))
+          .forEach(k => {
+            const label = cacheKeyToLabel[k];
+            if (!label) return;
+            const prevExercises = workoutState.getPrev(label);
+            if (!prevExercises) return;
+            const cached = exerciseCache[k];
+            if (!cached) return;
+            exerciseCache[k] = cached.map(ex => {
+              const prevEx = prevExercises.find(p => p.name === ex.name);
+              if (!prevEx) return ex;
+              return {
+                ...ex,
+                sets: ex.sets.map((s, si) => ({
+                  ...s,
+                  prevReps: prevEx.sets[si]?.reps ?? undefined,
+                  prevWeight: prevEx.sets[si]?.weight ?? undefined,
+                  prevHold: prevEx.sets[si]?.hold ?? undefined,
+                })),
+              };
+            });
+          });
       }
       setPrevVersion(v => v + 1);
     });
@@ -1112,6 +1149,7 @@ export default function WorkoutScreen() {
 
     const cacheKey = `${selectedDayIndex}-${selectedSessionIndex}`;
     const currentSession = workout?.sessions[selectedSessionIndex];
+    if (currentSession?.label) cacheKeyToLabel[cacheKey] = currentSession.label;
 
     // If the workout label changed (cycleOffset loaded async after initial render),
     // the cached exercises belong to a different day — clear them so we reload correctly.
@@ -1132,13 +1170,20 @@ export default function WorkoutScreen() {
     prevWorkoutLabelRef.current = currentLabel;
 
     if (exerciseCache[cacheKey]) {
-      // Sync targetReps from the current program definition into cached exercises
-      // so edits made in Edit Program are reflected without resetting entered weights/reps
+      // Sync targetReps and set count from the current program definition into cached exercises
+      // so edits made in Edit Program are reflected without resetting entered weights/reps.
+      // If the program now has more sets than the cache (e.g. a set was removed from the draft
+      // accidentally, or the program was updated), append the missing sets from the program.
       const cached = exerciseCache[cacheKey];
-      const synced = cached.map((ex, i) => ({
-        ...ex,
-        targetReps: currentSession?.exercises[i]?.targetReps,
-      }));
+      const synced = cached.map((ex, i) => {
+        const programEx = currentSession?.exercises[i];
+        if (!programEx) return { ...ex, targetReps: undefined };
+        let sets = ex.sets;
+        if (programEx.sets.length > sets.length) {
+          sets = [...sets, ...programEx.sets.slice(sets.length)];
+        }
+        return { ...ex, targetReps: programEx.targetReps, sets };
+      });
       exerciseCache[cacheKey] = synced;
       setExercises(synced);
     } else {
@@ -1811,8 +1856,12 @@ export default function WorkoutScreen() {
                 onAddSet={() => {
                   updateExercises(prev => prev.map((ex, ei) => {
                     if (ei !== i) return ex;
-                    const lastSet = ex.sets[ex.sets.length - 1];
-                    return { ...ex, sets: [...ex.sets, { set: ex.sets.length + 1, reps: 0, weight: null, hold: 0, prevReps: lastSet?.prevReps, prevWeight: lastSet?.prevWeight, prevHold: lastSet?.prevHold }] };
+                    const newSetIndex = ex.sets.length;
+                    const sessionLabel = workout?.sessions[selectedSessionIndex]?.label;
+                    const prevExData = sessionLabel ? workoutState.getPrev(sessionLabel) : undefined;
+                    const prevEx = prevExData?.find(p => p.name === ex.name);
+                    const prevSet = prevEx?.sets[newSetIndex];
+                    return { ...ex, sets: [...ex.sets, { set: ex.sets.length + 1, reps: 0, weight: null, hold: 0, prevReps: prevSet?.reps ?? undefined, prevWeight: prevSet?.weight ?? undefined, prevHold: prevSet?.hold ?? undefined }] };
                   }));
                 }}
                 onRemoveSet={() => {

@@ -285,7 +285,12 @@ export default function HomeScreen() {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
     setRecentEntries(getLast7DaysEntries());
     setWeeklyStats(computeWeeklyStats());
-  }, []));
+    if (activeProgram) {
+      workoutState.getCycleOffset(activeProgram.id, activeProgram.splitDays.length).then(offset => {
+        setCycleOffset(offset);
+      });
+    }
+  }, [activeProgram?.id]));
 
   const flameScale = useRef(new Animated.Value(1)).current;
   const flameOpacity = useRef(new Animated.Value(1)).current;

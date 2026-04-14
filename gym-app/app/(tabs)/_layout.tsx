@@ -188,7 +188,7 @@ function AnimatedTabBar({
         >
           {/* Bar background — liquid glass material */}
           <LiquidGlassView
-            effect="regular"
+            effect={isDark ? "regular" : "clear"}
             colorScheme={glassScheme}
             style={{
               position: "absolute",
@@ -238,17 +238,19 @@ function AnimatedTabBar({
   }
 
   // Fallback: BlurView for iOS < 26 and Expo Go
-  const blurTint = isDark ? "systemUltraThinMaterialDark" : "light";
-  const tabBarBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.82)";
-  const tabBarBorder = isDark ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.95)";
-  const pillBg = isDark ? "rgba(255,255,255,0.13)" : "rgba(255,255,255,0.95)";
-  const pillBorder = isDark ? "rgba(255,255,255,0.25)" : "rgba(200,210,220,0.6)";
+  const blurTint = isDark ? "systemThinMaterialDark" : "light";
+  const blurBaseIntensity = 52;
+  const blurEdgeIntensity = 98;
+  const tabBarBg = isDark ? "rgba(18, 18, 26, 0.58)" : "rgba(255,255,255,0.62)";
+  const tabBarBorder = isDark ? "rgba(255,255,255,0.13)" : "rgba(255,255,255,0.95)";
+  const pillBg = isDark ? "rgba(255,255,255,0.17)" : "rgba(255,255,255,0.96)";
+  const pillBorder = isDark ? "rgba(255,255,255,0.32)" : "rgba(200,210,220,0.90)";
 
   return (
     <View style={styles.tabBarWrapper}>
-      {/* Base: very low blur so center content stays readable */}
+      {/* Base: low-to-moderate blur so center content stays readable */}
       <BlurView
-        intensity={18}
+        intensity={blurBaseIntensity}
         tint={blurTint}
         style={StyleSheet.absoluteFill}
       />
@@ -266,7 +268,7 @@ function AnimatedTabBar({
         }
       >
         <BlurView
-          intensity={85}
+          intensity={blurEdgeIntensity}
           tint={blurTint}
           style={StyleSheet.absoluteFill}
         />

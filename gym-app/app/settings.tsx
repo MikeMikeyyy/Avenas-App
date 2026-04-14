@@ -283,9 +283,8 @@ export default function SettingsScreen() {
         <Switch
           value={isDark}
           onValueChange={toggleTheme}
-          trackColor={{ false: '#8e8e93', true: '#47DDFF' }}
+          trackColor={{ false: undefined, true: '#47DDFF' }}
           thumbColor="#fff"
-          ios_backgroundColor="#8e8e93"
         />
       )}
     </TouchableOpacity>
@@ -344,9 +343,8 @@ export default function SettingsScreen() {
             <Switch
               value={notificationsEnabled}
               onValueChange={handleNotificationsToggle}
-              trackColor={{ false: '#8e8e93', true: '#47DDFF' }}
+              trackColor={{ false: undefined, true: '#47DDFF' }}
               thumbColor="#fff"
-              ios_backgroundColor="#8e8e93"
             />
           </View>
           {/* Units picker */}
@@ -435,7 +433,7 @@ export default function SettingsScreen() {
           <Text style={styles.logoutText}>Log Out</Text>
         </BounceButton>
 
-        <Text style={[styles.versionText, { color: colors.tertiaryText }]}>Version 1.0.6</Text>
+        <Text style={[styles.versionText, { color: colors.tertiaryText }]}>Version 1.0.7</Text>
       </ScrollView>
 
       {/* ── Blocked Users Sheet ── */}
