@@ -433,7 +433,7 @@ export default function SettingsScreen() {
           <Text style={styles.logoutText}>Log Out</Text>
         </BounceButton>
 
-        <Text style={[styles.versionText, { color: colors.tertiaryText }]}>Version 1.0.7</Text>
+        <Text style={[styles.versionText, { color: colors.tertiaryText }]}>Version 1.0.8</Text>
       </ScrollView>
 
       {/* ── Blocked Users Sheet ── */}
