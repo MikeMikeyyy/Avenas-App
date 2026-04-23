@@ -1917,6 +1917,25 @@ export default function WorkoutScreen() {
                     [next[i - 1], next[i]] = [next[i], next[i - 1]];
                     return next;
                   });
+                  // Keep the program's exercise order in sync. Without this, the cache and
+                  // program diverge, which causes index-based ops (remove/change) to target
+                  // the wrong program exercise and makes the sync-from-program effect
+                  // reintroduce removed exercises from the stale program copy.
+                  if (activeProgram) {
+                    const splitDays = [...activeProgram.splitDays];
+                    const splitIdx = getEffectiveSplitIndex(selectedDayIndex);
+                    const day = splitDays[splitIdx];
+                    if (day?.type === 'training') {
+                      const sessions = [...day.sessions];
+                      const exs = [...sessions[selectedSessionIndex].exercises];
+                      if (i > 0 && i < exs.length) {
+                        [exs[i - 1], exs[i]] = [exs[i], exs[i - 1]];
+                        sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
+                        splitDays[splitIdx] = { ...day, sessions };
+                        updateProgram(activeProgram.id, activeProgram.name, activeProgram.color, splitDays);
+                      }
+                    }
+                  }
                 }}
                 onMoveDown={() => {
                   LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -1925,6 +1944,22 @@ export default function WorkoutScreen() {
                     [next[i], next[i + 1]] = [next[i + 1], next[i]];
                     return next;
                   });
+                  // Keep the program in sync — see onMoveUp for why this matters.
+                  if (activeProgram) {
+                    const splitDays = [...activeProgram.splitDays];
+                    const splitIdx = getEffectiveSplitIndex(selectedDayIndex);
+                    const day = splitDays[splitIdx];
+                    if (day?.type === 'training') {
+                      const sessions = [...day.sessions];
+                      const exs = [...sessions[selectedSessionIndex].exercises];
+                      if (i >= 0 && i + 1 < exs.length) {
+                        [exs[i], exs[i + 1]] = [exs[i + 1], exs[i]];
+                        sessions[selectedSessionIndex] = { ...sessions[selectedSessionIndex], exercises: exs };
+                        splitDays[splitIdx] = { ...day, sessions };
+                        updateProgram(activeProgram.id, activeProgram.name, activeProgram.color, splitDays);
+                      }
+                    }
+                  }
                 }}
                 onFillPrev={(setIndex) => {
                   const doFill = () => updateExercises(prev => prev.map((ex, ei) => {
@@ -2838,7 +2873,11 @@ export default function WorkoutScreen() {
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                      delete exerciseCache[selectedDayIndex];
+                      // Cache is keyed by `${dayIndex}-${sessionIndex}` strings — clear all
+                      // sessions for this day so the new workout loads fresh exercises.
+                      Object.keys(exerciseCache)
+                        .filter(k => k.startsWith(`${selectedDayIndex}-`))
+                        .forEach(k => delete exerciseCache[k]);
                       setDayOverrides(prev => ({ ...prev, [selectedDayIndex]: opt.index }));
                       setShowSwapOverlay(false);
                     }}
@@ -2860,7 +2899,9 @@ export default function WorkoutScreen() {
                       workoutState.clearDraft();
                       workoutState.stopTimer(selectedDayIndex);
                       cancelWorkoutReminderNotification();
-                      delete exerciseCache[selectedDayIndex];
+                      Object.keys(exerciseCache)
+                        .filter(k => k.startsWith(`${selectedDayIndex}-`))
+                        .forEach(k => delete exerciseCache[k]);
                       setDayOverrides(prev => ({ ...prev, [selectedDayIndex]: 'rest' }));
                       setShowSwapOverlay(false);
                     }}
@@ -2879,7 +2920,9 @@ export default function WorkoutScreen() {
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                      delete exerciseCache[selectedDayIndex];
+                      Object.keys(exerciseCache)
+                        .filter(k => k.startsWith(`${selectedDayIndex}-`))
+                        .forEach(k => delete exerciseCache[k]);
                       setDayOverrides(prev => {
                         const next = { ...prev };
                         delete next[selectedDayIndex];

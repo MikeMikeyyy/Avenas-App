@@ -10,7 +10,9 @@ function _getTodayStr(): string {
 let _workoutFinished = false;
 const _listeners: Array<(v: boolean) => void> = [];
 
-// Per-day timer state keyed by dayIndex
+// Per-day timer state keyed by dayIndex.
+// Persisted to AsyncStorage so the running/paused duration survives app restarts
+// (in-memory-only state would reset to 0 after a full app close).
 type _TimerEntry = { startedAt: number | null; pausedElapsed: number };
 const _timers: Record<number, _TimerEntry> = {};
 
@@ -22,6 +24,18 @@ function _getTimer(dayIndex: number): _TimerEntry {
   return _timers[dayIndex];
 }
 const _timerListeners: Array<() => void> = [];
+
+// Persist timer state for a given day. Removes the key if the timer is fully idle
+// so stale entries don't accumulate.
+function _persistTimer(day: number) {
+  const t = _timers[day];
+  const key = `@timer_${day}`;
+  if (!t || (t.startedAt === null && t.pausedElapsed === 0)) {
+    AsyncStorage.removeItem(key).catch(() => {});
+  } else {
+    AsyncStorage.setItem(key, JSON.stringify({ startedAt: t.startedAt, pausedElapsed: t.pausedElapsed })).catch(() => {});
+  }
+}
 
 // Stores last completed exercise data per workout type (e.g. 'Push Day', 'Pull Day', 'Leg Day')
 // Each entry maps exercise name -> array of { reps, weight } per set
@@ -67,6 +81,7 @@ const DRAFT_KEY = '@workout_draft_v1';
 let _draftTimer: ReturnType<typeof setTimeout> | null = null;
 let _lastDraftActiveDay: number | null = null;
 let _lastDraftCache: Record<string, unknown> | null = null;
+let _lastDraftWrite = 0;
 
 // Strip undefined values so Firestore doesn't reject the write
 function _stripUndefined<T>(obj: T): T {
@@ -230,6 +245,7 @@ export const workoutState = {
         AsyncStorage.setItem(`@wall_start_${day}`, String(now)).catch(() => {});
       }
       t.startedAt = Date.now();
+      _persistTimer(day);
       _timerListeners.forEach(fn => fn());
     }
   },
@@ -238,6 +254,7 @@ export const workoutState = {
     if (t.startedAt) {
       t.pausedElapsed += Math.floor((Date.now() - t.startedAt) / 1000);
       t.startedAt = null;
+      _persistTimer(day);
       _timerListeners.forEach(fn => fn());
     }
   },
@@ -245,12 +262,14 @@ export const workoutState = {
     _timers[day] = { startedAt: null, pausedElapsed: 0 };
     _wallStartTimes[day] = null;
     AsyncStorage.removeItem(`@wall_start_${day}`).catch(() => {});
+    AsyncStorage.removeItem(`@timer_${day}`).catch(() => {});
     _timerListeners.forEach(fn => fn());
   },
   stopTimer(day: number) {
     _timers[day] = { startedAt: null, pausedElapsed: 0 };
     _wallStartTimes[day] = null;
     AsyncStorage.removeItem(`@wall_start_${day}`).catch(() => {});
+    AsyncStorage.removeItem(`@timer_${day}`).catch(() => {});
     _timerListeners.forEach(fn => fn());
   },
 
@@ -260,11 +279,24 @@ export const workoutState = {
   },
   async loadWallStartTime(day: number): Promise<number | null> {
     try {
-      const raw = await AsyncStorage.getItem(`@wall_start_${day}`);
-      if (raw) {
-        _wallStartTimes[day] = Number(raw);
-        return Number(raw);
+      // Also restore the running/paused timer state so duration doesn't reset to 0
+      // after a full app close. startedAt is an absolute wall-clock timestamp, so
+      // (now - startedAt) still yields the correct elapsed seconds after restart.
+      const [wallRaw, timerRaw] = await Promise.all([
+        AsyncStorage.getItem(`@wall_start_${day}`),
+        AsyncStorage.getItem(`@timer_${day}`),
+      ]);
+      if (wallRaw) _wallStartTimes[day] = Number(wallRaw);
+      if (timerRaw) {
+        try {
+          const parsed = JSON.parse(timerRaw);
+          const startedAt = typeof parsed?.startedAt === 'number' ? parsed.startedAt : null;
+          const pausedElapsed = typeof parsed?.pausedElapsed === 'number' ? parsed.pausedElapsed : 0;
+          _timers[day] = { startedAt, pausedElapsed };
+          _timerListeners.forEach(fn => fn());
+        } catch {}
       }
+      return _wallStartTimes[day] ?? null;
     } catch {}
     return null;
   },
@@ -596,7 +628,18 @@ export const workoutState = {
       _workoutFinished = false;
       _listeners.forEach(fn => fn(false));
       if (_draftTimer) { clearTimeout(_draftTimer); _draftTimer = null; }
-      AsyncStorage.multiRemove([JOURNAL_KEY, HISTORY_KEY, PREV_KEY, DRAFT_KEY]).catch(() => {});
+      _lastDraftActiveDay = null;
+      _lastDraftCache = null;
+      _lastDraftWrite = 0;
+      // Clear persisted per-day timer and wall-start entries too
+      const timerKeys: string[] = [];
+      for (let d = 0; d < 14; d++) {
+        timerKeys.push(`@timer_${d}`, `@wall_start_${d}`);
+        _timers[d] = { startedAt: null, pausedElapsed: 0 };
+        _wallStartTimes[d] = null;
+      }
+      AsyncStorage.multiRemove([JOURNAL_KEY, HISTORY_KEY, PREV_KEY, DRAFT_KEY, ...timerKeys]).catch(() => {});
+      _timerListeners.forEach(fn => fn());
       _notifyPrevChanged();
     }
   },
@@ -613,9 +656,12 @@ export const workoutState = {
 
         // Merge: local AsyncStorage may have entries that failed to sync to Firestore
         // (e.g. due to a write error). Recover them so no workout data is lost.
-        const localRaw = await AsyncStorage.getItem(JOURNAL_KEY).catch(() => null);
-        const localJournal: WorkoutJournalEntry[] = localRaw
-          ? (JSON.parse(localRaw) as WorkoutJournalEntry[]).map(e => ({ ...e, date: Number(e.date) }))
+        const [localJournalRaw, localPrevRaw] = await Promise.all([
+          AsyncStorage.getItem(JOURNAL_KEY).catch(() => null),
+          AsyncStorage.getItem(PREV_KEY).catch(() => null),
+        ]);
+        const localJournal: WorkoutJournalEntry[] = localJournalRaw
+          ? (JSON.parse(localJournalRaw) as WorkoutJournalEntry[]).map(e => ({ ...e, date: Number(e.date) }))
           : [];
         const fsDateSet = new Set(fsJournal.map(e => e.date));
         const localOnly = localJournal.filter(e => !fsDateSet.has(e.date));
@@ -623,10 +669,28 @@ export const workoutState = {
           ? [...fsJournal, ...localOnly].sort((a, b) => a.date - b.date)
           : fsJournal;
 
-        _journalLog.length = 0;
-        _journalLog.push(...mergedJournal);
+        // Prev-data merge: take whichever entry has the newer date per session label.
+        // Without this, a completed workout whose Firestore upload didn't land (offline,
+        // app killed right after finish) would have its fresh local prev silently replaced
+        // by the stale Firestore copy on next login — causing the "prev" column to show
+        // an old week's numbers.
+        let localPrev: Record<string, PrevEntry> = {};
+        if (localPrevRaw) {
+          try { localPrev = JSON.parse(localPrevRaw) as Record<string, PrevEntry>; } catch {}
+        }
+        let hasNewerLocalPrev = false;
         for (const k of Object.keys(_prevData)) delete _prevData[k];
         for (const [k, v] of Object.entries(fsPrev)) _prevData[k] = v;
+        for (const [k, v] of Object.entries(localPrev)) {
+          const fs = _prevData[k];
+          if (!fs || (v?.date ?? 0) > (fs?.date ?? 0)) {
+            _prevData[k] = v;
+            hasNewerLocalPrev = true;
+          }
+        }
+
+        _journalLog.length = 0;
+        _journalLog.push(...mergedJournal);
         // Rebuild finished flag
         const todayStr = _getTodayStr();
         const loggedToday = _journalLog.some(e => {
@@ -639,7 +703,7 @@ export const workoutState = {
         // Keep AsyncStorage in sync and re-upload if local had unsynced entries
         AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(_journalLog)).catch(() => {});
         AsyncStorage.setItem(PREV_KEY, JSON.stringify(_prevData)).catch(() => {});
-        if (localOnly.length > 0) _syncToFirestoreNow();
+        if (localOnly.length > 0 || hasNewerLocalPrev) _syncToFirestoreNow();
       } else {
         // Firestore has no workout document yet.
         // This happens when the Firestore sync didn't complete before the app closed
@@ -662,22 +726,38 @@ export const workoutState = {
   },
 
   // In-progress workout draft — persists exerciseCache to AsyncStorage so a mid-workout
-  // phone death doesn't wipe the user's reps/weights. Debounced to avoid thrashing storage.
+  // phone death or force-close doesn't wipe the user's reps/weights.
+  //
+  // Leading-edge + trailing-edge write: the first edit after an idle window writes
+  // immediately (so a force-close right after typing a single value still persists),
+  // and rapid subsequent edits debounce into one trailing write. 500 ms window
+  // balances storage thrashing against data safety.
   saveDraft(activeDay: number, cache: Record<string, unknown>): void {
     _lastDraftActiveDay = activeDay;
     _lastDraftCache = cache;
+    const now = Date.now();
+    const WINDOW_MS = 500;
+    if (now - _lastDraftWrite >= WINDOW_MS) {
+      _lastDraftWrite = now;
+      AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({ date: _getTodayStr(), savedAt: now, activeDay, cache })).catch(() => {});
+    }
     if (_draftTimer) clearTimeout(_draftTimer);
     _draftTimer = setTimeout(() => {
       _draftTimer = null;
-      AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({ date: _getTodayStr(), savedAt: Date.now(), activeDay, cache })).catch(() => {});
-    }, 1500);
+      if (_lastDraftActiveDay === null || _lastDraftCache === null) return;
+      const ts = Date.now();
+      _lastDraftWrite = ts;
+      AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({ date: _getTodayStr(), savedAt: ts, activeDay: _lastDraftActiveDay, cache: _lastDraftCache })).catch(() => {});
+    }, WINDOW_MS);
   },
   // Write the pending draft immediately — call this when the app backgrounds so data
-  // isn't lost if the OS kills the process during the normal 1.5 s debounce window.
+  // isn't lost if the OS kills the process during the debounce window.
   flushDraft(): void {
     if (_lastDraftActiveDay === null || _lastDraftCache === null) return;
     if (_draftTimer) { clearTimeout(_draftTimer); _draftTimer = null; }
-    AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({ date: _getTodayStr(), savedAt: Date.now(), activeDay: _lastDraftActiveDay, cache: _lastDraftCache })).catch(() => {});
+    const ts = Date.now();
+    _lastDraftWrite = ts;
+    AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({ date: _getTodayStr(), savedAt: ts, activeDay: _lastDraftActiveDay, cache: _lastDraftCache })).catch(() => {});
   },
   async loadDraft(): Promise<{ date: string; savedAt?: number; activeDay: number; cache: Record<string, unknown> } | null> {
     try {
@@ -689,6 +769,7 @@ export const workoutState = {
     if (_draftTimer) { clearTimeout(_draftTimer); _draftTimer = null; }
     _lastDraftActiveDay = null;
     _lastDraftCache = null;
+    _lastDraftWrite = 0;
     AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
   },
 };
